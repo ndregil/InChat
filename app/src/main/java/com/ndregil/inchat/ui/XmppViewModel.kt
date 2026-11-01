@@ -566,6 +566,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun reconnect() {
+        viewModelScope.launch {
+            repository.checkAndReconnectIfNeeded()
+        }
+    }
+
     fun disconnect() {
         viewModelScope.launch {
             repository.disconnect()

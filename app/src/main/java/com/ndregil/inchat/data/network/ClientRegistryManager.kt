@@ -65,21 +65,25 @@ object ClientRegistryManager {
     }
 
     fun resolve(name: String, jid: String, node: String): ClientDefinition? {
+        val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
         val searchStr = "$name $jid $node".lowercase()
         
-        // 1. Try node match in patterns (exact or prefix)
-        if (node.isNotBlank()) {
+        // 1. Try exact or normalized node match in patterns
+        if (cleanNode.isNotBlank()) {
             dynamicRegistry.firstOrNull { def -> 
                 def.patterns.any { pattern ->
-                    node.equals(pattern, ignoreCase = true) || 
-                    (pattern.startsWith("http") && node.startsWith(pattern, ignoreCase = true))
+                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                    cleanNode == cleanPattern || cleanNode.startsWith(cleanPattern) || cleanPattern.startsWith(cleanNode)
                 } 
             }?.let { return it }
         }
 
-        // 2. Try pattern contains match
+        // 2. Try pattern contains match in searchStr or cleanNode
         return dynamicRegistry.firstOrNull { def ->
-            def.patterns.any { pattern -> searchStr.contains(pattern.lowercase()) }
+            def.patterns.any { pattern ->
+                val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                searchStr.contains(cleanPattern) || (cleanNode.isNotBlank() && cleanNode.contains(cleanPattern))
+            }
         }
     }
 

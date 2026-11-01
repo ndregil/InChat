@@ -152,6 +152,17 @@ class XmppAvatarManager(
             )
             metadataNode.publish(PayloadItem(hash, metadataPayload))
 
+            // 3. Also save to VCard as legacy fallback (XEP-0153)
+            try {
+                val vCardManager = VCardManager.getInstanceFor(connection)
+                val vCard = vCardManager.loadVCard() ?: org.jivesoftware.smackx.vcardtemp.packet.VCard()
+                vCard.avatar = bytes
+                vCardManager.saveVCard(vCard)
+                Log.i(TAG, "Also saved avatar to VCard for legacy fallback")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save VCard avatar fallback: ${e.message}")
+            }
+
             // Update local cache
             val myJid = connection.user.asBareJid().toString()
             val key = resolveAvatarKey(myJid)
@@ -240,20 +251,60 @@ class XmppAvatarManager(
         if (!connection.isAuthenticated) return@withContext null
 
         try {
-            val jidObj = JidCreate.from(targetJid.trim())
-            val vCardManager = VCardManager.getInstanceFor(connection)
+            val bareJidStr = JidCreate.bareFrom(targetJid.trim()).toString()
 
-            val bareJidObj = jidObj.asBareJid().asEntityBareJidIfPossible()
-            if (bareJidObj != null) {
-                try {
+            // 1. Try PEP (XEP-0084) pull first
+            try {
+                val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(bareJidStr))
+                val metaNode = pubSubManager.getLeafNode("urn:xmpp:avatar:metadata")
+                val metaItems = metaNode.getItems<PayloadItem<SimplePayload>>()
+                val latestMetaItem = metaItems.lastOrNull() as? PayloadItem<*>
+                val metaPayload = latestMetaItem?.payload?.toString() ?: ""
+
+                val hashRegex = "id=['\"]([^'\"]+)['\"]".toRegex()
+                val match = hashRegex.find(metaPayload)
+                val hash = match?.groupValues?.get(1)
+
+                if (!hash.isNullOrBlank()) {
+                    val dataNode = pubSubManager.getLeafNode("urn:xmpp:avatar:data")
+                    val dataItems = dataNode.getItems<PayloadItem<SimplePayload>>(listOf(hash))
+                    val dataItem = dataItems.firstOrNull() as? PayloadItem<*>
+                    val payload = dataItem?.payload?.toString() ?: ""
+
+                    val dataStart = payload.indexOf(">") + 1
+                    val dataEnd = payload.lastIndexOf("<")
+                    if (dataStart in 1 until dataEnd) {
+                        val base64Data = payload.substring(dataStart, dataEnd).trim().replace("\n", "").replace("\r", "")
+                        val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                        if (bytes.isNotEmpty()) {
+                            Log.i(TAG, "Successfully fetched PEP avatar for $targetJid via pull (size: ${bytes.size} bytes)")
+                            return@withContext bytes
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "PEP avatar pull failed for $targetJid: ${e.message}, falling back to VCard...")
+            }
+
+            // 2. Fallback to VCard (XEP-0153 / vcard-temp)
+            try {
+                val jidObj = JidCreate.from(targetJid.trim())
+                val vCardManager = VCardManager.getInstanceFor(connection)
+                val bareJidObj = jidObj.asBareJid().asEntityBareJidIfPossible()
+                if (bareJidObj != null) {
                     val vCard = vCardManager.loadVCard(bareJidObj)
-                    if (vCard?.avatar != null) return@withContext vCard.avatar
-                } catch (_: Exception) {}
+                    if (vCard?.avatar != null) {
+                        Log.i(TAG, "Successfully fetched VCard avatar for $targetJid")
+                        return@withContext vCard.avatar
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "VCard avatar fetch failed for $targetJid: ${e.message}")
             }
 
             null
         } catch (e: Exception) {
-            Log.d(TAG, "No VCard or avatar found for $targetJid: ${e.message}")
+            Log.d(TAG, "No avatar found for $targetJid: ${e.message}")
             null
         }
     }

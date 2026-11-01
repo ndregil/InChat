@@ -137,6 +137,7 @@ fun MultiRoomMainScreen(
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showRoomMenu by remember { mutableStateOf(false) }
     var selectedCapsOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
+    var showAccountSettingsDirectly by remember { mutableStateOf(false) }
 
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
@@ -272,10 +273,13 @@ fun MultiRoomMainScreen(
 
                     CompactNavItem(
                         selected = activeNavIndex == 4,
-                        onClick = { activeNavIndex = 4 },
+                        onClick = {
+                            activeNavIndex = 4
+                            showAccountSettingsDirectly = false
+                        },
                         icon = Icons.Default.Settings,
-                        label = "Server",
-                        testTag = "nav_tab_account"
+                        label = "Pengaturan",
+                        testTag = "nav_tab_settings"
                     )
                 }
             }
@@ -750,38 +754,89 @@ fun MultiRoomMainScreen(
                 }
 
                 4 -> {
-                    // Account & Connection Settings
-                    AccountConnectionScreen(
-                        currentAccount = currentAccount,
-                        connectionStatus = connectionStatus,
-                        registrationState = registrationState,
-                        onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
-                        onDisconnect = { viewModel.disconnect() },
-                        onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
-                            viewModel.registerAccount(
-                                username = user,
-                                password = pass,
-                                domain = dom,
-                                host = host,
-                                port = port,
-                                nickname = nick,
-                                email = email,
-                                useTls = tls,
-                                autoLogin = true
-                            )
-                        },
-                        onCreateInstantAccount = { user, dom, nick ->
-                            viewModel.createInstantAccount(user, dom, nick)
-                        },
-                        onResetRegistrationState = { viewModel.resetRegistrationState() },
-                        backupStatus = backupStatus,
-                        isBackupLoading = isBackupLoading,
-                        onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
-                        onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
-                        onClearBackupStatus = { viewModel.clearBackupStatus() },
-                        onUpdateAvatar = { viewModel.updateAvatar(it) },
-                        myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value
-                    )
+                    if (!showAccountSettingsDirectly) {
+                        SettingsScreen(
+                            currentAccount = currentAccount,
+                            connectionStatus = connectionStatus,
+                            registrationState = registrationState,
+                            onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
+                            onDisconnect = { viewModel.disconnect() },
+                            onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
+                                viewModel.registerAccount(
+                                    username = user,
+                                    password = pass,
+                                    domain = dom,
+                                    host = host,
+                                    port = port,
+                                    nickname = nick,
+                                    email = email,
+                                    useTls = tls,
+                                    autoLogin = true
+                                )
+                            },
+                            onCreateInstantAccount = { user, dom, nick ->
+                                viewModel.createInstantAccount(user, dom, nick)
+                            },
+                            onResetRegistrationState = { viewModel.resetRegistrationState() },
+                            backupStatus = backupStatus,
+                            isBackupLoading = isBackupLoading,
+                            onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
+                            onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
+                            onClearBackupStatus = { viewModel.clearBackupStatus() },
+                            onUpdateAvatar = { viewModel.updateAvatar(it) },
+                            myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value,
+                            isDarkMode = isDarkMode,
+                            onToggleDarkMode = { viewModel.toggleDarkMode(systemDark) },
+                            onSwitchToAccountTab = { showAccountSettingsDirectly = true }
+                        )
+                    } else {
+                        Scaffold(
+                            topBar = {
+                                TopAppBar(
+                                    title = { Text("Konfigurasi Akun & Server") },
+                                    navigationIcon = {
+                                        IconButton(onClick = { showAccountSettingsDirectly = false }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Tutup")
+                                        }
+                                    }
+                                )
+                            }
+                        ) { innerPadding ->
+                            Box(modifier = Modifier.padding(innerPadding)) {
+                                AccountConnectionScreen(
+                                    currentAccount = currentAccount,
+                                    connectionStatus = connectionStatus,
+                                    registrationState = registrationState,
+                                    onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
+                                    onDisconnect = { viewModel.disconnect() },
+                                    onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
+                                        viewModel.registerAccount(
+                                            username = user,
+                                            password = pass,
+                                            domain = dom,
+                                            host = host,
+                                            port = port,
+                                            nickname = nick,
+                                            email = email,
+                                            useTls = tls,
+                                            autoLogin = true
+                                        )
+                                    },
+                                    onCreateInstantAccount = { user, dom, nick ->
+                                        viewModel.createInstantAccount(user, dom, nick)
+                                    },
+                                    onResetRegistrationState = { viewModel.resetRegistrationState() },
+                                    backupStatus = backupStatus,
+                                    isBackupLoading = isBackupLoading,
+                                    onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
+                                    onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
+                                    onClearBackupStatus = { viewModel.clearBackupStatus() },
+                                    onUpdateAvatar = { viewModel.updateAvatar(it) },
+                                    myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1003,8 +1058,10 @@ fun RoomOccupantsCapsBar(
             ) {
                 items(occupants, key = { it.nickname }) { occupant ->
                     val presenceColor = when (occupant.presence) {
-                        UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+                        UserPresence.ONLINE -> OnlineGreen
+                        UserPresence.CHAT -> androidx.compose.ui.graphics.Color(0xFF0D9488)
                         UserPresence.AWAY -> AwayAmber
+                        UserPresence.XA -> androidx.compose.ui.graphics.Color(0xFFD97706)
                         UserPresence.DND -> DndRed
                         UserPresence.OFFLINE -> OfflineGray
                     }

@@ -97,6 +97,23 @@ class RosterManager(
             val userPresence = presence.toUserPresence()
             val statusMsg = presence.status ?: ""
 
+            val capsExt = try {
+                presence?.let { p ->
+                    org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
+                        ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                name = fromJid.substringBefore("@"),
+                jid = fromJid,
+                node = capsExt?.node ?: "",
+                ver = capsExt?.ver ?: "",
+                hash = capsExt?.hash ?: "sha-1"
+            )
+
             Log.d(TAG, "Presence changed for $fromJid: $userPresence ($statusMsg)")
 
             // Update presence map
@@ -107,7 +124,8 @@ class RosterManager(
                 if (contact.jid.equals(fromJid, ignoreCase = true)) {
                     contact.copy(
                         presence = userPresence,
-                        statusMessage = if (statusMsg.isNotBlank()) statusMsg else contact.statusMessage
+                        statusMessage = if (statusMsg.isNotBlank()) statusMsg else contact.statusMessage,
+                        clientCaps = contactCaps
                     )
                 } else {
                     contact
@@ -480,6 +498,23 @@ class RosterManager(
             val statusMsg = presence.status ?: ""
             val groupNames = entry.groups.map { it.name }
 
+            val capsExt = try {
+                presence?.let { p ->
+                    org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
+                        ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                name = entry.name ?: jidString.substringBefore("@"),
+                jid = jidString,
+                node = capsExt?.node ?: "",
+                ver = capsExt?.ver ?: "",
+                hash = capsExt?.hash ?: "sha-1"
+            )
+
             RosterContact(
                 jid = jidString,
                 name = entry.name ?: "",
@@ -488,7 +523,8 @@ class RosterManager(
                 groups = groupNames,
                 subscriptionType = entry.type.name.lowercase(),
                 isPendingApproval = entry.isApproved.not(),
-                avatar = avatarManager.getAvatar(jidString)
+                avatar = avatarManager.getAvatar(jidString),
+                clientCaps = contactCaps
             )
         }
 
@@ -522,7 +558,8 @@ fun Presence.toUserPresence(): UserPresence {
     return when (mode) {
         Presence.Mode.chat -> UserPresence.CHAT
         Presence.Mode.available -> UserPresence.ONLINE
-        Presence.Mode.away, Presence.Mode.xa -> UserPresence.AWAY
+        Presence.Mode.away -> UserPresence.AWAY
+        Presence.Mode.xa -> UserPresence.XA
         Presence.Mode.dnd -> UserPresence.DND
         null -> UserPresence.ONLINE
     }

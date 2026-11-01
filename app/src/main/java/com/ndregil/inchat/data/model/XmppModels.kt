@@ -50,6 +50,7 @@ enum class UserPresence {
     ONLINE,
     CHAT,
     AWAY,
+    XA,
     DND,
     OFFLINE
 }
@@ -475,11 +476,15 @@ data class ClientCaps(
                 )
             }
 
-            // 2. Fallback to hardcoded static registry
+            // 2. Fallback to hardcoded static registry with normalized clean matching
+            val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
             val searchStr = "$name $jid $node".lowercase()
 
             val matched = CLIENT_REGISTRY.firstOrNull { def ->
-                def.patterns.any { pattern -> searchStr.contains(pattern.lowercase()) }
+                def.patterns.any { pattern ->
+                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                    searchStr.contains(cleanPattern) || (cleanNode.isNotBlank() && (cleanNode == cleanPattern || cleanNode.contains(cleanPattern)))
+                }
             }
 
             if (matched != null) {

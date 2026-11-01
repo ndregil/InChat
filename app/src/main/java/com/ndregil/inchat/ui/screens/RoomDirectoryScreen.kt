@@ -2,6 +2,7 @@ package com.ndregil.inchat.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +56,7 @@ import com.ndregil.inchat.data.model.PublicDirectoryRoom
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +74,11 @@ fun RoomDirectoryScreen(
     onSelectJoinedRoom: (String) -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showComplianceDialog by remember { mutableStateOf(false) }
+
+    if (showComplianceDialog) {
+        com.ndregil.inchat.ui.components.ComplianceSuiteDialog(onDismiss = { showComplianceDialog = false })
+    }
 
     Scaffold(
         topBar = {
@@ -92,6 +99,9 @@ fun RoomDirectoryScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showComplianceDialog = true }) {
+                        Icon(imageVector = androidx.compose.material.icons.Icons.Default.Verified, contentDescription = "Compliance Suite", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = { onRefresh(searchQuery) }) {
                         Icon(imageVector = Icons.Default.Search, contentDescription = "Cari di Global Directory")
                     }
@@ -111,6 +121,53 @@ fun RoomDirectoryScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp)
         ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .clickable { showComplianceDialog = true },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Compliance Suite (search.jabber.network)",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Audit RFC 6120, RFC 7590 & XEP-0030",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    androidx.compose.material3.TextButton(onClick = { showComplianceDialog = true }) {
+                        Text("Audit", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -119,7 +176,7 @@ fun RoomDirectoryScreen(
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true,
                 trailingIcon = {

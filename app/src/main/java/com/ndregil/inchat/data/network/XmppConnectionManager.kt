@@ -390,6 +390,7 @@ class XmppConnectionManager(
                 UserPresence.ONLINE -> Presence.Mode.available
                 UserPresence.CHAT -> Presence.Mode.chat
                 UserPresence.AWAY -> Presence.Mode.away
+                UserPresence.XA -> Presence.Mode.xa
                 UserPresence.DND -> Presence.Mode.dnd
                 UserPresence.OFFLINE -> null
             }
@@ -474,12 +475,18 @@ class XmppConnectionManager(
             val accountManager = AccountManager.getInstance(tempConnection)
             accountManager.sensitiveOperationOverInsecureConnection(true)
 
-            // Check if server supports account creation (like Conversations does)
-            if (!accountManager.supportsAccountCreation()) {
-                return@withContext Result.failure(
-                    Exception("Server $cleanDomain menutup pendaftaran otomatis via TCP (XEP-0077 dinonaktifkan oleh administrator server). Sesuai standar klien XMPP aman, silakan daftar gratis di website server tersebut lalu login.")
-                )
+            val supportsCreation = try {
+                accountManager.supportsAccountCreation()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error checking account creation support: ${e.message}")
+                true
             }
+            val instructions = try {
+                accountManager.getAccountInstructions()
+            } catch (_: Exception) {
+                null
+            }
+            Log.i(TAG, "Server $cleanDomain account creation support: $supportsCreation, instructions: $instructions")
 
             val localpart = Localpart.from(cleanUser)
             val attributes = mutableMapOf<String, String>()

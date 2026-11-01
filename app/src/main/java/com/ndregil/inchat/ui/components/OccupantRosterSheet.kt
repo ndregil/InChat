@@ -185,8 +185,10 @@ fun OccupantItemRow(
     onViewCaps: () -> Unit = {}
 ) {
     val presenceColor = when (occupant.presence) {
-        UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+        UserPresence.ONLINE -> OnlineGreen
+        UserPresence.CHAT -> Color(0xFF0D9488)
         UserPresence.AWAY -> AwayAmber
+        UserPresence.XA -> Color(0xFFD97706)
         UserPresence.DND -> DndRed
         UserPresence.OFFLINE -> OfflineGray
     }
@@ -304,8 +306,10 @@ fun OccupantItemRow(
                 Text(
                     text = occupant.statusText.ifBlank {
                         when (occupant.presence) {
-                            UserPresence.ONLINE, UserPresence.CHAT -> "Online"
+                            UserPresence.ONLINE -> "Online"
+                            UserPresence.CHAT -> "Chat"
                             UserPresence.AWAY -> "Away"
+                            UserPresence.XA -> "Extended Away"
                             UserPresence.DND -> "DND"
                             UserPresence.OFFLINE -> "Offline"
                         }

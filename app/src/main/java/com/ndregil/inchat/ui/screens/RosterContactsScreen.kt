@@ -120,7 +120,7 @@ fun RosterContactsScreen(
     var contactToDelete by remember { mutableStateOf<RosterContact?>(null) }
     var selectedCapsContact by remember { mutableStateOf<RosterContact?>(null) }
 
-    // Filter contacts based on search and status
+    // Filter contacts based on search and granular presence status
     val filteredContacts = remember(contacts, searchQuery, selectedFilter) {
         contacts.filter { contact ->
             val matchesQuery = searchQuery.isBlank() ||
@@ -129,7 +129,9 @@ fun RosterContactsScreen(
                 contact.groups.any { it.contains(searchQuery, ignoreCase = true) }
 
             val matchesFilter = when (selectedFilter) {
-                "ONLINE" -> contact.presence != UserPresence.OFFLINE
+                "ONLINE" -> contact.presence == UserPresence.ONLINE || contact.presence == UserPresence.CHAT
+                "AWAY" -> contact.presence == UserPresence.AWAY || contact.presence == UserPresence.XA
+                "DND" -> contact.presence == UserPresence.DND
                 "OFFLINE" -> contact.presence == UserPresence.OFFLINE
                 else -> true
             }
@@ -229,7 +231,7 @@ fun RosterContactsScreen(
                     .testTag("roster_search_input")
             )
 
-            // Presence Filter Chips
+            // Granular Presence Filter Chips
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -248,8 +250,24 @@ fun RosterContactsScreen(
                     FilterChip(
                         selected = selectedFilter == "ONLINE",
                         onClick = { selectedFilter = "ONLINE" },
-                        label = { Text("Online (${contacts.count { it.presence != UserPresence.OFFLINE }})") },
+                        label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
                         modifier = Modifier.testTag("filter_online_contacts")
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "AWAY",
+                        onClick = { selectedFilter = "AWAY" },
+                        label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
+                        modifier = Modifier.testTag("filter_away_contacts")
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedFilter == "DND",
+                        onClick = { selectedFilter = "DND" },
+                        label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
+                        modifier = Modifier.testTag("filter_dnd_contacts")
                     )
                 }
                 item {
@@ -394,16 +412,19 @@ fun RosterContactCard(
     var menuExpanded by remember { mutableStateOf(false) }
 
     val presenceColor = when (contact.presence) {
-        UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+        UserPresence.ONLINE -> OnlineGreen
+        UserPresence.CHAT -> Color(0xFF0D9488)
         UserPresence.AWAY -> AwayAmber
+        UserPresence.XA -> Color(0xFFD97706)
         UserPresence.DND -> DndRed
         UserPresence.OFFLINE -> OfflineGray
     }
 
     val presenceLabel = when (contact.presence) {
         UserPresence.ONLINE -> "Online"
-        UserPresence.CHAT -> "Free to Chat"
+        UserPresence.CHAT -> "Chat"
         UserPresence.AWAY -> "Away"
+        UserPresence.XA -> "Extended Away"
         UserPresence.DND -> "Do Not Disturb"
         UserPresence.OFFLINE -> "Offline"
     }
@@ -804,14 +825,16 @@ fun UserPresenceControlCard(
         UserPresence.ONLINE -> OnlineGreen
         UserPresence.CHAT -> Color(0xFF0D9488)
         UserPresence.AWAY -> AwayAmber
+        UserPresence.XA -> Color(0xFFD97706)
         UserPresence.DND -> DndRed
         UserPresence.OFFLINE -> OfflineGray
     }
 
     val presenceTitle = when (currentPresence) {
         UserPresence.ONLINE -> "Online"
-        UserPresence.CHAT -> "Free to Chat"
+        UserPresence.CHAT -> "Chat"
         UserPresence.AWAY -> "Away"
+        UserPresence.XA -> "Extended Away"
         UserPresence.DND -> "Do Not Disturb"
         UserPresence.OFFLINE -> "Offline"
     }
@@ -820,6 +843,7 @@ fun UserPresenceControlCard(
         Triple(UserPresence.ONLINE, "Online", OnlineGreen),
         Triple(UserPresence.CHAT, "Chat", Color(0xFF0D9488)),
         Triple(UserPresence.AWAY, "Away", AwayAmber),
+        Triple(UserPresence.XA, "Ext Away", Color(0xFFD97706)),
         Triple(UserPresence.DND, "DND", DndRed),
         Triple(UserPresence.OFFLINE, "Offline", OfflineGray)
     )

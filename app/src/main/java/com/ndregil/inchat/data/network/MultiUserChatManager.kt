@@ -463,6 +463,7 @@ class MultiUserChatManager(
                 UserPresence.ONLINE -> Presence.Mode.available
                 UserPresence.CHAT -> Presence.Mode.chat
                 UserPresence.AWAY -> Presence.Mode.away
+                UserPresence.XA -> Presence.Mode.xa
                 UserPresence.DND -> Presence.Mode.dnd
                 UserPresence.OFFLINE -> null
             }
@@ -917,7 +918,10 @@ class MultiUserChatManager(
                 val realJid = occupant?.jid?.toString() ?: occupantJid.toString()
 
                 val capsExtension = try {
-                    smackPresence?.let { org.jivesoftware.smackx.caps.packet.CapsExtension.from(it) }
+                    smackPresence?.let { p ->
+                        org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
+                            ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                    }
                 } catch (e: Exception) {
                     null
                 }

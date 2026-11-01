@@ -191,6 +191,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
         val showVal = when (presence) {
             UserPresence.ONLINE, UserPresence.CHAT -> "chat"
             UserPresence.AWAY -> "away"
+            UserPresence.XA -> "xa"
             UserPresence.DND -> "dnd"
             UserPresence.OFFLINE -> null
         }
