@@ -365,7 +365,9 @@ fun ClientCapsDialog(
                 )
 
                 val displayNodeUri = activeCaps.nodeUri.ifBlank {
-                    if (activeCaps.rawNode.isNotBlank()) "http://${activeCaps.rawNode.lowercase()}.jabber.ru/" else "urn:xmpp:caps"
+                    if (activeCaps.rawNode.isNotBlank()) {
+                        if (activeCaps.rawNode.startsWith("http")) activeCaps.rawNode else "http://${activeCaps.rawNode}"
+                    } else "urn:xmpp:caps"
                 }
 
                 Surface(

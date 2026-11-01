@@ -66,22 +66,35 @@ object ClientRegistryManager {
 
     fun resolve(name: String, jid: String, node: String): ClientDefinition? {
         val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-        val searchStr = "$name $jid $node".lowercase()
+        val cleanJid = jid.trim().lowercase()
+        val cleanName = name.trim().lowercase()
         
-        // 1. Try exact or normalized node match in patterns
+        if (cleanNode.isBlank() && cleanName.isBlank()) return null
+
+        // 1. Try exact or normalized node match in patterns (Highest Precision)
         if (cleanNode.isNotBlank()) {
             dynamicRegistry.firstOrNull { def -> 
                 def.patterns.any { pattern ->
                     val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    cleanNode == cleanPattern || cleanNode.startsWith(cleanPattern) || cleanPattern.startsWith(cleanNode)
+                    cleanNode == cleanPattern || cleanNode.startsWith("$cleanPattern/") || cleanNode.startsWith("$cleanPattern#")
                 } 
             }?.let { return it }
         }
 
-        // 2. Try pattern contains match in searchStr or cleanNode
+        // 2. Try Name match (Medium-High Precision)
+        if (cleanName.isNotBlank()) {
+            dynamicRegistry.firstOrNull { def ->
+                def.clientName.lowercase() == cleanName || 
+                def.patterns.any { p -> p.lowercase() == cleanName }
+            }?.let { return it }
+        }
+
+        // 3. Try partial match, but exclude JID from matching "conversations" if the node is InChat
+        val searchStr = "$name $node".lowercase() // Exclude JID to avoid server-based misidentification
         return dynamicRegistry.firstOrNull { def ->
             def.patterns.any { pattern ->
                 val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (cleanPattern.length < 3) return@any false
                 searchStr.contains(cleanPattern) || (cleanNode.isNotBlank() && cleanNode.contains(cleanPattern))
             }
         }

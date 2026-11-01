@@ -1,10 +1,14 @@
 package com.ndregil.inchat.ui.screens
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.PowerManager
+import android.provider.Settings
 import com.ndregil.inchat.data.model.ConnectionStatus
 import com.ndregil.inchat.data.model.XmppAccount
 import com.ndregil.inchat.ui.RegistrationState
@@ -77,13 +83,20 @@ fun SettingsScreen(
         ) {
             // Section 1: Account & Server Connection Status
             item {
+                val avatarPicker = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent()
+                ) { uri ->
+                    uri?.let { onUpdateAvatar(it) }
+                }
+
                 SettingsCategoryHeader(title = "Akun & Koneksi XMPP", icon = Icons.Default.AccountCircle)
                 Spacer(modifier = Modifier.height(8.dp))
                 AccountConnectionCard(
                     currentAccount = currentAccount,
                     connectionStatus = connectionStatus,
                     myAvatar = myAvatar,
-                    onManageAccountClick = onSwitchToAccountTab
+                    onManageAccountClick = onSwitchToAccountTab,
+                    onUpdateAvatarClick = { avatarPicker.launch("image/*") }
                 )
             }
 
@@ -132,6 +145,12 @@ fun SettingsScreen(
             item {
                 SettingsCategoryHeader(title = "Latar Belakang & Anti-Kill", icon = Icons.Default.Memory)
                 Spacer(modifier = Modifier.height(8.dp))
+                
+                val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
+                var isIgnoringBatteryOptimizations by remember { 
+                    mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName)) 
+                }
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -150,9 +169,74 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                        
                         Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Battery Optimization Status & Action
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isIgnoringBatteryOptimizations) 
+                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                    else 
+                                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                                )
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    imageVector = if (isIgnoringBatteryOptimizations) Icons.Default.BatteryFull else Icons.Default.BatteryAlert,
+                                    contentDescription = null,
+                                    tint = if (isIgnoringBatteryOptimizations) com.ndregil.inchat.ui.theme.OnlineGreen else com.ndregil.inchat.ui.theme.DndRed,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        if (isIgnoringBatteryOptimizations) "Baterai Dioptimalkan (Aman)" else "Optimasi Baterai Aktif",
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
+                                    Text(
+                                        if (isIgnoringBatteryOptimizations) "App diizinkan berjalan tanpa batas" else "Sistem mungkin mematikan app di latar belakang",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            
+                            if (!isIgnoringBatteryOptimizations) {
+                                TextButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: android.content.ActivityNotFoundException) {
+                                            try {
+                                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                                context.startActivity(intent)
+                                            } catch (ex: Exception) {}
+                                        } catch (e: Exception) {
+                                            // Handle other errors
+                                        }
+                                    }
+                                ) {
+                                    Text("Perbaiki", fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text("Metode 1: Standard Foreground Service", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Button(
@@ -162,7 +246,7 @@ fun SettingsScreen(
                             ) {
                                 Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Aktifkan Service", fontSize = 12.sp)
+                                Text("Mulai Service", fontSize = 11.sp)
                             }
                             OutlinedButton(
                                 onClick = { XmppForegroundService.stopService(context) },
@@ -170,7 +254,33 @@ fun SettingsScreen(
                             ) {
                                 Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Hentikan", fontSize = 12.sp)
+                                Text("Hentikan", fontSize = 11.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text("Metode 2: WorkManager Service (Modern)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(context) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                            ) {
+                                Icon(Icons.Default.Update, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Aktifkan Work", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.stop(context) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Batalkan", fontSize = 11.sp)
                             }
                         }
                     }
@@ -283,7 +393,8 @@ fun AccountConnectionCard(
     currentAccount: XmppAccount,
     connectionStatus: ConnectionStatus,
     myAvatar: ByteArray?,
-    onManageAccountClick: () -> Unit
+    onManageAccountClick: () -> Unit,
+    onUpdateAvatarClick: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
@@ -298,13 +409,11 @@ fun AccountConnectionCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Avatar placeholder
+            // Avatar with edit badge
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
+                    .size(52.dp)
+                    .clickable { onUpdateAvatarClick() }
             ) {
                 val decodedBitmap = remember(myAvatar) {
                     if (myAvatar != null && myAvatar.isNotEmpty()) {
@@ -316,14 +425,41 @@ fun AccountConnectionCard(
                     } else null
                 }
 
-                if (decodedBitmap != null) {
-                    androidx.compose.foundation.Image(
-                        bitmap = decodedBitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize()
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (decodedBitmap != null) {
+                        androidx.compose.foundation.Image(
+                            bitmap = decodedBitmap.asImageBitmap(),
+                            contentDescription = "Foto Profil",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Ganti Foto",
+                        modifier = Modifier.size(10.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
                     )
-                } else {
-                    Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
 

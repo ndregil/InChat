@@ -1,6 +1,9 @@
 package com.ndregil.inchat.ui
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.ndregil.inchat.data.local.AppDatabase
@@ -16,6 +19,7 @@ import com.ndregil.inchat.data.model.XmppAccount
 import com.ndregil.inchat.data.model.XmppMessage
 import com.ndregil.inchat.data.model.XmppRoom
 import com.ndregil.inchat.data.repository.XmppRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +30,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 sealed class RegistrationState {
     object Idle : RegistrationState()
@@ -145,6 +151,30 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val isDiscovering: StateFlow<Boolean> = repository.isDiscovering
     val mucServiceDomains: StateFlow<List<String>> = repository.mucServiceDomains
 
+    // Local Service Discovery
+    private val _discoveredServices = MutableStateFlow<List<com.ndregil.inchat.data.model.DiscoveredItem>>(emptyList())
+    val discoveredServices: StateFlow<List<com.ndregil.inchat.data.model.DiscoveredItem>> = _discoveredServices.asStateFlow()
+
+    private val _isServicesLoading = MutableStateFlow(false)
+    val isServicesLoading: StateFlow<Boolean> = _isServicesLoading.asStateFlow()
+
+    fun discoverLocalServices() {
+        viewModelScope.launch {
+            _isServicesLoading.value = true
+            try {
+                val domain = currentAccount.value.domain
+                if (domain.isNotBlank()) {
+                    val result = repository.smackDiscoManager.discoverItems(domain)
+                    _discoveredServices.value = result.getOrElse { emptyList() }
+                }
+            } catch (e: Exception) {
+                // Error handled
+            } finally {
+                _isServicesLoading.value = false
+            }
+        }
+    }
+
     // UI state flags
     val isRosterSheetOpen = MutableStateFlow(false)
     val isTopicModalOpen = MutableStateFlow(false)
@@ -168,18 +198,51 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ...
 
+    val roomConfigStatus = MutableStateFlow<String?>(null)
+    val isRoomConfigLoading = MutableStateFlow(false)
+
+    fun clearRoomConfigStatus() {
+        roomConfigStatus.value = null
+    }
+
     fun configureRoom(
         roomJid: String,
-        roomName: String?,
-        topic: String?,
-        isPersistent: Boolean,
-        isPublic: Boolean,
-        password: String?
+        roomName: String? = null,
+        description: String? = null,
+        subject: String? = null,
+        isPersistent: Boolean = true,
+        isPublic: Boolean = true,
+        isMembersOnly: Boolean = false,
+        isModerated: Boolean = false,
+        allowSubjectChange: Boolean = true,
+        password: String? = null
     ) {
         viewModelScope.launch {
-            repository.configureRoom(roomJid, roomName, topic, isPersistent, isPublic, password)
-            isRoomConfigOpen.value = false
-            isAdminPanelOpen.value = false
+            isRoomConfigLoading.value = true
+            roomConfigStatus.value = "Menyimpan konfigurasi ruangan MUC..."
+            val result = repository.configureRoom(
+                roomJid = roomJid,
+                roomName = roomName,
+                description = description,
+                subject = subject,
+                isPersistent = isPersistent,
+                isPublic = isPublic,
+                isMembersOnly = isMembersOnly,
+                isModerated = isModerated,
+                allowSubjectChange = allowSubjectChange,
+                password = password
+            )
+            result.fold(
+                onSuccess = {
+                    roomConfigStatus.value = "Konfigurasi ruangan berhasil diperbarui!"
+                    isRoomConfigOpen.value = false
+                    isAdminPanelOpen.value = false
+                },
+                onFailure = { err ->
+                    roomConfigStatus.value = "Gagal memperbarui ruangan: ${err.localizedMessage}"
+                }
+            )
+            isRoomConfigLoading.value = false
         }
     }
 
@@ -546,17 +609,71 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val isAvatarUpdating = MutableStateFlow(false)
+    val avatarUpdateStatus = MutableStateFlow<String?>(null)
+
+    fun clearAvatarUpdateStatus() {
+        avatarUpdateStatus.value = null
+    }
+
     fun updateAvatar(uri: android.net.Uri) {
         viewModelScope.launch {
-            try {
-                val inputStream = getApplication<Application>().contentResolver.openInputStream(uri)
-                val bytes = inputStream?.readBytes()
-                if (bytes != null) {
-                    repository.publishProfileAvatar(bytes)
+            isAvatarUpdating.value = true
+            avatarUpdateStatus.value = "Memproses foto profil..."
+            val statusMsg = withContext(Dispatchers.IO) {
+                try {
+                    val app = getApplication<Application>()
+                    val inputStream = app.contentResolver.openInputStream(uri)
+                    val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+
+                    if (originalBitmap == null) {
+                        return@withContext "Gagal membaca gambar dari galeri."
+                    }
+
+                    // Scaled dimensions (max 256x256 px to comply with XMPP PubSub stanza limits)
+                    val maxDim = 256
+                    val width = originalBitmap.width
+                    val height = originalBitmap.height
+                    val (newWidth, newHeight) = if (width > height) {
+                        val ratio = height.toFloat() / width.toFloat()
+                        maxDim to (maxDim * ratio).toInt()
+                    } else {
+                        val ratio = width.toFloat() / height.toFloat()
+                        (maxDim * ratio).toInt() to maxDim
+                    }
+
+                    val scaledBitmap = Bitmap.createScaledBitmap(
+                        originalBitmap,
+                        newWidth.coerceAtLeast(1),
+                        newHeight.coerceAtLeast(1),
+                        true
+                    )
+
+                    val byteArrayOutputStream = ByteArrayOutputStream()
+                    scaledBitmap.compress(Bitmap.CompressFormat.PNG, 90, byteArrayOutputStream)
+                    val bytes = byteArrayOutputStream.toByteArray()
+
+                    if (scaledBitmap != originalBitmap) {
+                        scaledBitmap.recycle()
+                    }
+                    originalBitmap.recycle()
+
+                    Log.i("XmppViewModel", "Compressed avatar size: ${bytes.size} bytes for PEP/vCard")
+
+                    val result = repository.publishProfileAvatar(bytes)
+                    if (result.isSuccess) {
+                        "Foto profil berhasil diperbarui!"
+                    } else {
+                        "Gagal memperbarui foto profil: ${result.exceptionOrNull()?.localizedMessage}"
+                    }
+                } catch (e: Exception) {
+                    Log.e("XmppViewModel", "Gagal mengunggah foto profil", e)
+                    "Error memperbarui foto profil: ${e.localizedMessage}"
                 }
-            } catch (e: Exception) {
-                // Log error
             }
+            avatarUpdateStatus.value = statusMsg
+            isAvatarUpdating.value = false
         }
     }
 

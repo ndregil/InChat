@@ -47,6 +47,7 @@ class XmppAvatarManager(
 
     fun onConnectionReady(connection: XMPPTCPConnection) {
         currentConnection = connection
+        clearCache() // Clear on new connection to avoid poisoned state from previous bugs
         setupPep(connection)
     }
 
@@ -201,10 +202,16 @@ class XmppAvatarManager(
         val domain = bareJid.substringAfter("@", "").lowercase()
         return domain.startsWith("conference.") ||
                domain.startsWith("muc.") ||
+               domain.startsWith("chat.") ||
+               domain.startsWith("rooms.") ||
+               domain.startsWith("group.") ||
                domain.contains(".conference.") ||
                domain.contains(".muc.") ||
+               domain.contains(".chat.") ||
                bareJid.lowercase().contains("@conference.") ||
-               bareJid.lowercase().contains("@muc.")
+               bareJid.lowercase().contains("@muc.") ||
+               bareJid.lowercase().contains("@chat.") ||
+               bareJid.lowercase().contains("@rooms.")
     }
 
     /**
@@ -247,13 +254,36 @@ class XmppAvatarManager(
     }
 
     private suspend fun fetchAvatarInternal(targetJid: String): ByteArray? = withContext(Dispatchers.IO) {
-        val connection = connectionManager.getRawConnection() ?: return@withContext null
+        val connection = currentConnection ?: return@withContext null
         if (!connection.isAuthenticated) return@withContext null
 
         try {
-            val bareJidStr = JidCreate.bareFrom(targetJid.trim()).toString()
+            val fullJid = JidCreate.from(targetJid.trim())
+            val bareJidStr = fullJid.asBareJid().toString()
+            val isMuc = isMucDomain(bareJidStr)
+            val hasResource = fullJid.hasResource()
 
-            // 1. Try PEP (XEP-0084) pull first
+            // 1. If this is a MUC occupant JID (e.g. room@conference.example.org/nickname),
+            // fetch XEP-0054 (vCard-temp) directly from the occupant's full JID.
+            // DO NOT fallback to bare JID (room@conference.example.org) to prevent fetching MUC room avatar.
+            if (isMuc && hasResource) {
+                try {
+                    val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
+                    vcardIq.to = fullJid
+                    vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.get
+                    val resultVCard = connection.sendIqRequestAndWaitForResponse<org.jivesoftware.smackx.vcardtemp.packet.VCard>(vcardIq)
+                    if (resultVCard != null && resultVCard.avatar != null && resultVCard.avatar.isNotEmpty()) {
+                        Log.i(TAG, "Successfully fetched XEP-0054 (vCard-temp) avatar for MUC occupant $targetJid (${resultVCard.avatar.size} bytes)")
+                        return@withContext resultVCard.avatar
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "XEP-0054 vCard-temp fetch for MUC occupant $targetJid failed: ${e.message}")
+                }
+                return@withContext null
+            }
+
+            // 2. For standard user JIDs or bare room JIDs:
+            // Try PEP (XEP-0084) pull first
             try {
                 val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(bareJidStr))
                 val metaNode = pubSubManager.getLeafNode("urn:xmpp:avatar:metadata")
@@ -286,15 +316,14 @@ class XmppAvatarManager(
                 Log.d(TAG, "PEP avatar pull failed for $targetJid: ${e.message}, falling back to VCard...")
             }
 
-            // 2. Fallback to VCard (XEP-0153 / vcard-temp)
+            // 3. Fallback to XEP-0054 (vCard-temp) for bare user JIDs
             try {
-                val jidObj = JidCreate.from(targetJid.trim())
-                val vCardManager = VCardManager.getInstanceFor(connection)
-                val bareJidObj = jidObj.asBareJid().asEntityBareJidIfPossible()
+                val bareJidObj = fullJid.asBareJid().asEntityBareJidIfPossible()
                 if (bareJidObj != null) {
+                    val vCardManager = VCardManager.getInstanceFor(connection)
                     val vCard = vCardManager.loadVCard(bareJidObj)
-                    if (vCard?.avatar != null) {
-                        Log.i(TAG, "Successfully fetched VCard avatar for $targetJid")
+                    if (vCard?.avatar != null && vCard.avatar.isNotEmpty()) {
+                        Log.i(TAG, "Successfully fetched XEP-0054 (vCard-temp) avatar for $targetJid (${vCard.avatar.size} bytes)")
                         return@withContext vCard.avatar
                     }
                 }

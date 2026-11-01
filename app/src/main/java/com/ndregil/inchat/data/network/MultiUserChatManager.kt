@@ -31,6 +31,9 @@ import org.jivesoftware.smackx.muc.Occupant
 import org.jivesoftware.smackx.muc.ParticipantStatusListener
 import org.jivesoftware.smackx.muc.RoomInfo
 import org.jivesoftware.smackx.muc.SubjectUpdatedListener
+import org.jivesoftware.smackx.bookmarks.BookmarkManager
+import org.jivesoftware.smackx.bookmarks.BookmarkedConference
+import org.jxmpp.jid.EntityBareJid
 import org.jxmpp.jid.EntityFullJid
 import org.jxmpp.jid.Jid
 import org.jxmpp.jid.impl.JidCreate
@@ -50,6 +53,9 @@ import java.util.concurrent.ConcurrentHashMap
  * - Updating and listening to room subject/topic changes
  * - Discovering hosted public MUC rooms
  */
+private val Jid.resourceOrNull: Resourcepart?
+    get() = (this as? org.jxmpp.jid.FullJid)?.resourcepart
+
 class MultiUserChatManager(
     private val connectionManager: XmppConnectionManager,
     private val avatarManager: XmppAvatarManager,
@@ -87,6 +93,10 @@ class MultiUserChatManager(
     // Flow of room topic updates: Pair(roomJid, newTopic)
     private val _topicUpdates = MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 32)
     val topicUpdates: SharedFlow<Pair<String, String>> = _topicUpdates.asSharedFlow()
+
+    // State flow of bookmarks from the server (XEP-0048)
+    private val _serverBookmarks = MutableStateFlow<List<BookmarkedConference>>(emptyList())
+    val serverBookmarks: StateFlow<List<BookmarkedConference>> = _serverBookmarks.asStateFlow()
 
     init {
         // Listen for avatar updates to refresh UI automatically
@@ -290,40 +300,53 @@ class MultiUserChatManager(
     suspend fun configureRoom(
         roomJid: String,
         roomName: String? = null,
-        topic: String? = null,
+        description: String? = null,
+        subject: String? = null,
         isPersistent: Boolean = true,
         isPublic: Boolean = true,
+        isMembersOnly: Boolean = false,
+        isModerated: Boolean = false,
+        allowSubjectChange: Boolean = true,
         password: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
-            IllegalStateException("Room $roomJid is not joined.")
+            IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
         try {
             val configForm = muc.configurationForm
             val answerForm = configForm.fillableForm
 
             if (!roomName.isNullOrBlank()) {
-                answerForm.setAnswer("muc#roomconfig_roomname", roomName)
+                try { answerForm.setAnswer("muc#roomconfig_roomname", roomName) } catch (e: Exception) { Log.d(TAG, "roomname field skipped: ${e.message}") }
             }
-            if (!topic.isNullOrBlank()) {
-                answerForm.setAnswer("muc#roomconfig_roomdesc", topic)
+            if (!description.isNullOrBlank()) {
+                try { answerForm.setAnswer("muc#roomconfig_roomdesc", description) } catch (e: Exception) { Log.d(TAG, "roomdesc field skipped: ${e.message}") }
             }
-            answerForm.setAnswer("muc#roomconfig_persistentroom", isPersistent)
-            answerForm.setAnswer("muc#roomconfig_publicroom", isPublic)
+            try { answerForm.setAnswer("muc#roomconfig_persistentroom", isPersistent) } catch (e: Exception) { Log.d(TAG, "persistentroom field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_publicroom", isPublic) } catch (e: Exception) { Log.d(TAG, "publicroom field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_membersonly", isMembersOnly) } catch (e: Exception) { Log.d(TAG, "membersonly field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_moderatedroom", isModerated) } catch (e: Exception) { Log.d(TAG, "moderatedroom field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_changesubject", allowSubjectChange) } catch (e: Exception) { Log.d(TAG, "changesubject field skipped: ${e.message}") }
 
             if (!password.isNullOrBlank()) {
-                answerForm.setAnswer("muc#roomconfig_passwordprotectedroom", true)
-                answerForm.setAnswer("muc#roomconfig_roomsecret", password)
+                try {
+                    answerForm.setAnswer("muc#roomconfig_passwordprotectedroom", true)
+                    answerForm.setAnswer("muc#roomconfig_roomsecret", password)
+                } catch (e: Exception) { Log.d(TAG, "passwordprotectedroom field skipped: ${e.message}") }
+            } else {
+                try {
+                    answerForm.setAnswer("muc#roomconfig_passwordprotectedroom", false)
+                } catch (e: Exception) { Log.d(TAG, "passwordprotectedroom reset skipped: ${e.message}") }
             }
 
             muc.sendConfigurationForm(answerForm)
 
-            if (!topic.isNullOrBlank()) {
+            if (!subject.isNullOrBlank()) {
                 try {
-                    muc.changeSubject(topic)
-                    _topicUpdates.tryEmit(Pair(roomJid, topic))
+                    muc.changeSubject(subject)
+                    _topicUpdates.tryEmit(Pair(roomJid, subject))
                 } catch (e: Exception) {
-                    Log.w(TAG, "Could not update subject during configure: ${e.message}")
+                    Log.w(TAG, "Could not update subject via XEP-0045 changeSubject: ${e.message}")
                 }
             }
 
@@ -555,6 +578,76 @@ class MultiUserChatManager(
             Result.success(directoryRooms)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to discover public rooms on $mucServiceDomain: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches MUC bookmarks from the server (XEP-0048).
+     */
+    suspend fun fetchBookmarks(): Result<List<BookmarkedConference>> = withContext(Dispatchers.IO) {
+        val conn = connectionManager.getRawConnection()
+            ?: return@withContext Result.failure(IllegalStateException("No active XMPP connection."))
+        if (!conn.isAuthenticated) {
+            return@withContext Result.failure(IllegalStateException("User not authenticated."))
+        }
+
+        try {
+            val bookmarkManager = BookmarkManager.getBookmarkManager(conn)
+            val bookmarks = bookmarkManager.bookmarkedConferences
+            _serverBookmarks.value = bookmarks
+            Log.i(TAG, "Successfully fetched ${bookmarks.size} bookmarks from server.")
+            Result.success(bookmarks)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch bookmarks from server: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Saves a MUC room bookmark to the server (XEP-0048).
+     */
+    suspend fun saveBookmark(
+        roomJid: String,
+        name: String,
+        nickname: String? = null,
+        password: String? = null,
+        autoJoin: Boolean = true
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val conn = connectionManager.getRawConnection()
+            ?: return@withContext Result.failure(IllegalStateException("No active XMPP connection."))
+
+        try {
+            val bookmarkManager = BookmarkManager.getBookmarkManager(conn)
+            val bareJid = JidCreate.entityBareFrom(roomJid.trim())
+            val nick = nickname?.let { Resourcepart.from(it.trim()) }
+            
+            bookmarkManager.addBookmarkedConference(name.trim(), bareJid, autoJoin, nick, password)
+            Log.i(TAG, "Successfully saved bookmark for $roomJid to server.")
+            fetchBookmarks() // Refresh local state
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save bookmark to server for $roomJid: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Removes a MUC room bookmark from the server (XEP-0048).
+     */
+    suspend fun removeBookmark(roomJid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val conn = connectionManager.getRawConnection()
+            ?: return@withContext Result.failure(IllegalStateException("No active XMPP connection."))
+
+        try {
+            val bookmarkManager = BookmarkManager.getBookmarkManager(conn)
+            val bareJid = JidCreate.entityBareFrom(roomJid.trim())
+            bookmarkManager.removeBookmarkedConference(bareJid)
+            Log.i(TAG, "Successfully removed bookmark for $roomJid from server.")
+            fetchBookmarks() // Refresh local state
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove bookmark from server for $roomJid: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -915,7 +1008,12 @@ class MultiUserChatManager(
                 val smackPresence = muc.getOccupantPresence(occupantJid)
                 val userPresence = smackPresence?.toUserPresence() ?: UserPresence.ONLINE
                 val statusMessage = smackPresence?.status ?: ""
-                val realJid = occupant?.jid?.toString() ?: occupantJid.toString()
+                val myJid = connectionManager.credentials.value.jid
+                val realJid = if (isMe && myJid.isNotBlank()) {
+                    myJid
+                } else {
+                    occupant?.jid?.asBareJid()?.toString() ?: occupantJid.toString()
+                }
 
                 val capsExtension = try {
                     smackPresence?.let { p ->
@@ -934,8 +1032,9 @@ class MultiUserChatManager(
                     hash = capsExtension?.hash ?: "sha-1"
                 )
 
-                // Fetch avatar (will trigger fetch if missing)
-                val avatar = avatarManager.getAvatar(realJid)
+                // Fetch avatar (will trigger fetch if missing, with fallback for current user)
+                val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)
+                    ?: (if (isMe && myJid.isNotBlank()) avatarManager.getAvatar(myJid) else null)
 
                 occupantsList.add(
                     RoomOccupant(

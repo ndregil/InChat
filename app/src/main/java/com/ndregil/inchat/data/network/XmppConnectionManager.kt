@@ -38,8 +38,8 @@ data class XmppCredentials(
     val password: String = "",
     val host: String = "",
     val port: Int = 5222,
-    val resource: String = "Android-XMPP",
-    val nickname: String = "AndroidUser",
+    val resource: String = "InChat-Android",
+    val nickname: String = "InChatUser",
     val useTls: Boolean = true
 ) {
     fun toAccount(isDemoMode: Boolean = false): XmppAccount {
@@ -64,7 +64,7 @@ data class XmppCredentials(
                 password = password,
                 host = account.host,
                 port = account.port,
-                resource = "Android-MUC",
+                resource = "InChat-Android",
                 nickname = account.nickname,
                 useTls = account.useTls
             )
@@ -215,7 +215,7 @@ class XmppConnectionManager(
 
             val domainJid = JidCreate.domainBareFrom(creds.domain.trim())
             val username = creds.username.trim()
-            val resource = creds.resource.ifBlank { "Android-MUC" }
+            val resource = creds.resource.ifBlank { "InChat-Android" }
 
             val configBuilder = XMPPTCPConnectionConfiguration.builder()
                 .setXmppDomain(domainJid)
@@ -271,6 +271,10 @@ class XmppConnectionManager(
 
             tcpConnection = connection
             mucManager = MultiUserChatManager.getInstanceFor(connection)
+            
+            // Enable XEP-0199: XMPP Ping to keep connection alive
+            val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
+            pingManager.pingInterval = 30 // Send ping every 30 seconds
             
             // Enable XEP-0030 & XEP-0115: Service Discovery and Entity Capabilities
             org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
@@ -355,6 +359,10 @@ class XmppConnectionManager(
             }
             mucManager = MultiUserChatManager.getInstanceFor(conn)
             
+            // Enable XEP-0199: XMPP Ping
+            val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(conn)
+            pingManager.pingInterval = 30
+            
             // Enable XEP-0030 & XEP-0115: Service Discovery and Entity Capabilities
             org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
             
@@ -403,7 +411,7 @@ class XmppConnectionManager(
             } else {
                 val builder = PresenceBuilder.buildPresence()
                     .ofType(Presence.Type.available)
-                    .setStatus(statusMessage ?: "Active on Android MUC")
+                    .setStatus(statusMessage ?: "Active on InChat")
                 if (presenceMode != null) {
                     builder.setMode(presenceMode)
                 }

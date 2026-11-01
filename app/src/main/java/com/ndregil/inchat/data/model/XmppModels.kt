@@ -76,7 +76,7 @@ data class XmppRoom(
     val jid: String,
     val name: String,
     val topic: String = "",
-    val myNickname: String = "AndroidUser",
+    val myNickname: String = "InChatUser",
     val occupantCount: Int = 1,
     val unreadCount: Int = 0,
     val lastMessageText: String = "",
@@ -159,7 +159,7 @@ data class ClientCaps(
     companion object {
         val CLIENT_REGISTRY: List<ClientDefinition> = listOf(
             ClientDefinition(
-                patterns = listOf("http://ndregil.inchat", "inchat"),
+                patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat"),
                 clientName = "InChat",
                 canonicalNodeUri = "http://ndregil.inchat",
                 platform = ClientPlatform.ANDROID,
@@ -508,12 +508,21 @@ data class ClientCaps(
 
             val fallbackNode = when {
                 node.startsWith("http://") || node.startsWith("https://") -> node
+                node.isNotBlank() && (node.contains(".") || node.contains("/")) -> "http://$node"
                 node.isNotBlank() -> "http://$node"
                 else -> "urn:xmpp:caps"
             }
 
+            val fallbackName = when {
+                node.isNotBlank() -> {
+                    val clean = node.removePrefix("http://").removePrefix("https://").removeSuffix("/").substringAfterLast("/")
+                    if (clean.length > 2) clean.replaceFirstChar { it.uppercase() } else name.ifBlank { "Unknown" }
+                }
+                else -> name.ifBlank { "Unknown" }
+            }
+
             return ClientCaps(
-                clientName = name.ifBlank { "Unknown" },
+                clientName = if (fallbackName == name && name.isBlank()) "Unknown" else fallbackName,
                 version = "1.0",
                 os = "Unknown",
                 platform = ClientPlatform.UNKNOWN,

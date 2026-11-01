@@ -42,6 +42,7 @@ googleServices = "4.5.0"
 credentials = "1.5.0"
 googleid = "1.1.1"
 smack = "4.4.8"
+workManager = "2.10.0"
 
 
 [libraries]
@@ -105,6 +106,7 @@ smack-extensions = { group = "org.igniterealtime.smack", name = "smack-extension
 smack-experimental = { group = "org.igniterealtime.smack", name = "smack-experimental", version.ref = "smack" }
 smack-im = { group = "org.igniterealtime.smack", name = "smack-im", version.ref = "smack" }
 smack-tcp = { group = "org.igniterealtime.smack", name = "smack-tcp", version.ref = "smack" }
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 
 
 [plugins]

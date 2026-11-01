@@ -49,6 +49,7 @@ data class ProtocolComplianceItem(
 
 @Composable
 fun ComplianceSuiteDialog(
+    serviceName: String = "search.jabber.network",
     onDismiss: () -> Unit
 ) {
     val complianceItems = listOf(
@@ -121,7 +122,7 @@ fun ComplianceSuiteDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text("Compliance Suite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("search.jabber.network Reference", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        Text("$serviceName Reference", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
@@ -132,7 +133,7 @@ fun ComplianceSuiteDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Aplikasi ini mematuhi standar protokol XMPP resmi sesuai rujukan search.jabber.network dan spesifikasi IETF/XSF:",
+                    text = "Aplikasi ini mematuhi standar protokol XMPP resmi sesuai rujukan $serviceName dan spesifikasi IETF/XSF:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

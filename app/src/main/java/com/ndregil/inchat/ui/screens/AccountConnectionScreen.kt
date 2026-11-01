@@ -2,6 +2,7 @@ package com.ndregil.inchat.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.foundation.clickable
@@ -252,39 +254,58 @@ fun AccountConnectionScreen(
                         Box(
                             modifier = Modifier
                                 .size(64.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                                 .clickable { avatarPicker.launch("image/*") }
-                                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                            contentAlignment = Alignment.Center
                         ) {
-                            if (myAvatar != null) {
-                                androidx.compose.foundation.Image(
-                                    painter = coil.compose.rememberAsyncImagePainter(myAvatar),
-                                    contentDescription = "Avatar Profil",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.AccountCircle,
-                                    contentDescription = "Ubah Avatar",
-                                    modifier = Modifier.size(48.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                            val decodedBitmap = remember(myAvatar) {
+                                if (myAvatar != null && myAvatar.isNotEmpty()) {
+                                    try {
+                                        BitmapFactory.decodeByteArray(myAvatar, 0, myAvatar.size)
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                } else null
                             }
-                            // Overlay edit icon
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.BottomEnd
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (decodedBitmap != null) {
+                                    Image(
+                                        bitmap = decodedBitmap.asImageBitmap(),
+                                        contentDescription = "Avatar Profil",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = "Ubah Avatar",
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            // Clean bottom-end edit badge
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .size(22.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp).padding(4.dp),
-                                    tint = Color.White
+                                    contentDescription = "Edit Foto Profil",
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         }

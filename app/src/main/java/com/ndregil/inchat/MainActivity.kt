@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
         com.ndregil.inchat.data.network.ClientRegistryManager.init(this)
         FcmPushManager.init(this)
         com.ndregil.inchat.data.network.fcm.XmppForegroundService.startService(this)
+        com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(this)
         handleNotificationIntent(intent)
 
         setContent {

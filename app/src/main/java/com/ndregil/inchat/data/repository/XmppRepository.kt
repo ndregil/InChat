@@ -1,6 +1,7 @@
 package com.ndregil.inchat.data.repository
 
 import com.ndregil.inchat.data.local.AppDatabase
+import android.util.Log
 import com.ndregil.inchat.data.local.entity.AccountEntity
 import com.ndregil.inchat.data.local.entity.MessageEntity
 import com.ndregil.inchat.data.local.entity.RoomConfigEntity
@@ -233,15 +234,109 @@ class XmppRepository(
                 smackAvatarManager.onConnectionReady(conn)
             }
 
-            // Auto-join configured rooms upon successful connection
+            // Sync server-side bookmarks and auto-join
             scope.launch {
                 try {
+                    // Small delay to ensure server feature discovery and connection stability
+                    kotlinx.coroutines.delay(2000) 
+                    syncServerBookmarks()
                     autoJoinConfiguredRooms()
                 } catch (e: Exception) {
-                    // Handled safely
+                    Log.e("XmppRepository", "Error during bookmark sync/autojoin: ${e.message}")
                 }
             }
         }
+    }
+
+    /**
+     * Synchronizes server-side bookmarks (XEP-0048) with the local database.
+     */
+    suspend fun syncServerBookmarks() {
+        if (!smackConnectionManager.isConnected()) {
+            Log.w("XmppRepository", "Cannot sync bookmarks: Not connected")
+            return
+        }
+        
+        Log.i("XmppRepository", "Syncing server-side bookmarks (XEP-0048)...")
+        val result = smackMucManager.fetchBookmarks()
+        result.onSuccess { bookmarks ->
+            Log.i("XmppRepository", "Fetched ${bookmarks.size} bookmarks from server.")
+            for (bm in bookmarks) {
+                val roomJid = bm.jid.toString()
+                Log.d("XmppRepository", "Processing bookmark: $roomJid (autoJoin=${bm.isAutoJoin})")
+                val name = bm.name ?: roomJid.substringBefore("@")
+                val nick = bm.nickname?.toString() ?: currentAccount.value.nickname
+                val autoJoin = bm.isAutoJoin
+                
+                // Save to local database if not exists or update
+                saveRoomLocally(
+                    roomJid = roomJid,
+                    roomName = name,
+                    nickname = nick,
+                    isBookmarked = true,
+                    isAutoJoin = autoJoin,
+                    password = bm.password
+                )
+            }
+        }
+    }
+
+    private suspend fun saveRoomLocally(
+        roomJid: String,
+        roomName: String,
+        nickname: String,
+        isBookmarked: Boolean,
+        isAutoJoin: Boolean = true,
+        password: String? = null
+    ) {
+        val existingRoom = database.roomDao().getRoomByJid(roomJid)
+        if (existingRoom != null) {
+            database.roomDao().insertOrUpdateRoom(
+                existingRoom.copy(
+                    name = roomName,
+                    myNickname = nickname,
+                    isBookmarked = isBookmarked,
+                    isAutoJoin = isAutoJoin,
+                    password = password ?: existingRoom.password
+                )
+            )
+        } else {
+            val newRoom = RoomEntity(
+                jid = roomJid,
+                name = roomName,
+                topic = "Sinkronisasi Favorit",
+                myNickname = nickname,
+                occupantCount = 1,
+                unreadCount = 0,
+                lastMessageText = "Sinkronisasi dari server",
+                lastMessageTime = System.currentTimeMillis(),
+                isJoined = false,
+                isBookmarked = isBookmarked,
+                myRole = OccupantRole.MEMBER,
+                myAffiliation = OccupantAffiliation.MEMBER,
+                colorHex = randomColorForRoom(roomJid),
+                password = password,
+                isAutoJoin = isAutoJoin
+            )
+            database.roomDao().insertOrUpdateRoom(newRoom)
+        }
+
+        val existingConfig = database.roomConfigDao().getRoomConfigSync(roomJid)
+        val config = (existingConfig ?: RoomConfigEntity(
+            roomJid = roomJid,
+            roomName = roomName,
+            nickname = nickname,
+            isBookmarked = isBookmarked,
+            isAutoJoin = isAutoJoin,
+            password = password
+        )).copy(
+            roomName = roomName,
+            nickname = nickname,
+            isBookmarked = isBookmarked,
+            isAutoJoin = isAutoJoin,
+            password = password ?: existingConfig?.password
+        )
+        database.roomConfigDao().insertOrUpdateConfig(config)
     }
 
     suspend fun publishProfileAvatar(bytes: ByteArray): Result<Unit> {
@@ -451,6 +546,20 @@ class XmppRepository(
             )
             database.roomConfigDao().insertOrUpdateConfig(newConfig)
         }
+
+        // Sync with server
+        if (smackConnectionManager.isConnected()) {
+            if (newBookmarkState) {
+                smackMucManager.saveBookmark(
+                    roomJid = roomJid,
+                    name = room?.name ?: roomJid.substringBefore("@"),
+                    nickname = room?.myNickname ?: currentAccount.value.nickname,
+                    autoJoin = true
+                )
+            } else {
+                smackMucManager.removeBookmark(roomJid)
+            }
+        }
     }
 
     suspend fun saveRoom(
@@ -512,11 +621,26 @@ class XmppRepository(
             )
             database.roomDao().insertOrUpdateRoom(newRoom)
         }
+
+        // Sync with server
+        if (smackConnectionManager.isConnected()) {
+            smackMucManager.saveBookmark(
+                roomJid = cleanJid,
+                name = name,
+                nickname = nick,
+                password = password,
+                autoJoin = true
+            )
+        }
     }
 
     suspend fun removeSavedRoom(roomJid: String) {
         database.roomDao().updateBookmark(roomJid, false)
         database.roomConfigDao().updateBookmark(roomJid, false)
+        
+        if (smackConnectionManager.isConnected()) {
+            smackMucManager.removeBookmark(roomJid)
+        }
     }
 
     suspend fun updateRoomAutoJoin(roomJid: String, isAutoJoin: Boolean) {
@@ -532,12 +656,39 @@ class XmppRepository(
     suspend fun configureRoom(
         roomJid: String,
         roomName: String? = null,
-        topic: String? = null,
+        description: String? = null,
+        subject: String? = null,
         isPersistent: Boolean = true,
         isPublic: Boolean = true,
+        isMembersOnly: Boolean = false,
+        isModerated: Boolean = false,
+        allowSubjectChange: Boolean = true,
         password: String? = null
     ): Result<Unit> {
-        return smackMucManager.configureRoom(roomJid, roomName, topic, isPersistent, isPublic, password)
+        val result = smackMucManager.configureRoom(
+            roomJid = roomJid,
+            roomName = roomName,
+            description = description,
+            subject = subject,
+            isPersistent = isPersistent,
+            isPublic = isPublic,
+            isMembersOnly = isMembersOnly,
+            isModerated = isModerated,
+            allowSubjectChange = allowSubjectChange,
+            password = password
+        )
+        if (result.isSuccess) {
+            val existing = database.roomDao().getRoomByJid(roomJid)
+            if (existing != null) {
+                database.roomDao().insertOrUpdateRoom(
+                    existing.copy(
+                        name = roomName ?: existing.name,
+                        topic = subject ?: description ?: existing.topic
+                    )
+                )
+            }
+        }
+        return result
     }
 
     suspend fun getRoomInfo(roomJid: String): Result<org.jivesoftware.smackx.muc.RoomInfo> {
@@ -753,7 +904,7 @@ class XmppRepository(
     }
 
     suspend fun discoverRooms(query: String = "", serviceJid: String? = null): List<DiscoveredRoom> {
-        // If a specific query is provided, or if we want global discovery, use search.jabber.network
+        // 1. If a specific query is provided, or if we want global discovery, use search.jabber.network REST API
         if (query.isNotBlank() || serviceJid == null) {
             val searchResult = jabberSearchManager.searchRooms(query).getOrNull()
             if (!searchResult.isNullOrEmpty()) {
@@ -761,7 +912,7 @@ class XmppRepository(
             }
         }
 
-        // Fallback to traditional XEP-0030 Service Discovery on the server
+        // 2. Fallback to traditional XEP-0030 Service Discovery on the server
         val result = smackDiscoManager.discoverRooms(serviceJid)
         return result.getOrElse { emptyList() }
     }

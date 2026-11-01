@@ -17,7 +17,9 @@ import com.ndregil.inchat.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import com.ndregil.inchat.data.model.ConnectionStatus
 
 /**
  * Foreground Service that keeps the XMPP connection alive in the background
@@ -62,6 +64,18 @@ class XmppForegroundService : Service() {
         } catch (e: Exception) {
             // Handled safely
         }
+
+        // Monitor connection status and update notification
+        scope.launch {
+            try {
+                val repo = com.ndregil.inchat.data.repository.XmppRepository.getInstance(applicationContext)
+                repo.connectionStatus.collectLatest { status ->
+                    updateNotification(status)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error monitoring connection status", e)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -90,7 +104,27 @@ class XmppForegroundService : Service() {
         }
 
         // START_STICKY ensures the service is restarted if terminated by system
+        startPeriodicCheck()
         return START_STICKY
+    }
+
+    private fun startPeriodicCheck() {
+        scope.launch {
+            while (true) {
+                try {
+                    val repo = com.ndregil.inchat.data.repository.XmppRepository.getInstance(applicationContext)
+                    repo.checkAndReconnectIfNeeded()
+                    
+                    // Refresh wakelock if needed
+                    if (wakeLock?.isHeld == false) {
+                        wakeLock?.acquire(10 * 60 * 1000L)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in periodic check", e)
+                }
+                kotlinx.coroutines.delay(60 * 1000L) // Check every minute
+            }
+        }
     }
 
 
@@ -123,7 +157,13 @@ class XmppForegroundService : Service() {
         }
     }
 
-    private fun createForegroundNotification(): Notification {
+    private fun updateNotification(status: ConnectionStatus) {
+        val notification = createForegroundNotification(status)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun createForegroundNotification(status: ConnectionStatus = ConnectionStatus.CONNECTED): Notification {
         // Bring existing MainActivity to foreground cleanly without destroying or restarting it
         val intent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_MAIN
@@ -143,6 +183,21 @@ class XmppForegroundService : Service() {
             null
         }
 
+        val statusText = when (status) {
+            ConnectionStatus.CONNECTED -> "Terhubung"
+            ConnectionStatus.CONNECTING -> "Menghubungkan..."
+            ConnectionStatus.AUTHENTICATING -> "Autentikasi..."
+            ConnectionStatus.ERROR -> "Koneksi Error"
+            ConnectionStatus.DISCONNECTED -> "Terputus"
+        }
+
+        val contentText = when (status) {
+            ConnectionStatus.CONNECTED -> "InChat Aktif: Anda terhubung dan siap menerima pesan."
+            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> "InChat: Sedang mencoba menghubungkan ulang..."
+            ConnectionStatus.ERROR -> "InChat: Ada masalah koneksi. Menunggu jaringan..."
+            ConnectionStatus.DISCONNECTED -> "InChat: Layanan aktif, namun akun terputus."
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_small)
             .apply {
@@ -150,9 +205,9 @@ class XmppForegroundService : Service() {
                     setLargeIcon(largeIconBitmap)
                 }
             }
-            .setColor(0xFF1F89E8.toInt())
-            .setContentTitle("InChat Aktif")
-            .setContentText("Layanan latar belakang berjalan untuk menjaga koneksi dan pesan masuk.")
+            .setColor(if (status == ConnectionStatus.CONNECTED) 0xFF1F89E8.toInt() else 0xFFFFA000.toInt())
+            .setContentTitle(statusText)
+            .setContentText(contentText)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)

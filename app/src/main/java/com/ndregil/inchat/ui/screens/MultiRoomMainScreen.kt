@@ -56,8 +56,9 @@ import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.NightsStay
-import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
+import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
@@ -71,6 +72,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -212,6 +215,27 @@ fun MultiRoomMainScreen(
         FcmPushManager.activeRoomJid = if (activeNavIndex == 0) activeRoom?.jid else null
     }
 
+    // Show Toast for profile avatar update status
+    val avatarUpdateStatus by viewModel.avatarUpdateStatus.collectAsStateWithLifecycle()
+    LaunchedEffect(avatarUpdateStatus) {
+        val status = avatarUpdateStatus
+        if (!status.isNullOrBlank()) {
+            android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.clearAvatarUpdateStatus()
+        }
+    }
+
+    // Show Toast for room config status
+    val roomConfigStatus by viewModel.roomConfigStatus.collectAsStateWithLifecycle()
+    val isRoomConfigLoading by viewModel.isRoomConfigLoading.collectAsStateWithLifecycle()
+    LaunchedEffect(roomConfigStatus) {
+        val status = roomConfigStatus
+        if (!status.isNullOrBlank()) {
+            android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.clearRoomConfigStatus()
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         bottomBar = {
@@ -329,6 +353,21 @@ fun MultiRoomMainScreen(
                                 )
 
                                 Spacer(modifier = Modifier.width(6.dp))
+                                
+                                if (connectionStatus == ConnectionStatus.ERROR || connectionStatus == ConnectionStatus.DISCONNECTED) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.reconnect() },
+                                        modifier = Modifier.height(28.dp).padding(end = 8.dp),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Hubungkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
 
                                 Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -723,12 +762,19 @@ fun MultiRoomMainScreen(
                 }
 
                 3 -> {
-                    // Public MUC Directory
+                    // Public MUC Directory & Local Service Discovery
+                    val discoveredServices by viewModel.discoveredServices.collectAsStateWithLifecycle()
+                    val isServicesLoading by viewModel.isServicesLoading.collectAsStateWithLifecycle()
+                    
                     RoomDirectoryScreen(
                         directoryRooms = directoryRooms,
+                        discoveredServices = discoveredServices,
                         joinedRooms = allRooms,
                         isLoading = isDirectoryLoading,
+                        isServicesLoading = isServicesLoading,
+                        serverDomain = currentAccount.domain,
                         onRefresh = { query -> viewModel.loadDirectory(query) },
+                        onDiscoverLocal = { viewModel.discoverLocalServices() },
                         onJoinRoom = { dirRoom ->
                             viewModel.joinOrCreateRoom(
                                 roomJid = dirRoom.jid,
@@ -887,9 +933,21 @@ fun MultiRoomMainScreen(
             RoomConfigurationDialog(
                 roomJid = room.jid,
                 initialInfo = roomConfigInfo,
+                isLoading = isRoomConfigLoading,
                 onDismiss = { viewModel.isRoomConfigOpen.value = false },
-                onSave = { name, topic, persistent, public, pass ->
-                    viewModel.configureRoom(room.jid, name, topic, persistent, public, pass)
+                onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
+                    viewModel.configureRoom(
+                        roomJid = room.jid,
+                        roomName = name,
+                        description = desc,
+                        subject = subj,
+                        isPersistent = persistent,
+                        isPublic = public,
+                        isMembersOnly = membersOnly,
+                        isModerated = moderated,
+                        allowSubjectChange = allowSubjChange,
+                        password = pass
+                    )
                 }
             )
         }
@@ -914,9 +972,21 @@ fun MultiRoomMainScreen(
             roomName = activeRoom!!.name,
             occupants = occupants,
             initialInfo = roomAdminInfo,
+            isLoadingConfig = isRoomConfigLoading,
             onDismiss = { viewModel.isAdminPanelOpen.value = false },
-            onSaveConfig = { name, topic, persistent, public, pass ->
-                viewModel.configureRoom(activeRoom!!.jid, name, topic, persistent, public, pass)
+            onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
+                viewModel.configureRoom(
+                    roomJid = activeRoom!!.jid,
+                    roomName = name,
+                    description = desc,
+                    subject = subj,
+                    isPersistent = persistent,
+                    isPublic = public,
+                    isMembersOnly = membersOnly,
+                    isModerated = moderated,
+                    allowSubjectChange = allowSubjChange,
+                    password = pass
+                )
             },
             onGrantModerator = { nick -> viewModel.grantModerator(activeRoom!!.jid, nick) },
             onRevokeModerator = { nick -> viewModel.revokeModerator(activeRoom!!.jid, nick) },

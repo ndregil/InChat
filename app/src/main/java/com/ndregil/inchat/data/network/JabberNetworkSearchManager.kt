@@ -36,7 +36,7 @@ class JabberNetworkSearchManager {
                 val responseBody = response.body?.string() ?: return@withContext Result.success(emptyList())
                 val roomsList = mutableListOf<DiscoveredRoom>()
 
-                // Parse JSON response (can be JSONArray or JSONObject with results array)
+                // Parse JSON response
                 val trimmed = responseBody.trim()
                 val jsonArray = if (trimmed.startsWith("[")) {
                     JSONArray(trimmed)
