@@ -1,0 +1,6 @@
+{
+  "name": "InChat",
+  "description": "InChat XMPP client for Android - Aplikasi XMPP dengan obrolan multi-user, VCard, dan panggilan Jingle.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
