@@ -69,7 +69,7 @@ class Converters {
         MessageEntity::class,
         RoomConfigEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

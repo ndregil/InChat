@@ -341,6 +341,14 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun sendVoiceMessage(audioFile: java.io.File, durationSeconds: Int) {
+        val room = activeRoom.value ?: return
+        val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
+        viewModelScope.launch {
+            repository.sendVoiceMessage(room.jid, audioFile, durationSeconds, myNick)
+        }
+    }
+
     fun initiateCall(callType: String) {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
@@ -380,6 +388,23 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun endCall() {
         repository.smackCallManager.endCall()
+    }
+
+    fun startDirectChat(targetJid: String, displayName: String = "") {
+        viewModelScope.launch {
+            val cleanJid = targetJid.trim()
+            if (cleanJid.isBlank()) return@launch
+            val name = displayName.trim().ifBlank { cleanJid.substringBefore("@") }
+            val myNick = currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } }
+            repository.saveRoom(
+                roomJid = cleanJid,
+                roomName = name,
+                nickname = myNick,
+                topic = "Obrolan Langsung (1-on-1)",
+                password = null
+            )
+            _selectedRoomJid.value = cleanJid
+        }
     }
 
     fun toggleMute() {

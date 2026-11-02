@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00A389"
+        android:pathData="M12,2C6.48,2 2,6.48 2,12c0,1.82 0.49,3.53 1.34,5L2,22l5.22,-1.31C8.63,21.49 10.27,22 12,22c5.52,0 10,-4.48 10,-10S17.52,2 12,2z" />
+    <!-- Stylized Dino head silhouette in white -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16.5,7h-4c-0.55,0 -1,0.45 -1,1v1H9.5C8.67,9 8,9.67 8,10.5v1C8,12.33 8.67,13 9.5,13H11v3.5c0,0.83 0.67,1.5 1.5,1.5s1.5,-0.67 1.5,-1.5V13h1.5c0.55,0 1,-0.45 1,-1v-4C17.5,7.45 17.05,7 16.5,7zM14.5,9.5c-0.41,0 -0.75,-0.34 -0.75,-0.75s0.34,-0.75 0.75,-0.75 0.75,0.34 0.75,0.75 -0.34,0.75 -0.75,0.75z" />
+</vector>

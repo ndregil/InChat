@@ -60,8 +60,10 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.text.font.FontStyle
@@ -103,27 +105,48 @@ fun RoomDirectoryScreen(
                             imageVector = Icons.Default.Explore,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
-                            Text("Discovery", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Discovery",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp
+                            )
                             Text(
                                 text = if (discoveryMode == 0) "search.jabber.network" else serverDomain,
                                 style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showComplianceDialog = true }) {
-                        Icon(imageVector = Icons.Default.Verified, contentDescription = "Compliance Suite", tint = MaterialTheme.colorScheme.primary)
+                    IconButton(
+                        onClick = { showComplianceDialog = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = "Compliance Suite",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
-                    IconButton(onClick = { 
-                        if (discoveryMode == 0) onRefresh(searchQuery) else onDiscoverLocal() 
-                    }) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Muat Ulang")
+                    IconButton(
+                        onClick = { 
+                            if (discoveryMode == 0) onRefresh(searchQuery) else onDiscoverLocal() 
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Muat Ulang",
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -136,7 +159,7 @@ fun RoomDirectoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 12.dp)
         ) {
             androidx.compose.material3.TabRow(
                 selectedTabIndex = discoveryMode,
@@ -151,12 +174,12 @@ fun RoomDirectoryScreen(
                        )
                    }
                 },
-                modifier = Modifier.padding(bottom = 8.dp)
+                modifier = Modifier.padding(bottom = 2.dp)
             ) {
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 0,
                     onClick = { discoveryMode = 0 },
-                    text = { Text("Global Search", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("Global Search", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 1,
@@ -164,22 +187,23 @@ fun RoomDirectoryScreen(
                         discoveryMode = 1
                         onDiscoverLocal()
                     },
-                    text = { Text("Local Services", fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("Local Services", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
                 )
             }
 
+            // Compact Compliance Suite banner
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp)
+                    .padding(vertical = 3.dp)
                     .clickable { showComplianceDialog = true },
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -188,63 +212,169 @@ fun RoomDirectoryScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Verified,
+                            imageVector = Icons.Default.Security,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Compliance Suite (${if (discoveryMode == 0) "search.jabber.network" else serverDomain})",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Text(
-                                text = "Audit RFC 6120, RFC 7590 & XEP-0030",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Compliance Suite (${if (discoveryMode == 0) "search.jabber.network" else serverDomain})",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                    androidx.compose.material3.TextButton(onClick = { showComplianceDialog = true }) {
-                        Text("Audit", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Text(
+                        text = "Audit",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
                 }
             }
 
+            val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+            val quickKeywords = listOf("Semua", "Indonesia", "Linux", "Conversations", "XSF", "Gajim", "Android")
+
             if (discoveryMode == 0) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Cari room di search.jabber.network...") },
-                    placeholder = { Text("Contoh: indonesia, linux, game") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                // Compact Search Bar (kolom pencarian kecil)
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true,
-                    trailingIcon = {
+                        .height(38.dp)
+                        .padding(vertical = 1.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Cari room (indonesia, linux, game)...",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                                ),
+                                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                    onSearch = {
+                                        onRefresh(searchQuery)
+                                        focusManager.clearFocus()
+                                    }
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("search_directory_input")
+                            )
+                        }
+
                         if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { 
-                                searchQuery = ""
-                                onRefresh("")
-                            }) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Clear")
+                            IconButton(
+                                onClick = { 
+                                    searchQuery = ""
+                                    onRefresh("")
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Hapus",
+                                    modifier = Modifier.size(15.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                    }
-                )
 
-                Text(
-                    text = "Menampilkan hasil pencarian dari direktori global XMPP:",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                        IconButton(
+                            onClick = {
+                                onRefresh(searchQuery)
+                                focusManager.clearFocus()
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = "Cari",
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                // Compact Quick Topic Filter Chips
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(quickKeywords) { kw ->
+                        val isSelected = (kw == "Semua" && searchQuery.isBlank()) || (searchQuery.equals(kw, ignoreCase = true))
+                        androidx.compose.material3.FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                val target = if (kw == "Semua") "" else kw
+                                searchQuery = target
+                                onRefresh(target)
+                            },
+                            label = { Text(kw, fontSize = 11.sp) },
+                            modifier = Modifier.height(28.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (searchQuery.isBlank()) "Room populer global XMPP:" else "Hasil untuk '$searchQuery':",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${directoryRooms.size} room",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -265,6 +395,47 @@ fun RoomDirectoryScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
+                }
+            } else if (discoveryMode == 0 && directoryRooms.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Explore,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (searchQuery.isBlank()) "Belum ada room ditemukan" else "Tidak ada room ditemukan untuk '$searchQuery'",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Coba kata kunci lain atau muat ulang daftar room populer search.jabber.network",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                searchQuery = ""
+                                onRefresh("")
+                            }
+                        ) {
+                            Text("Tampilkan Room Populer")
+                        }
+                    }
                 }
             } else {
                 LazyColumn(

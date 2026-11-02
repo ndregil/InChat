@@ -19,6 +19,7 @@ enum class MessageType {
     SYSTEM_TOPIC,
     ACTION,
     FILE,
+    VOICE,
     CALL_SIGNALLING
 }
 
@@ -476,14 +477,15 @@ data class ClientCaps(
                 )
             }
 
-            // 2. Fallback to hardcoded static registry with normalized clean matching
+            // 2. Fallback to hardcoded static registry: STRICTLY MATCH node or client name, NEVER jid server domain!
             val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-            val searchStr = "$name $jid $node".lowercase()
+            val cleanName = name.trim().lowercase()
 
             val matched = CLIENT_REGISTRY.firstOrNull { def ->
                 def.patterns.any { pattern ->
                     val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    searchStr.contains(cleanPattern) || (cleanNode.isNotBlank() && (cleanNode == cleanPattern || cleanNode.contains(cleanPattern)))
+                    (cleanNode.isNotBlank() && (cleanNode == cleanPattern || cleanNode.startsWith("$cleanPattern/") || cleanNode.startsWith("$cleanPattern#") || cleanNode.contains(cleanPattern))) ||
+                    (cleanName.isNotBlank() && !cleanName.contains("@") && (cleanName == cleanPattern || cleanName.contains(cleanPattern)))
                 }
             }
 
@@ -514,15 +516,16 @@ data class ClientCaps(
             }
 
             val fallbackName = when {
+                cleanName.isNotBlank() && !cleanName.contains("@") && cleanName != "unknown" -> name
                 node.isNotBlank() -> {
                     val clean = node.removePrefix("http://").removePrefix("https://").removeSuffix("/").substringAfterLast("/")
-                    if (clean.length > 2) clean.replaceFirstChar { it.uppercase() } else name.ifBlank { "Unknown" }
+                    if (clean.length > 2) clean.replaceFirstChar { it.uppercase() } else "Unknown"
                 }
-                else -> name.ifBlank { "Unknown" }
+                else -> "Unknown"
             }
 
             return ClientCaps(
-                clientName = if (fallbackName == name && name.isBlank()) "Unknown" else fallbackName,
+                clientName = fallbackName,
                 version = "1.0",
                 os = "Unknown",
                 platform = ClientPlatform.UNKNOWN,
@@ -555,7 +558,8 @@ data class XmppMessage(
     val senderClientCaps: ClientCaps = ClientCaps.resolveFor(senderNickname, senderJid),
     val replyToMessageId: String? = null,
     val replyToSender: String? = null,
-    val replyToText: String? = null
+    val replyToText: String? = null,
+    val voiceDurationSeconds: Int? = null
 )
 
 data class RoomOccupant(
@@ -621,6 +625,13 @@ data class DiscoveredRoom(
     }
 }
 
+enum class StatusIndicatorCategory {
+    AVAILABLE, // Online / Chat (Available)
+    BUSY,      // DND (Do Not Disturb / Busy)
+    AWAY,      // Away / Extended Away
+    OFFLINE    // Unavailable / Offline
+}
+
 data class RosterContact(
     val jid: String,
     val name: String,
@@ -630,9 +641,32 @@ data class RosterContact(
     val subscriptionType: String = "both",
     val isPendingApproval: Boolean = false,
     val avatar: ByteArray? = null,
-    val clientCaps: ClientCaps = ClientCaps.resolveFor(name, jid)
+    val clientCaps: ClientCaps = ClientCaps.resolveFor(name, jid),
+    val pepActivity: String? = null,
+    val pepMood: String? = null,
+    val pepTune: String? = null,
+    val pepStatus: String? = null
 ) {
     val displayName: String
         get() = name.ifBlank { jid.substringBefore("@") }
+
+    val statusCategory: StatusIndicatorCategory
+        get() = when (presence) {
+            UserPresence.ONLINE, UserPresence.CHAT -> StatusIndicatorCategory.AVAILABLE
+            UserPresence.DND -> StatusIndicatorCategory.BUSY
+            UserPresence.AWAY, UserPresence.XA -> StatusIndicatorCategory.AWAY
+            UserPresence.OFFLINE -> StatusIndicatorCategory.OFFLINE
+        }
+
+    val statusCategoryLabel: String
+        get() = when (statusCategory) {
+            StatusIndicatorCategory.AVAILABLE -> "Available"
+            StatusIndicatorCategory.BUSY -> "Busy"
+            StatusIndicatorCategory.AWAY -> "Away"
+            StatusIndicatorCategory.OFFLINE -> "Offline"
+        }
+
+    val hasPepEvent: Boolean
+        get() = !pepActivity.isNullOrBlank() || !pepMood.isNullOrBlank() || !pepTune.isNullOrBlank() || !pepStatus.isNullOrBlank()
 }
 

@@ -141,6 +141,19 @@ class XmppRepository(
             }
         }
 
+        // Collect connection status to register direct 1-on-1 chat stanza listener
+        scope.launch {
+            try {
+                smackConnectionManager.connectionStatus.collect { status ->
+                    if (status == ConnectionStatus.CONNECTED) {
+                        setupDirectChatStanzaListener()
+                    }
+                }
+            } catch (e: Exception) {
+                // Handled safely
+            }
+        }
+
         // Auto-login on app launch if active account exists in database
         scope.launch {
             try {
@@ -376,6 +389,49 @@ class XmppRepository(
         _currentAccount.value = XmppAccount()
     }
 
+    @Volatile
+    private var isDirectChatListenerAttached = false
+
+    private fun setupDirectChatStanzaListener() {
+        val conn = smackConnectionManager.getRawConnection() ?: return
+        if (!conn.isAuthenticated || isDirectChatListenerAttached) return
+        isDirectChatListenerAttached = true
+
+        val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
+        conn.addAsyncStanzaListener({ stanza ->
+            val msg = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
+            val bodyText = msg.body
+            if ((msg.type == org.jivesoftware.smack.packet.Message.Type.chat || msg.type == org.jivesoftware.smack.packet.Message.Type.normal) && !bodyText.isNullOrBlank()) {
+                val fromBareJid = msg.from?.asBareJid()?.toString() ?: return@addAsyncStanzaListener
+                val myJid = currentAccount.value.jid
+                if (fromBareJid.equals(myJid, ignoreCase = true)) return@addAsyncStanzaListener
+
+                if (fromBareJid.contains("conference.") || fromBareJid.contains("muc.") || smackMucManager.isRoomJoined(fromBareJid)) {
+                    return@addAsyncStanzaListener
+                }
+
+                val senderNick = fromBareJid.substringBefore("@")
+                val avatar = smackAvatarManager.getAvatar(fromBareJid)
+
+                val xmppMsg = XmppMessage(
+                    id = msg.stanzaId ?: java.util.UUID.randomUUID().toString(),
+                    roomJid = fromBareJid,
+                    senderNickname = senderNick,
+                    senderJid = fromBareJid,
+                    senderAvatar = avatar,
+                    body = bodyText,
+                    timestamp = System.currentTimeMillis(),
+                    isMine = false,
+                    status = DeliveryStatus.DELIVERED
+                )
+
+                scope.launch {
+                    processIncomingMessage(xmppMsg)
+                }
+            }
+        }, filter)
+    }
+
     private suspend fun processIncomingMessage(msg: XmppMessage) {
         try {
             database.messageDao().insertMessage(msg.toEntity())
@@ -389,6 +445,24 @@ class XmppRepository(
                     unreadCount = if (msg.isMine) existing.unreadCount else existing.unreadCount + 1
                 )
                 database.roomDao().insertOrUpdateRoom(updated)
+            } else {
+                // Auto-create 1-on-1 chat room for incoming direct message
+                val newRoom = RoomEntity(
+                    jid = msg.roomJid,
+                    name = msg.senderNickname.ifBlank { msg.roomJid.substringBefore("@") },
+                    topic = "Obrolan Langsung (1-on-1)",
+                    myNickname = currentAccount.value.nickname.ifBlank { "User" },
+                    occupantCount = 2,
+                    unreadCount = if (msg.isMine) 0 else 1,
+                    lastMessageText = msg.body,
+                    lastMessageTime = msg.timestamp,
+                    isJoined = true,
+                    isBookmarked = true,
+                    myRole = OccupantRole.MEMBER,
+                    myAffiliation = OccupantAffiliation.MEMBER,
+                    colorHex = randomColorForRoom(msg.roomJid)
+                )
+                database.roomDao().insertOrUpdateRoom(newRoom)
             }
         } catch (e: Exception) {
             // Handled safely
@@ -727,20 +801,38 @@ class XmppRepository(
         replyToSender: String? = null,
         replyToText: String? = null
     ) {
-        // If Smack MUC is connected and room joined, send via Smack MUC
-        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {
+        val cleanJid = roomJid.trim()
+        val myJid = currentAccount.value.jid
+        val myAvatar = smackAvatarManager.getAvatar(myJid)
+
+        // 1. If Smack MUC is connected and room joined, send via Smack MUC
+        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             try {
-                smackMucManager.sendMessage(roomJid, text)
+                smackMucManager.sendMessage(cleanJid, text)
                 return
             } catch (e: Exception) {
-                // Handled gracefully, fall back to offline engine
+                // Handled gracefully, fall back
+            }
+        } else if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+            // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
+            try {
+                val conn = smackConnectionManager.getRawConnection()
+                if (conn != null) {
+                    val toJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                    val msgStanza = org.jivesoftware.smack.packet.Message(toJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
+                        body = text
+                        stanzaId = java.util.UUID.randomUUID().toString()
+                    }
+                    conn.sendStanza(msgStanza)
+                    Log.i("XmppRepository", "Successfully sent 1-on-1 direct XMPP stanza to $cleanJid")
+                }
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $cleanJid: ${e.message}")
             }
         }
 
-        val myJid = currentAccount.value.jid
-        val myAvatar = smackAvatarManager.getAvatar(myJid)
-        
-        val msg = engine.sendGroupMessage(roomJid, text, myNickname).copy(
+        // Save sent message locally in Room DB
+        val msg = engine.sendGroupMessage(cleanJid, text, myNickname).copy(
             senderJid = myJid,
             senderAvatar = myAvatar,
             replyToMessageId = replyToMessageId,
@@ -748,8 +840,8 @@ class XmppRepository(
             replyToText = replyToText
         )
         database.messageDao().insertMessage(msg.toEntity())
-        
-        val existing = database.roomDao().getRoomByJid(roomJid)
+
+        val existing = database.roomDao().getRoomByJid(cleanJid)
         if (existing != null) {
             database.roomDao().insertOrUpdateRoom(
                 existing.copy(
@@ -757,6 +849,24 @@ class XmppRepository(
                     lastMessageTime = msg.timestamp
                 )
             )
+        } else {
+            // Auto-create room entity for 1-on-1 chat
+            val newRoom = RoomEntity(
+                jid = cleanJid,
+                name = cleanJid.substringBefore("@"),
+                topic = "Obrolan Langsung (1-on-1)",
+                myNickname = myNickname,
+                occupantCount = 2,
+                unreadCount = 0,
+                lastMessageText = text,
+                lastMessageTime = msg.timestamp,
+                isJoined = true,
+                isBookmarked = true,
+                myRole = OccupantRole.MEMBER,
+                myAffiliation = OccupantAffiliation.MEMBER,
+                colorHex = randomColorForRoom(cleanJid)
+            )
+            database.roomDao().insertOrUpdateRoom(newRoom)
         }
     }
 
@@ -836,6 +946,71 @@ class XmppRepository(
                 // We could insert a system message or failed message here
             }
         )
+    }
+
+    suspend fun sendVoiceMessage(
+        roomJid: String,
+        audioFile: java.io.File,
+        durationSeconds: Int,
+        myNickname: String
+    ) {
+        val fileName = audioFile.name
+        val fileSize = audioFile.length()
+        val mimeType = "audio/mp4"
+
+        // 1. Try uploading via XEP-0363 if connected
+        var finalUrl = "file://${audioFile.absolutePath}"
+        if (smackConnectionManager.isConnected()) {
+            val connection = smackConnectionManager.getRawConnection()
+            if (connection != null) {
+                val uploadResult = smackFileUploadManager.uploadFile(
+                    connection,
+                    android.net.Uri.fromFile(audioFile),
+                    fileName,
+                    fileSize,
+                    mimeType
+                )
+                uploadResult.onSuccess { uploadedUrl ->
+                    finalUrl = uploadedUrl
+                }.onFailure {
+                    android.util.Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
+                }
+            }
+        }
+
+        // 2. Build XmppMessage
+        val msgId = "voice_${System.currentTimeMillis()}"
+        val body = "🎤 Pesan Suara (${durationSeconds}d)\n$finalUrl"
+        val myJid = smackConnectionManager.getRawConnection()?.user?.asBareJid()?.toString() ?: "$roomJid/$myNickname"
+
+        val msg = XmppMessage(
+            id = msgId,
+            roomJid = roomJid,
+            senderJid = myJid,
+            senderNickname = myNickname,
+            body = body,
+            timestamp = System.currentTimeMillis(),
+            isMine = true,
+            messageType = MessageType.VOICE,
+            status = DeliveryStatus.SENT,
+            fileUrl = finalUrl,
+            fileName = fileName,
+            fileMimeType = mimeType,
+            fileSize = fileSize,
+            voiceDurationSeconds = durationSeconds
+        )
+
+        // Save to local database
+        database.messageDao().insertMessage(msg.toEntity())
+
+        // 3. Send via Smack MUC if room joined
+        if (smackMucManager.isRoomJoined(roomJid)) {
+            try {
+                smackMucManager.sendMessage(roomJid, body)
+            } catch (e: Exception) {
+                android.util.Log.e("XmppRepository", "Gagal mengirim voice message ke MUC: ${e.message}")
+            }
+        }
     }
 
     suspend fun initiateCall(roomJid: String, callType: String, myNickname: String, targetNickname: String? = null) {
@@ -1054,7 +1229,8 @@ private fun MessageEntity.toModel(): XmppMessage = XmppMessage(
     fileSize = fileSize,
     replyToMessageId = replyToMessageId,
     replyToSender = replyToSender,
-    replyToText = replyToText
+    replyToText = replyToText,
+    voiceDurationSeconds = voiceDurationSeconds
 )
 
 private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
@@ -1074,5 +1250,6 @@ private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
     fileSize = fileSize,
     replyToMessageId = replyToMessageId,
     replyToSender = replyToSender,
-    replyToText = replyToText
+    replyToText = replyToText,
+    voiceDurationSeconds = voiceDurationSeconds
 )

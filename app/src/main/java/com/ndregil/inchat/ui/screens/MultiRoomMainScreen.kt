@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -58,6 +60,23 @@ import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontFamily
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import com.ndregil.inchat.util.VoiceRecorderManager
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.animateContentSize
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.platform.LocalContext
 import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -598,7 +617,12 @@ fun MultiRoomMainScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(
+                    start = paddingValues.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                    end = paddingValues.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                    top = if (activeNavIndex == 0) paddingValues.calculateTopPadding() else 0.dp,
+                    bottom = paddingValues.calculateBottomPadding()
+                )
         ) {
             when (activeNavIndex) {
                 0 -> {
@@ -727,7 +751,7 @@ fun MultiRoomMainScreen(
                             }
                         }
 
-                        // Input Bar
+                        // Input Bar (Compact, Auto-expanding, Voice Note Support)
                         ChatInputBar(
                             inputText = currentInput,
                             onInputChange = { viewModel.currentInputText.value = it },
@@ -736,7 +760,10 @@ fun MultiRoomMainScreen(
                             onCallClick = { viewModel.initiateCall(it) },
                             whisperTarget = whisperTarget,
                             replyingToMessage = replyingToMessage,
-                            onCancelReply = { viewModel.clearReplyMessage() }
+                            onCancelReply = { viewModel.clearReplyMessage() },
+                            onSendVoice = { audioFile, durationSeconds ->
+                                viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                            }
                         )
                     }
                 }
@@ -757,7 +784,11 @@ fun MultiRoomMainScreen(
                 2 -> {
                     // XMPP Roster & Contacts
                     RosterContactsScreen(
-                        viewModel = viewModel
+                        viewModel = viewModel,
+                        onStartDirectChat = { jid, name ->
+                            viewModel.startDirectChat(jid, name)
+                            activeNavIndex = 0
+                        }
                     )
                 }
 
@@ -1443,21 +1474,56 @@ fun ChatInputBar(
     onCallClick: (String) -> Unit,
     whisperTarget: RoomOccupant?,
     replyingToMessage: XmppMessage? = null,
-    onCancelReply: () -> Unit = {}
+    onCancelReply: () -> Unit = {},
+    onSendVoice: ((java.io.File, Int) -> Unit)? = null
 ) {
     var showEmojiKeyboard by remember { mutableStateOf(false) }
+    var isRecording by remember { mutableStateOf(false) }
+    var recordingSeconds by remember { mutableIntStateOf(0) }
+    var currentAmpRatio by remember { mutableFloatStateOf(0f) }
+
+    val context = LocalContext.current
+
+    // Recording timer & amplitude polling
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            recordingSeconds = 0
+            while (isRecording) {
+                kotlinx.coroutines.delay(100)
+                recordingSeconds = VoiceRecorderManager.getElapsedSeconds()
+                currentAmpRatio = VoiceRecorderManager.getAmplitudeRatio()
+            }
+        }
+    }
+
+    // Permission launcher for Voice Recording
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val result = VoiceRecorderManager.startRecording(context)
+            if (result.isSuccess) {
+                isRecording = true
+                showEmojiKeyboard = false
+            } else {
+                android.widget.Toast.makeText(context, "Gagal memulai rekaman audio: ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            android.widget.Toast.makeText(context, "Izin mikrofon diperlukan untuk merekam pesan suara", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 4.dp
+        tonalElevation = 3.dp
     ) {
         Column {
             // Reply Preview Header
             if (replyingToMessage != null) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                 ) {
                     Row(
                         modifier = Modifier
@@ -1474,14 +1540,14 @@ fun ChatInputBar(
                                 imageVector = Icons.Default.Reply,
                                 contentDescription = "Membalas",
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
                                     text = "Membalas @${replyingToMessage.senderNickname}",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
@@ -1501,90 +1567,164 @@ fun ChatInputBar(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Batal Balas",
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
                 }
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                IconButton(
-                    onClick = onAttachClick,
-                    modifier = Modifier.align(Alignment.Bottom)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = "Lampirkan File",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                IconButton(
-                    onClick = { showEmojiKeyboard = !showEmojiKeyboard },
-                    modifier = Modifier
-                        .align(Alignment.Bottom)
-                        .testTag("btn_toggle_emoji")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SentimentSatisfied,
-                        contentDescription = "Pilih Emoji",
-                        tint = if (showEmojiKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = onInputChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp, max = 180.dp)
-                        .testTag("chat_input_field"),
-                    placeholder = {
-                        Text(
-                            text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Ketik pesan MUC...",
-                            fontSize = 13.sp
-                        )
+            // Main Input Row or Recording Active Row
+            if (isRecording) {
+                VoiceRecordingActiveBar(
+                    recordingSeconds = recordingSeconds,
+                    amplitudeRatio = currentAmpRatio,
+                    onCancel = {
+                        VoiceRecorderManager.cancelRecording()
+                        isRecording = false
                     },
-                    shape = RoundedCornerShape(20.dp),
-                    minLines = 1,
-                    maxLines = 8
-                )
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                IconButton(
-                    onClick = {
-                        if (inputText.isNotBlank()) {
-                            onSendMessage(inputText)
-                            showEmojiKeyboard = false
+                    onSend = {
+                        val (file, duration) = VoiceRecorderManager.stopRecording()
+                        isRecording = false
+                        if (file != null && file.exists() && file.length() > 0) {
+                            onSendVoice?.invoke(file, duration)
+                        } else {
+                            android.widget.Toast.makeText(context, "Rekaman terlalu pendek", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                    },
-                    enabled = inputText.isNotBlank(),
+                    }
+                )
+            } else {
+                Row(
                     modifier = Modifier
-                        .size(46.dp)
-                        .align(Alignment.Bottom)
-                        .clip(CircleShape)
-                        .background(
-                            if (inputText.isNotBlank()) {
-                                if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            }
-                        )
-                        .testTag("btn_send_message")
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Send,
-                        contentDescription = "Kirim Pesan",
-                        tint = if (inputText.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    // Attach File Button (Compact 36dp)
+                    IconButton(
+                        onClick = onAttachClick,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .align(Alignment.Bottom)
+                            .testTag("btn_attach_file")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = "Lampirkan File",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    // Compact Auto-expanding Text Input Capsule
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .animateContentSize(),
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            width = 0.8.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            // Emoji Button inside capsule
+                            IconButton(
+                                onClick = { showEmojiKeyboard = !showEmojiKeyboard },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("btn_toggle_emoji")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SentimentSatisfied,
+                                    contentDescription = "Pilih Emoji",
+                                    tint = if (showEmojiKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            // Compact Auto-Expanding BasicTextField
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                            ) {
+                                if (inputText.isEmpty()) {
+                                    Text(
+                                        text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Ketik pesan MUC...",
+                                        fontSize = 13.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                BasicTextField(
+                                    value = inputText,
+                                    onValueChange = onInputChange,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("chat_input_field"),
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.5.sp,
+                                        lineHeight = 18.sp
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    minLines = 1,
+                                    maxLines = 5
+                                )
+                            }
+                        }
+                    }
+
+                    // Right Button: Send (if text entered) or Mic (if empty)
+                    if (inputText.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                onSendMessage(inputText)
+                                showEmojiKeyboard = false
+                            },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
+                                .testTag("btn_send_message")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Kirim Pesan",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        // Voice Record Button (Mic)
+                        IconButton(
+                            onClick = {
+                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .testTag("btn_voice_record")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Kirim Pesan Suara",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -1595,6 +1735,124 @@ fun ChatInputBar(
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceRecordingActiveBar(
+    recordingSeconds: Int,
+    amplitudeRatio: Float,
+    onCancel: () -> Unit,
+    onSend: () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse_rec")
+    val alphaAnim by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "rec_dot_alpha"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Cancel / Delete Trash Button
+        IconButton(
+            onClick = onCancel,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
+                .testTag("btn_cancel_voice")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Batal Rekaman",
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+
+        // Recording Visualizer Capsule
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.35f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Pulsing Red Dot
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEF4444).copy(alpha = alphaAnim))
+                    )
+
+                    // Timer Text
+                    Text(
+                        text = String.format(Locale.US, "%02d:%02d", recordingSeconds / 60, recordingSeconds % 60),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Audio Equalizer Visualizer Bars
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    val baseBars = listOf(0.4f, 0.7f, 0.5f, 0.9f, 0.6f, 0.8f, 0.4f, 0.7f)
+                    baseBars.forEach { base ->
+                        val dynamicWeight = (base * 0.4f + amplitudeRatio * 0.6f).coerceIn(0.2f, 1f)
+                        val barHeight = (18 * dynamicWeight).dp
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Send Voice Button
+        IconButton(
+            onClick = onSend,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .testTag("btn_send_voice")
+        ) {
+            Icon(
+                imageVector = Icons.Default.Send,
+                contentDescription = "Kirim Pesan Suara",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }

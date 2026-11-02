@@ -93,6 +93,7 @@ import java.util.Locale
 @Composable
 fun RosterContactsScreen(
     viewModel: XmppViewModel,
+    onStartDirectChat: ((jid: String, name: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
@@ -317,12 +318,18 @@ fun RosterContactsScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
-                        .testTag("roster_contact_list"),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .testTag("roster_contact_list")
                 ) {
                     items(filteredContacts, key = { it.jid }) { contact ->
-                        RosterContactCard(
+                        RosterContactListItem(
                             contact = contact,
+                            onChatClick = {
+                                if (onStartDirectChat != null) {
+                                    onStartDirectChat(contact.jid, contact.displayName)
+                                } else {
+                                    viewModel.startDirectChat(contact.jid, contact.displayName)
+                                }
+                            },
                             onRenameClick = { contactToRename = contact },
                             onDeleteClick = { contactToDelete = contact },
                             onCapsClick = { selectedCapsContact = contact },
@@ -400,8 +407,9 @@ fun RosterContactsScreen(
 }
 
 @Composable
-fun RosterContactCard(
+fun RosterContactListItem(
     contact: RosterContact,
+    onChatClick: () -> Unit,
     onRenameClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onCapsClick: () -> Unit = {},
@@ -420,249 +428,330 @@ fun RosterContactCard(
         UserPresence.OFFLINE -> OfflineGray
     }
 
-    val presenceLabel = when (contact.presence) {
-        UserPresence.ONLINE -> "Online"
-        UserPresence.CHAT -> "Chat"
-        UserPresence.AWAY -> "Away"
-        UserPresence.XA -> "Extended Away"
-        UserPresence.DND -> "Do Not Disturb"
-        UserPresence.OFFLINE -> "Offline"
-    }
-
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onChatClick() }
             .testTag("contact_item_${contact.jid}"),
-        shape = RoundedCornerShape(14.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.5.dp,
-            color = presenceColor.copy(alpha = if (contact.presence == UserPresence.OFFLINE) 0.25f else 0.8f)
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        )
+        color = Color.Transparent
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Avatar with Presence indicator & status border highlight
-            Box(contentAlignment = Alignment.BottomEnd) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(2.dp, presenceColor, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (contact.avatar != null) {
-                        coil.compose.AsyncImage(
-                            model = contact.avatar,
-                            contentDescription = "Avatar ${contact.displayName}",
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                        )
-                    } else {
-                        Text(
-                            text = contact.displayName.take(2).uppercase(Locale.getDefault()),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontSize = 16.sp
-                        )
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // User Avatar with Presence Dot
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (contact.avatar != null) {
+                            coil.compose.AsyncImage(
+                                model = contact.avatar,
+                                contentDescription = "Avatar ${contact.displayName}",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = contact.displayName.take(2).uppercase(Locale.getDefault()),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
+
+                    // Presence Colored Dot
+                    Box(
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clip(CircleShape)
+                            .background(presenceColor)
+                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                    )
                 }
 
-                // Presence Colored Dot
-                Box(
-                    modifier = Modifier
-                        .size(15.dp)
-                        .clip(CircleShape)
-                        .background(presenceColor)
-                        .border(2.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                )
-            }
+                Spacer(modifier = Modifier.width(12.dp))
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Details Column
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = contact.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = presenceColor.copy(alpha = 0.15f)
+                // Text Details Column
+                Column(modifier = Modifier.weight(1f)) {
+                    // Line 1: Display Name + Status Category Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = presenceLabel,
-                            color = presenceColor,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            text = contact.displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-                    }
-                }
 
-                Text(
-                    text = contact.jid,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                        Spacer(modifier = Modifier.width(6.dp))
 
-                // Client Caps Icon & Badge (Clickable to view full capabilities)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 3.dp)
-                ) {
-                    ClientCapsBadge(
-                        clientCaps = contact.clientCaps,
-                        onClick = onCapsClick
-                    )
-                    Text(
-                        text = contact.clientCaps.version,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        fontSize = 11.sp
-                    )
-                }
-
-                if (contact.statusMessage.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "\"${contact.statusMessage}\"",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // Groups chips
-                if (contact.groups.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        contact.groups.take(3).forEach { groupName ->
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = presenceColor.copy(alpha = 0.12f)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(presenceColor)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = groupName,
+                                    text = contact.statusCategoryLabel,
+                                    color = presenceColor,
                                     fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1
                                 )
                             }
                         }
                     }
-                }
-            }
 
-            // Quick Actions
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                IconButton(
-                    onClick = onCallClick,
-                    enabled = contact.presence != UserPresence.OFFLINE,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Call,
-                        contentDescription = "Panggil Suara",
-                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Line 2: Bare JID + Client Caps Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = contact.jid,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+
+                        ClientCapsBadge(
+                            clientCaps = contact.clientCaps,
+                            onClick = onCapsClick
+                        )
+                    }
+
+                    // Line 3: Status Message and PEP Chips (Tune, Activity, Mood)
+                    if (contact.hasPepEvent || contact.statusMessage.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (contact.statusMessage.isNotBlank()) {
+                                Text(
+                                    text = "\"${contact.statusMessage}\"",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                            }
+
+                            contact.pepTune?.let { tune ->
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "🎵 $tune",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            contact.pepActivity?.let { activity ->
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "💼 $activity",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+
+                            contact.pepMood?.let { mood ->
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        text = "🎯 $mood",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
-                IconButton(
-                    onClick = onVideoCallClick,
-                    enabled = contact.presence != UserPresence.OFFLINE,
-                    modifier = Modifier.size(36.dp)
+                // Line End Actions: Chat & More Options Menu
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Videocam,
-                        contentDescription = "Panggil Video",
-                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                    IconButton(
+                        onClick = onChatClick,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .testTag("chat_contact_${contact.jid}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Kirim Pesan",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
-                IconButton(
-                    onClick = onSendFileClick,
-                    enabled = contact.presence != UserPresence.OFFLINE,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Kirim File",
-                        tint = if (contact.presence != UserPresence.OFFLINE) MaterialTheme.colorScheme.primary else Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-
-            // More Options Menu
-            Box {
-                IconButton(
-                    onClick = { menuExpanded = true },
-                    modifier = Modifier.testTag("contact_options_${contact.jid}")
-                ) {
-                    Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Opsi kontak")
-                }
-
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Lihat Caps & Klien") },
-                        leadingIcon = {
-                            ClientCapsIcon(
-                                platform = contact.clientCaps.platform,
-                                modifier = Modifier.size(18.dp)
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .testTag("contact_options_${contact.jid}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Opsi kontak",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onCapsClick()
                         }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Ubah Nama") },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onRenameClick()
+
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Kirim Pesan (1-on-1)") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onChatClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Panggil Suara") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Call,
+                                        contentDescription = null,
+                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray
+                                    )
+                                },
+                                enabled = contact.presence != UserPresence.OFFLINE,
+                                onClick = {
+                                    menuExpanded = false
+                                    onCallClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Panggil Video") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Videocam,
+                                        contentDescription = null,
+                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray
+                                    )
+                                },
+                                enabled = contact.presence != UserPresence.OFFLINE,
+                                onClick = {
+                                    menuExpanded = false
+                                    onVideoCallClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Kirim File") },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                enabled = contact.presence != UserPresence.OFFLINE,
+                                onClick = {
+                                    menuExpanded = false
+                                    onSendFileClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Lihat Caps & Klien (XEP-0115)") },
+                                leadingIcon = {
+                                    ClientCapsIcon(
+                                        platform = contact.clientCaps.platform,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onCapsClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Ubah Nama") },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onRenameClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Hapus Kontak") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeleteClick()
+                                }
+                            )
                         }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Hapus Kontak") },
-                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
-                        onClick = {
-                            menuExpanded = false
-                            onDeleteClick()
-                        }
-                    )
+                    }
                 }
             }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 58.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            )
         }
     }
 }

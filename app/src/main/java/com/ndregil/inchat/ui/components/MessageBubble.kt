@@ -327,6 +327,9 @@ fun MessageBubble(
                             MessageType.FILE -> {
                                 FileMessageBubbleContent(message = message, textColor = textColor)
                             }
+                            MessageType.VOICE -> {
+                                VoiceMessageBubbleContent(message = message, textColor = textColor, isMine = isMine)
+                            }
                             MessageType.CALL_SIGNALLING -> {
                                 CallSignallingBubble(message = message, textColor = textColor)
                             }

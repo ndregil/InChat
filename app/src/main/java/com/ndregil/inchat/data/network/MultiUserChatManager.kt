@@ -1024,13 +1024,21 @@ class MultiUserChatManager(
                     null
                 }
 
-                val occupantCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                    name = nickname,
-                    jid = realJid,
-                    node = capsExtension?.node ?: "",
-                    ver = capsExtension?.ver ?: "",
-                    hash = capsExtension?.hash ?: "sha-1"
-                )
+                val occupantCaps = if (isMe) {
+                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = "InChat",
+                        jid = realJid,
+                        node = "http://ndregil.inchat"
+                    )
+                } else {
+                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = nickname,
+                        jid = realJid,
+                        node = capsExtension?.node ?: "",
+                        ver = capsExtension?.ver ?: "",
+                        hash = capsExtension?.hash ?: "sha-1"
+                    )
+                }
 
                 // Fetch avatar (will trigger fetch if missing, with fallback for current user)
                 val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)

@@ -117,8 +117,26 @@ class MucMessageListener(
             val isMine = senderNickname.equals(myNickname, ignoreCase = true)
 
             // Differentiate between private whispers (type="chat") and group messages (type="groupchat")
+            // Differentiate between private whispers, voice notes, and group messages
             val isWhisper = message.type == Message.Type.chat
-            val messageType = if (isWhisper) MessageType.WHISPER else MessageType.GROUPCHAT
+            val isVoice = body.startsWith("🎤 Pesan Suara") || 
+                (body.contains("http") && (body.contains(".m4a") || body.contains(".aac") || body.contains(".mp3") || body.contains(".ogg") || body.contains(".wav") || body.contains("voice_")))
+
+            val messageType = when {
+                isVoice -> MessageType.VOICE
+                isWhisper -> MessageType.WHISPER
+                else -> MessageType.GROUPCHAT
+            }
+
+            val voiceUrl = if (isVoice) {
+                body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") } 
+                    ?: body.substringAfter("\n", "").takeIf { it.startsWith("http") || it.startsWith("file://") }
+            } else null
+
+            val voiceDuration = if (isVoice) {
+                val durationMatch = Regex("\\((\\d+)d\\)").find(body)
+                durationMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 5
+            } else null
 
             // Extract true timestamp, handling delayed delivery (XEP-0203 / XEP-0091) for room history
             val delayInfo = DelayInformationManager.getDelayInformation(message)
@@ -137,7 +155,10 @@ class MucMessageListener(
                 isMine = isMine,
                 messageType = messageType,
                 status = DeliveryStatus.DELIVERED,
-                recipientNickname = if (isWhisper) myNickname else null
+                recipientNickname = if (isWhisper) myNickname else null,
+                fileUrl = voiceUrl,
+                fileMimeType = if (isVoice) "audio/mp4" else null,
+                voiceDurationSeconds = voiceDuration
             )
 
             Log.d(

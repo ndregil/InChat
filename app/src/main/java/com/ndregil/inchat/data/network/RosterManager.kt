@@ -44,7 +44,38 @@ class RosterManager(
     companion object {
         private const val TAG = "RosterManager"
 
-        val DEMO_CONTACTS = emptyList<RosterContact>()
+        val DEMO_CONTACTS = listOf(
+            RosterContact(
+                jid = "smartng@jabber.org",
+                name = "SmartNG.1",
+                presence = UserPresence.ONLINE,
+                statusMessage = "Available for direct messaging",
+                groups = listOf("Jabber", "Admins"),
+                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("SmartNG.1", "smartng@jabber.org", node = "http://conversations.im", ver = "2.9.8"),
+                pepActivity = "Working",
+                pepStatus = "Available"
+            ),
+            RosterContact(
+                jid = "tfox@conference.org",
+                name = "tfox",
+                presence = UserPresence.DND,
+                statusMessage = "In a meeting - Do Not Disturb",
+                groups = listOf("Devs"),
+                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("tfox", "tfox@conference.org", node = "http://psi-plus.com", ver = "1.5.0"),
+                pepMood = "Focused",
+                pepStatus = "Busy"
+            ),
+            RosterContact(
+                jid = "i_duthe@jabber.net",
+                name = "i_duthe",
+                presence = UserPresence.AWAY,
+                statusMessage = "Stepped out for coffee",
+                groups = listOf("Friends"),
+                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("i_duthe", "i_duthe@jabber.net", node = "http://miranda-ng.org/caps", ver = "0.96"),
+                pepTune = "Daft Punk - One More Time",
+                pepStatus = "Away"
+            )
+        )
     }
 
     // Reactive StateFlows for UI observation
@@ -149,6 +180,69 @@ class RosterManager(
         }
     }
 
+    private fun setupPepStanzaListener(connection: org.jivesoftware.smack.tcp.XMPPTCPConnection) {
+        val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
+        connection.addAsyncStanzaListener({ stanza ->
+            val msg = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
+            val fromJid = msg.from?.asBareJid()?.toString() ?: return@addAsyncStanzaListener
+
+            val event = try {
+                org.jivesoftware.smackx.pubsub.EventElement.from(msg)
+            } catch (e: Exception) { null } ?: return@addAsyncStanzaListener
+
+            var activity: String? = null
+            var mood: String? = null
+            var tune: String? = null
+            var pepStatus: String? = null
+
+            event.extensions.filterIsInstance<org.jivesoftware.smackx.pubsub.ItemsExtension>().forEach { items ->
+                when (items.node) {
+                    "http://jabber.org/protocol/tune" -> {
+                        val item = items.items.firstOrNull() as? org.jivesoftware.smackx.pubsub.PayloadItem<*>
+                        val xml = item?.payload?.toString() ?: ""
+                        val artist = "artist>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
+                        val title = "title>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
+                        if (!title.isNullOrBlank()) {
+                            tune = if (!artist.isNullOrBlank()) "$artist - $title" else title
+                        }
+                    }
+                    "http://jabber.org/protocol/activity" -> {
+                        val item = items.items.firstOrNull() as? org.jivesoftware.smackx.pubsub.PayloadItem<*>
+                        val xml = item?.payload?.toString() ?: ""
+                        val act = "text>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
+                        if (!act.isNullOrBlank()) activity = act
+                    }
+                    "http://jabber.org/protocol/mood" -> {
+                        val item = items.items.firstOrNull() as? org.jivesoftware.smackx.pubsub.PayloadItem<*>
+                        val xml = item?.payload?.toString() ?: ""
+                        val md = "text>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
+                        if (!md.isNullOrBlank()) mood = md
+                    }
+                    "http://jabber.org/protocol/status" -> {
+                        val item = items.items.firstOrNull() as? org.jivesoftware.smackx.pubsub.PayloadItem<*>
+                        val xml = item?.payload?.toString() ?: ""
+                        val st = "status>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
+                        if (!st.isNullOrBlank()) pepStatus = st
+                    }
+                }
+            }
+
+            if (activity != null || mood != null || tune != null || pepStatus != null) {
+                _contacts.value = _contacts.value.map { contact ->
+                    if (contact.jid.equals(fromJid, ignoreCase = true)) {
+                        contact.copy(
+                            pepActivity = activity ?: contact.pepActivity,
+                            pepMood = mood ?: contact.pepMood,
+                            pepTune = tune ?: contact.pepTune,
+                            pepStatus = pepStatus ?: contact.pepStatus,
+                            statusMessage = pepStatus ?: contact.statusMessage
+                        )
+                    } else contact
+                }
+            }
+        }, filter)
+    }
+
     /**
      * Initializes the Smack Roster for the active connection, sets subscription mode,
      * and attaches listeners.
@@ -177,6 +271,8 @@ class RosterManager(
 
             roster.removeRosterLoadedListener(rosterLoadedListener)
             roster.addRosterLoadedListener(rosterLoadedListener)
+
+            setupPepStanzaListener(connection)
 
             if (roster.isLoaded) {
                 _isLoaded.value = true

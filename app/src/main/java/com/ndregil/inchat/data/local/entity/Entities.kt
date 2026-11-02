@@ -77,7 +77,8 @@ data class MessageEntity(
     val fileSize: Long? = null,
     val replyToMessageId: String? = null,
     val replyToSender: String? = null,
-    val replyToText: String? = null
+    val replyToText: String? = null,
+    val voiceDurationSeconds: Int? = null
 )
 
 typealias ChatMessageEntity = MessageEntity
