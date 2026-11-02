@@ -2,11 +2,19 @@ package com.ndregil.inchat.ui.screens
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,18 +32,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.os.PowerManager
-import android.provider.Settings
 import com.ndregil.inchat.data.model.ConnectionStatus
 import com.ndregil.inchat.data.model.XmppAccount
-import com.ndregil.inchat.ui.RegistrationState
 import com.ndregil.inchat.data.network.fcm.XmppForegroundService
+import com.ndregil.inchat.ui.RegistrationState
+import com.ndregil.inchat.ui.theme.AwayAmber
+import com.ndregil.inchat.ui.theme.DndRed
+import com.ndregil.inchat.ui.theme.OnlineGreen
+
+enum class SubSettingCategory(val title: String, val subtitle: String, val icon: ImageVector) {
+    ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
+    DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
+    CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
+    NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
+    ABOUT("About", "InChat, XMPP Client for Android, versi & hak cipta", Icons.Default.Info)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,17 +76,76 @@ fun SettingsScreen(
     myAvatar: ByteArray?,
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
+    onNavigateToBookmarks: () -> Unit,
     onSwitchToAccountTab: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    var showXepInfoDialog by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf<SubSettingCategory?>(null) }
+
+    // Intercept back button when inside a sub-setting category
+    if (selectedCategory != null) {
+        BackHandler {
+            selectedCategory = null
+        }
+    }
+
+    AnimatedContent(
+        targetState = selectedCategory,
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "SettingsSubNavigation"
+    ) { category ->
+        if (category == null) {
+            MainSubSettingsMenu(
+                currentAccount = currentAccount,
+                connectionStatus = connectionStatus,
+                myAvatar = myAvatar,
+                onSelectCategory = { selectedCategory = it },
+                onUpdateAvatar = onUpdateAvatar,
+                onSwitchToAccountTab = onSwitchToAccountTab,
+                modifier = modifier
+            )
+        } else {
+            SubSettingDetailScreen(
+                category = category,
+                currentAccount = currentAccount,
+                connectionStatus = connectionStatus,
+                myAvatar = myAvatar,
+                isDarkMode = isDarkMode,
+                onToggleDarkMode = onToggleDarkMode,
+                onNavigateToBookmarks = onNavigateToBookmarks,
+                onSwitchToAccountTab = onSwitchToAccountTab,
+                onUpdateAvatar = onUpdateAvatar,
+                onConnect = onConnect,
+                onDisconnect = onDisconnect,
+                onBack = { selectedCategory = null },
+                modifier = modifier
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainSubSettingsMenu(
+    currentAccount: XmppAccount,
+    connectionStatus: ConnectionStatus,
+    myAvatar: ByteArray?,
+    onSelectCategory: (SubSettingCategory) -> Unit,
+    onUpdateAvatar: (Uri) -> Unit,
+    onSwitchToAccountTab: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { onUpdateAvatar(it) }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Pengaturan & Konfigurasi", fontWeight = FontWeight.Bold) },
+                title = { Text("Pengaturan", fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 )
@@ -81,16 +160,8 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            // Section 1: Account & Server Connection Status
+            // Profile & Connection Quick Header
             item {
-                val avatarPicker = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.GetContent()
-                ) { uri ->
-                    uri?.let { onUpdateAvatar(it) }
-                }
-
-                SettingsCategoryHeader(title = "Akun & Koneksi XMPP", icon = Icons.Default.AccountCircle)
-                Spacer(modifier = Modifier.height(8.dp))
                 AccountConnectionCard(
                     currentAccount = currentAccount,
                     connectionStatus = connectionStatus,
@@ -100,250 +171,407 @@ fun SettingsScreen(
                 )
             }
 
-            // Section 2: Theme & Appearance
             item {
-                SettingsCategoryHeader(title = "Tampilan & Tema", icon = Icons.Default.Palette)
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                Text(
+                    text = "Sub Pengaturan",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                )
+            }
+
+            // Sub Settings List Tiles
+            items(SubSettingCategory.values().size) { index ->
+                val category = SubSettingCategory.values()[index]
+                SubSettingTileCard(
+                    category = category,
+                    onClick = { onSelectCategory(category) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SubSettingTileCard(
+    category: SubSettingCategory,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .testTag("setting_tile_${category.name.lowercase()}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = category.icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = category.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = category.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SubSettingDetailScreen(
+    category: SubSettingCategory,
+    currentAccount: XmppAccount,
+    connectionStatus: ConnectionStatus,
+    myAvatar: ByteArray?,
+    isDarkMode: Boolean,
+    onToggleDarkMode: () -> Unit,
+    onNavigateToBookmarks: () -> Unit,
+    onSwitchToAccountTab: () -> Unit,
+    onUpdateAvatar: (Uri) -> Unit,
+    onConnect: (XmppAccount, String) -> Unit,
+    onDisconnect: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text(category.title, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Kembali ke Pengaturan"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            )
+        }
+    ) { paddingValues ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            when (category) {
+                SubSettingCategory.ACCOUNT -> AccountSubSettings(
+                    currentAccount = currentAccount,
+                    connectionStatus = connectionStatus,
+                    myAvatar = myAvatar,
+                    onUpdateAvatar = onUpdateAvatar,
+                    onSwitchToAccountTab = onSwitchToAccountTab,
+                    onConnect = onConnect,
+                    onDisconnect = onDisconnect
+                )
+                SubSettingCategory.DISPLAY -> DisplaySubSettings(
+                    isDarkMode = isDarkMode,
+                    onToggleDarkMode = onToggleDarkMode,
+                    onNavigateToBookmarks = onNavigateToBookmarks
+                )
+                SubSettingCategory.CONNECTION -> ConnectionSubSettings(
+                    currentAccount = currentAccount,
+                    connectionStatus = connectionStatus,
+                    onConnect = onConnect,
+                    onDisconnect = onDisconnect
+                )
+                SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
+                SubSettingCategory.ABOUT -> AboutSubSettings()
+            }
+        }
+    }
+}
+
+// ==========================================
+// 1. PENGATURAN AKUN SUB-SETTING
+// ==========================================
+@Composable
+fun AccountSubSettings(
+    currentAccount: XmppAccount,
+    connectionStatus: ConnectionStatus,
+    myAvatar: ByteArray?,
+    onUpdateAvatar: (Uri) -> Unit,
+    onSwitchToAccountTab: () -> Unit,
+    onConnect: (XmppAccount, String) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { onUpdateAvatar(it) }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            AccountConnectionCard(
+                currentAccount = currentAccount,
+                connectionStatus = connectionStatus,
+                myAvatar = myAvatar,
+                onManageAccountClick = onSwitchToAccountTab,
+                onUpdateAvatarClick = { avatarPicker.launch("image/*") }
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Informasi Detail Akun", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Bare JID", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.jid.isNotBlank()) currentAccount.jid else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Nickname", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.nickname.isNotBlank()) currentAccount.nickname else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Domain Server", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.domain.isNotBlank()) currentAccount.domain else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onSwitchToAccountTab,
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = if (isDarkMode) Icons.Default.NightsStay else Icons.Default.WbSunny,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Mode Gelap (Dark Mode)", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                                    Text(
-                                        if (isDarkMode) "Tema gelap aktif untuk kenyamanan mata" else "Tema terang aktif",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                            Icon(Icons.Default.SwitchAccount, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Ganti Akun")
+                        }
+
+                        if (connectionStatus == ConnectionStatus.CONNECTED) {
+                            Button(
+                                onClick = onDisconnect,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Putuskan")
                             }
-                            Switch(
-                                checked = isDarkMode,
-                                onCheckedChange = { onToggleDarkMode() },
-                                modifier = Modifier.testTag("switch_dark_mode")
-                            )
+                        } else {
+                            Button(
+                                onClick = { onConnect(currentAccount, "") },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Hubungkan")
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            // Section 3: Foreground Service & Anti-Kill System
-            item {
-                SettingsCategoryHeader(title = "Latar Belakang & Anti-Kill", icon = Icons.Default.Memory)
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
-                var isIgnoringBatteryOptimizations by remember { 
-                    mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName)) 
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+// ==========================================
+// 2. PENGATURAN TAMPILAN SUB-SETTING
+// ==========================================
+@Composable
+fun DisplaySubSettings(
+    isDarkMode: Boolean,
+    onToggleDarkMode: () -> Unit,
+    onNavigateToBookmarks: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = if (isDarkMode) Icons.Default.NightsStay else Icons.Default.WbSunny,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
-                                Text("Layanan Foreground & Wakelock", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Mode Gelap (Dark Mode)", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                                 Text(
-                                    "Koneksi XMPP dan push pesan tetap aktif di latar belakang (Anti-Kill OS).",
+                                    if (isDarkMode) "Tema gelap aktif untuk kenyamanan mata" else "Tema terang aktif",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Battery Optimization Status & Action
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (isIgnoringBatteryOptimizations) 
-                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                    else 
-                                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
-                                )
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                Icon(
-                                    imageVector = if (isIgnoringBatteryOptimizations) Icons.Default.BatteryFull else Icons.Default.BatteryAlert,
-                                    contentDescription = null,
-                                    tint = if (isIgnoringBatteryOptimizations) com.ndregil.inchat.ui.theme.OnlineGreen else com.ndregil.inchat.ui.theme.DndRed,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        if (isIgnoringBatteryOptimizations) "Baterai Dioptimalkan (Aman)" else "Optimasi Baterai Aktif",
-                                        fontWeight = FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
-                                    Text(
-                                        if (isIgnoringBatteryOptimizations) "App diizinkan berjalan tanpa batas" else "Sistem mungkin mematikan app di latar belakang",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            
-                            if (!isIgnoringBatteryOptimizations) {
-                                TextButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                                data = Uri.parse("package:${context.packageName}")
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: android.content.ActivityNotFoundException) {
-                                            try {
-                                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                                                context.startActivity(intent)
-                                            } catch (ex: Exception) {}
-                                        } catch (e: Exception) {
-                                            // Handle other errors
-                                        }
-                                    }
-                                ) {
-                                    Text("Perbaiki", fontSize = 12.sp)
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Text("Metode 1: Standard Foreground Service", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { XmppForegroundService.startService(context) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Mulai Service", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { XmppForegroundService.stopService(context) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Hentikan", fontSize = 11.sp)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text("Metode 2: WorkManager Service (Modern)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(context) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
-                            ) {
-                                Icon(Icons.Default.Update, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Aktifkan Work", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.stop(context) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Cancel, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Batalkan", fontSize = 11.sp)
-                            }
-                        }
+                        Switch(
+                            checked = isDarkMode,
+                            onCheckedChange = { onToggleDarkMode() },
+                            modifier = Modifier.testTag("switch_dark_mode")
+                        )
                     }
-                }
-            }
 
-            // Section 4: Standards & XEP Information
-            item {
-                SettingsCategoryHeader(title = "Standar & Protokol XEP", icon = Icons.Default.Code)
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showXepInfoDialog = true },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                ) {
+                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { onNavigateToBookmarks() },
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Informasi Standar XEP", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text(
-                                "XEP-0048, XEP-0402, XEP-0166 Jingle, XEP-0077 IBR, XEP-0153 Avatars",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Kelola Ruangan Favorit & Bookmarks", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Atur auto-join dan daftar favorit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
+        }
+    }
+}
 
-            // Section 5: About App
-            item {
-                SettingsCategoryHeader(title = "Tentang InChat", icon = Icons.Default.Info)
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text("InChat Multi-Room XMPP", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("Versi 1.0.0 (Production)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            "Aplikasi chat berbasis protokol terbuka XMPP dengan dukungan MUC, Bookmarks, Jingle Voice/Video Calls, dan enkripsi lokal.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+// ==========================================
+// 3. PENGATURAN KONEKSI SUB-SETTING
+// ==========================================
+@Composable
+fun ConnectionSubSettings(
+    currentAccount: XmppAccount,
+    connectionStatus: ConnectionStatus,
+    onConnect: (XmppAccount, String) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    var showXepInfoDialog by remember { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Konfigurasi Server & TLS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Host Server", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.host.isNotBlank()) currentAccount.host else currentAccount.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Port XMPP", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${currentAccount.port}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Enkripsi TLS", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.useTls) "STARTTLS Direct" else "Disabled", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = if (currentAccount.useTls) OnlineGreen else AwayAmber)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Status Koneksi", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(connectionStatus.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = when(connectionStatus) {
+                            ConnectionStatus.CONNECTED -> OnlineGreen
+                            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber
+                            else -> DndRed
+                        })
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showXepInfoDialog = true },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Informasi Standar & Protokol XEP", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text("XEP-0048, XEP-0402, XEP-0166, XEP-0077, XEP-0153, XEP-0084, XEP-0184", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -355,11 +583,12 @@ fun SettingsScreen(
             title = { Text("Spesifikasi & Standar XEP") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("• XEP-0048 & XEP-0402: Bookmarks MUC & PEP Native Bookmarks untuk autojoin ruang favorit.")
-                    Text("• XEP-0166 & XEP-0167: Jingle Audio & Video Calling antar pengguna.")
-                    Text("• XEP-0077: In-Band Registration (pendaftaran akun langsung ke server).")
-                    Text("• XEP-0153 & XEP-0084: vCard-temp & PEP Avatar synchronization.")
-                    Text("• XEP-0045: Multi-User Chat (MUC) lengkap dengan moderasi dan konfigurasi ruang.")
+                    Text("• XEP-0048 & XEP-0402: Bookmarks MUC & PEP Native Bookmarks.")
+                    Text("• XEP-0184: Message Delivery Receipts (tanda terima pesan).")
+                    Text("• XEP-0166 & XEP-0167: Jingle Audio & Video Calling.")
+                    Text("• XEP-0077: In-Band Registration (pendaftaran akun).")
+                    Text("• XEP-0153 & XEP-0084: vCard & PEP User Avatar sync.")
+                    Text("• XEP-0045: Multi-User Chat moderasi dan hak akses.")
                 }
             },
             confirmButton = {
@@ -371,20 +600,285 @@ fun SettingsScreen(
     }
 }
 
+// ==========================================
+// 4. PENGATURAN NOTIFIKASI SUB-SETTING
+// ==========================================
 @Composable
-fun SettingsCategoryHeader(title: String, icon: ImageVector) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 4.dp)
+fun NotificationSubSettings() {
+    val context = LocalContext.current
+    val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
+    var isIgnoringBatteryOptimizations by remember {
+        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = if (!isIgnoringBatteryOptimizations) BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)) else null
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            "Stabilitas Latar Belakang & Anti-Kill",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        "Menjamin aplikasi tidak dimatikan oleh sistem saat layar mati agar pesan tetap masuk.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+
+                    // Battery Optimization Status & Action
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isIgnoringBatteryOptimizations)
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        else
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                        border = if (!isIgnoringBatteryOptimizations)
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.2f))
+                        else null
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isIgnoringBatteryOptimizations) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = if (isIgnoringBatteryOptimizations) OnlineGreen else MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (isIgnoringBatteryOptimizations) "Optimasi Baterai: Aman" else "Optimasi Baterai: Terbatas",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isIgnoringBatteryOptimizations) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    if (isIgnoringBatteryOptimizations) "Aplikasi diizinkan berjalan tanpa batas." else "Sistem mungkin menghentikan aplikasi secara paksa.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            if (!isIgnoringBatteryOptimizations) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            try {
+                                                val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                                context.startActivity(intent)
+                                            } catch (ex: Exception) {}
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(32.dp),
+                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    )
+                                ) {
+                                    Text("Perbaiki", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("Metode Anti-Kill (Manual)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    AntiKillMethodRow(
+                        title = "Foreground Service",
+                        description = "Ikon aktif di notifikasi (XEP-Standard)",
+                        onStart = { XmppForegroundService.startService(context) },
+                        onStop = { XmppForegroundService.stopService(context) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    AntiKillMethodRow(
+                        title = "WorkManager (Pesan)",
+                        description = "Penjadwalan sistem modern (Background)",
+                        onStart = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(context) },
+                        onStop = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.stop(context) },
+                        primaryColor = MaterialTheme.colorScheme.secondaryContainer,
+                        onPrimaryColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// 5. ABOUT SUB-SETTING (EXACT USER SPECIFICATION)
+// ==========================================
+@Composable
+fun AboutSubSettings() {
+    val clientVersion = "v1.2.0 (Build 202611)"
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // App Logo Icon
+                    Surface(
+                        modifier = Modifier.size(72.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Forum,
+                                contentDescription = "InChat Logo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // App Title
+                    Text(
+                        text = "InChat",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Subtitle
+                    Text(
+                        text = "XMPP Client for Android",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Client Version Badge
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                    ) {
+                        Text(
+                            text = clientVersion,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "Aplikasi pesan instan XMPP tingkat lanjut untuk Android dengan dukungan Multi-User Chat (MUC), Presence, Delivery Receipts (XEP-0184), vCard & User Avatars (XEP-0084), Jingle Calls, Bookmarks, serta Manajemen Administrasi Moderasi Ruangan.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 20.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Copyright Banner
+                    Text(
+                        text = "Copyright © 2026 Ndregil",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ==========================================
+// COMMON SHARED COMPONENTS
+// ==========================================
+@Composable
+fun AntiKillMethodRow(
+    title: String,
+    description: String,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    primaryColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primaryContainer,
+    onPrimaryColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onPrimaryContainer
+) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(description, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconButton(
+                    onClick = onStart,
+                    modifier = Modifier.size(36.dp).background(primaryColor, CircleShape)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = "Start", tint = onPrimaryColor, modifier = Modifier.size(20.dp))
+                }
+                IconButton(
+                    onClick = onStop,
+                    modifier = Modifier.size(36.dp).border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
     }
 }
 
@@ -400,19 +894,19 @@ fun AccountConnectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onManageAccountClick() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Avatar with edit badge
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(64.dp)
                     .clickable { onUpdateAvatarClick() }
             ) {
                 val decodedBitmap = remember(myAvatar) {
@@ -430,65 +924,68 @@ fun AccountConnectionCard(
                         .fillMaxSize()
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     if (decodedBitmap != null) {
-                        androidx.compose.foundation.Image(
+                        Image(
                             bitmap = decodedBitmap.asImageBitmap(),
                             contentDescription = "Foto Profil",
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            contentScale = ContentScale.Crop
                         )
                     } else {
-                        Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(32.dp)
+                        )
                     }
                 }
 
-                Box(
+                Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(18.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
-                    contentAlignment = Alignment.Center
+                        .size(22.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Ganti Foto",
-                        modifier = Modifier.size(10.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Ganti Foto",
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (currentAccount.jid.isNotBlank()) currentAccount.jid else "Belum ada akun aktif",
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                when (connectionStatus) {
-                                    ConnectionStatus.CONNECTED -> com.ndregil.inchat.ui.theme.OnlineGreen
-                                    ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> com.ndregil.inchat.ui.theme.AwayAmber
-                                    ConnectionStatus.ERROR -> com.ndregil.inchat.ui.theme.DndRed
-                                    ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Surface(
+                        modifier = Modifier.size(10.dp),
+                        shape = CircleShape,
+                        color = when (connectionStatus) {
+                            ConnectionStatus.CONNECTED -> OnlineGreen
+                            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber
+                            ConnectionStatus.ERROR -> DndRed
+                            ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    ) {}
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = when (connectionStatus) {
                             ConnectionStatus.CONNECTED -> "Terhubung"
@@ -497,13 +994,17 @@ fun AccountConnectionCard(
                             ConnectionStatus.ERROR -> "Koneksi Error"
                             ConnectionStatus.DISCONNECTED -> "Terputus"
                         },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
         }
     }
 }

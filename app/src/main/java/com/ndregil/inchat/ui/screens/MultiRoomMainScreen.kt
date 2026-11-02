@@ -3,6 +3,9 @@ package com.ndregil.inchat.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Star
@@ -62,6 +67,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
@@ -77,6 +83,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalContext
+import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -160,6 +167,7 @@ fun MultiRoomMainScreen(
     var showRoomMenu by remember { mutableStateOf(false) }
     var selectedCapsOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
     var showAccountSettingsDirectly by remember { mutableStateOf(false) }
+    var showBookmarksScreen by remember { mutableStateOf(false) }
 
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
@@ -180,6 +188,7 @@ fun MultiRoomMainScreen(
     val isDirectoryLoading by viewModel.isDirectoryLoading.collectAsStateWithLifecycle()
     val whisperTarget by viewModel.whisperTargetOccupant.collectAsStateWithLifecycle()
     val replyingToMessage by viewModel.replyingToMessage.collectAsStateWithLifecycle()
+    val moderationHistory by viewModel.activeRoomModerationHistory.collectAsStateWithLifecycle()
     val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
     val isBackupLoading by viewModel.isBackupLoading.collectAsStateWithLifecycle()
     val currentInput by viewModel.currentInputText.collectAsStateWithLifecycle()
@@ -222,6 +231,16 @@ fun MultiRoomMainScreen(
         }
     }
 
+    val roomAvatarPicker = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            activeRoom?.let { room ->
+                viewModel.updateRoomAvatar(room.jid, room.name, it)
+            }
+        }
+    }
+
     // Auto scroll to latest message when messages change
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -254,6 +273,22 @@ fun MultiRoomMainScreen(
             viewModel.clearRoomConfigStatus()
         }
     }
+
+    // Show Toast for automatic MUC room join status upon app startup
+    val autoJoinToastStatus by viewModel.autoJoinToastStatus.collectAsStateWithLifecycle()
+    LaunchedEffect(autoJoinToastStatus) {
+        val status = autoJoinToastStatus
+        if (!status.isNullOrBlank()) {
+            android.widget.Toast.makeText(context, status, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearAutoJoinToastStatus()
+        }
+    }
+
+    val ownersList by viewModel.ownersList.collectAsStateWithLifecycle()
+    val adminsList by viewModel.adminsList.collectAsStateWithLifecycle()
+    val membersList by viewModel.membersList.collectAsStateWithLifecycle()
+    val outcastsList by viewModel.outcastsList.collectAsStateWithLifecycle()
+    val isLoadingAffiliations by viewModel.isLoadingAffiliations.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -353,7 +388,7 @@ fun MultiRoomMainScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
-                                    .clickable { showTopicDetailDialog = true }
+                                    .clickable { viewModel.isRosterSheetOpen.value = true }
                                     .padding(vertical = 2.dp)
                             ) {
                                 // Connection Status Dot
@@ -376,6 +411,7 @@ fun MultiRoomMainScreen(
                                 if (connectionStatus == ConnectionStatus.ERROR || connectionStatus == ConnectionStatus.DISCONNECTED) {
                                     OutlinedButton(
                                         onClick = { viewModel.reconnect() },
+                                        enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING,
                                         modifier = Modifier.height(28.dp).padding(end = 8.dp),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
@@ -390,6 +426,24 @@ fun MultiRoomMainScreen(
 
                                 Column(modifier = Modifier.weight(1f, fill = false)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val activeRoomAvatarBytes = activeRoom?.jid?.let { viewModel.repository.getRoomAvatar(it) }
+                                        val activeRoomBitmap = remember(activeRoomAvatarBytes) {
+                                            if (activeRoomAvatarBytes != null && activeRoomAvatarBytes.isNotEmpty()) {
+                                                android.graphics.BitmapFactory.decodeByteArray(activeRoomAvatarBytes, 0, activeRoomAvatarBytes.size)
+                                            } else null
+                                        }
+                                        if (activeRoomBitmap != null) {
+                                            Image(
+                                                bitmap = activeRoomBitmap.asImageBitmap(),
+                                                contentDescription = "Avatar Room",
+                                                modifier = Modifier
+                                                    .size(20.dp)
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                        }
+
                                         Text(
                                             text = activeRoom?.name ?: "InChat",
                                             style = MaterialTheme.typography.titleMedium,
@@ -397,6 +451,13 @@ fun MultiRoomMainScreen(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Badge(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        ) {
+                                            Text("${occupants.size}", fontSize = 10.sp)
+                                        }
                                         if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) {
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Icon(
@@ -411,7 +472,7 @@ fun MultiRoomMainScreen(
                                         text = if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) {
                                             activeRoom?.topic ?: ""
                                         } else {
-                                            "${occupants.size} online • ${activeRoom?.jid ?: currentAccount.domain}"
+                                            activeRoom?.jid ?: currentAccount.domain
                                         },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -582,6 +643,22 @@ fun MultiRoomMainScreen(
                                         }
                                     }
                                 )
+                                if (activeRoom?.myRole == OccupantRole.ADMIN || activeRoom?.myRole == OccupantRole.OWNER) {
+                                    DropdownMenuItem(
+                                        text = { Text("Administrasi Ruang") },
+                                        leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            activeRoom?.let { room ->
+                                                coroutineScope.launch {
+                                                    val info = viewModel.repository.getRoomInfo(room.jid)
+                                                    roomConfigInfo = info.getOrNull()
+                                                    viewModel.isAdminPanelOpen.value = true
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Tinggalkan Room Ini") },
                                     leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
@@ -623,6 +700,7 @@ fun MultiRoomMainScreen(
                     top = if (activeNavIndex == 0) paddingValues.calculateTopPadding() else 0.dp,
                     bottom = paddingValues.calculateBottomPadding()
                 )
+                .imePadding()
         ) {
             when (activeNavIndex) {
                 0 -> {
@@ -637,6 +715,27 @@ fun MultiRoomMainScreen(
                             onSelectRoom = { jid -> viewModel.selectRoom(jid) },
                             onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true }
                         )
+
+                        // Room Occupancy and Capabilities Indicator
+                        RoomOccupantsCapsBar(
+                            occupants = occupants,
+                            onOccupantClick = { occ -> 
+                                selectedCapsOccupant = occ
+                                viewModel.setWhisperTarget(occ)
+                            },
+                            onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
+                        )
+
+                        // Expandable Room Topic Banner with Bookmark Toggle
+                        activeRoom?.let { room ->
+                            RoomTopicBanner(
+                                topic = room.topic,
+                                roomJid = room.jid,
+                                isBookmarked = room.isBookmarked,
+                                onTopicChange = { newTopic -> viewModel.updateTopic(newTopic) },
+                                onBookmarkToggle = { viewModel.toggleSaveRoom(room.jid) }
+                            )
+                        }
 
                         // Message Feed (Maximized space for leluasa group chat view)
                         Box(
@@ -831,7 +930,14 @@ fun MultiRoomMainScreen(
                 }
 
                 4 -> {
-                    if (!showAccountSettingsDirectly) {
+                    if (showBookmarksScreen) {
+                        ManageBookmarksScreen(
+                            savedRooms = savedRooms,
+                            onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
+                            onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
+                            onBack = { showBookmarksScreen = false }
+                        )
+                    } else if (!showAccountSettingsDirectly) {
                         SettingsScreen(
                             currentAccount = currentAccount,
                             connectionStatus = connectionStatus,
@@ -864,54 +970,53 @@ fun MultiRoomMainScreen(
                             myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value,
                             isDarkMode = isDarkMode,
                             onToggleDarkMode = { viewModel.toggleDarkMode(systemDark) },
+                            onNavigateToBookmarks = { showBookmarksScreen = true },
                             onSwitchToAccountTab = { showAccountSettingsDirectly = true }
                         )
                     } else {
-                        Scaffold(
-                            topBar = {
-                                TopAppBar(
-                                    title = { Text("Konfigurasi Akun & Server") },
-                                    navigationIcon = {
-                                        IconButton(onClick = { showAccountSettingsDirectly = false }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Tutup")
-                                        }
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            TopAppBar(
+                                title = { Text("Konfigurasi Akun & Server", fontWeight = FontWeight.Bold) },
+                                navigationIcon = {
+                                    IconButton(onClick = { showAccountSettingsDirectly = false }) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
                                     }
+                                },
+                                colors = TopAppBarDefaults.topAppBarColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 )
-                            }
-                        ) { innerPadding ->
-                            Box(modifier = Modifier.padding(innerPadding)) {
-                                AccountConnectionScreen(
-                                    currentAccount = currentAccount,
-                                    connectionStatus = connectionStatus,
-                                    registrationState = registrationState,
-                                    onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
-                                    onDisconnect = { viewModel.disconnect() },
-                                    onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
-                                        viewModel.registerAccount(
-                                            username = user,
-                                            password = pass,
-                                            domain = dom,
-                                            host = host,
-                                            port = port,
-                                            nickname = nick,
-                                            email = email,
-                                            useTls = tls,
-                                            autoLogin = true
-                                        )
-                                    },
-                                    onCreateInstantAccount = { user, dom, nick ->
-                                        viewModel.createInstantAccount(user, dom, nick)
-                                    },
-                                    onResetRegistrationState = { viewModel.resetRegistrationState() },
-                                    backupStatus = backupStatus,
-                                    isBackupLoading = isBackupLoading,
-                                    onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
-                                    onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
-                                    onClearBackupStatus = { viewModel.clearBackupStatus() },
-                                    onUpdateAvatar = { viewModel.updateAvatar(it) },
-                                    myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value
-                                )
-                            }
+                            )
+                            AccountConnectionScreen(
+                                currentAccount = currentAccount,
+                                connectionStatus = connectionStatus,
+                                registrationState = registrationState,
+                                onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
+                                onDisconnect = { viewModel.disconnect() },
+                                onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
+                                    viewModel.registerAccount(
+                                        username = user,
+                                        password = pass,
+                                        domain = dom,
+                                        host = host,
+                                        port = port,
+                                        nickname = nick,
+                                        email = email,
+                                        useTls = tls,
+                                        autoLogin = true
+                                    )
+                                },
+                                onCreateInstantAccount = { user, dom, nick ->
+                                    viewModel.createInstantAccount(user, dom, nick)
+                                },
+                                onResetRegistrationState = { viewModel.resetRegistrationState() },
+                                backupStatus = backupStatus,
+                                isBackupLoading = isBackupLoading,
+                                onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
+                                onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
+                                onClearBackupStatus = { viewModel.clearBackupStatus() },
+                                onUpdateAvatar = { viewModel.updateAvatar(it) },
+                                myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value
+                            )
                         }
                     }
                 }
@@ -949,12 +1054,20 @@ fun MultiRoomMainScreen(
     }
 
     if (isJoinCreateOpen) {
+        val joinStatus by viewModel.joinStatus.collectAsStateWithLifecycle()
+        val isJoinLoading by viewModel.isJoinLoading.collectAsStateWithLifecycle()
+        
         JoinCreateRoomDialog(
             defaultNickname = currentAccount.nickname,
-            onDismiss = { viewModel.isJoinCreateDialogOpen.value = false },
+            isLoading = isJoinLoading,
+            status = joinStatus,
+            onDismiss = { 
+                viewModel.isJoinCreateDialogOpen.value = false 
+                viewModel.clearJoinStatus()
+            },
             onJoinOrCreate = { jid, name, nick, topic, pwd, save ->
                 viewModel.joinOrCreateRoom(jid, name, nick, topic, pwd, save)
-                activeNavIndex = 0
+                // activeNavIndex = 0 // Removed to keep dialog open if failure occurs
             }
         )
     }
@@ -964,6 +1077,7 @@ fun MultiRoomMainScreen(
             RoomConfigurationDialog(
                 roomJid = room.jid,
                 initialInfo = roomConfigInfo,
+                moderationMessages = moderationHistory,
                 isLoading = isRoomConfigLoading,
                 onDismiss = { viewModel.isRoomConfigOpen.value = false },
                 onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
@@ -985,9 +1099,14 @@ fun MultiRoomMainScreen(
     }
 
     if (isThemeWallpaperOpen) {
+        val activeRoomAvatar = activeRoom?.jid?.let { viewModel.repository.getRoomAvatar(it) }
         com.ndregil.inchat.ui.components.ChatThemeSettingsDialog(
             currentTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
             currentWallpaper = activeRoom?.wallpaperStyle ?: "default",
+            roomJid = activeRoom?.jid,
+            roomName = activeRoom?.name,
+            roomAvatar = activeRoomAvatar,
+            onSelectRoomAvatar = { roomAvatarPicker.launch("image/*") },
             onSave = { theme, wallpaper ->
                 activeRoom?.let { room ->
                     viewModel.updateRoomThemeAndWallpaper(room.jid, theme, wallpaper)
@@ -1004,7 +1123,13 @@ fun MultiRoomMainScreen(
             occupants = occupants,
             initialInfo = roomAdminInfo,
             isLoadingConfig = isRoomConfigLoading,
+            ownersList = ownersList,
+            adminsList = adminsList,
+            membersList = membersList,
+            outcastsList = outcastsList,
+            isLoadingAffiliations = isLoadingAffiliations,
             onDismiss = { viewModel.isAdminPanelOpen.value = false },
+            onLoadAffiliations = { viewModel.loadRoomAffiliations(activeRoom!!.jid) },
             onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
                 viewModel.configureRoom(
                     roomJid = activeRoom!!.jid,
@@ -1025,8 +1150,14 @@ fun MultiRoomMainScreen(
             onRevokeMembership = { jid -> viewModel.revokeMembership(activeRoom!!.jid, jid) },
             onGrantAdmin = { jid -> viewModel.grantAdmin(activeRoom!!.jid, jid) },
             onRevokeAdmin = { jid -> viewModel.revokeAdmin(activeRoom!!.jid, jid) },
+            onGrantOwnership = { jid -> viewModel.grantOwnership(activeRoom!!.jid, jid) },
+            onRevokeOwnership = { jid -> viewModel.revokeOwnership(activeRoom!!.jid, jid) },
+            onGrantVoice = { nick -> viewModel.grantVoice(activeRoom!!.jid, nick) },
+            onRevokeVoice = { nick -> viewModel.revokeVoice(activeRoom!!.jid, nick) },
             onBanUser = { jid, reason -> viewModel.banUser(activeRoom!!.jid, jid, reason) },
-            onKickUser = { nick, reason -> viewModel.kickParticipant(activeRoom!!.jid, nick, reason) }
+            onUnbanUser = { jid -> viewModel.unbanUser(activeRoom!!.jid, jid) },
+            onKickUser = { nick, reason -> viewModel.kickParticipant(activeRoom!!.jid, nick, reason) },
+            moderationMessages = moderationHistory
         )
     }
 
@@ -1597,9 +1728,9 @@ fun ChatInputBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     // Attach File Button (Compact 36dp)
                     IconButton(
@@ -1617,12 +1748,33 @@ fun ChatInputBar(
                         )
                     }
 
+                    // Voice Record Button (Mic) - Moved near Attach Icon
+                    IconButton(
+                        onClick = {
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .align(Alignment.Bottom)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .testTag("btn_voice_record")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Kirim Pesan Suara",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
                     // Compact Auto-expanding Text Input Capsule
                     Surface(
                         modifier = Modifier
                             .weight(1f)
+                            .padding(horizontal = 4.dp)
                             .animateContentSize(),
-                        shape = RoundedCornerShape(22.dp),
+                        shape = RoundedCornerShape(20.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                         border = androidx.compose.foundation.BorderStroke(
                             width = 0.8.dp,
@@ -1632,8 +1784,8 @@ fun ChatInputBar(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.Bottom
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Emoji Button inside capsule
                             IconButton(
@@ -1658,7 +1810,7 @@ fun ChatInputBar(
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
-                                        text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Ketik pesan MUC...",
+                                        text = "Tulis pesan",
                                         fontSize = 13.5.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                                         maxLines = 1,
@@ -1685,45 +1837,25 @@ fun ChatInputBar(
                         }
                     }
 
-                    // Right Button: Send (if text entered) or Mic (if empty)
-                    if (inputText.isNotBlank()) {
-                        IconButton(
-                            onClick = {
-                                onSendMessage(inputText)
-                                showEmojiKeyboard = false
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
-                                .testTag("btn_send_message")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Send,
-                                contentDescription = "Kirim Pesan",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    } else {
-                        // Voice Record Button (Mic)
-                        IconButton(
-                            onClick = {
-                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                                .testTag("btn_voice_record")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "Kirim Pesan Suara",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    // Right Button: Send
+                    IconButton(
+                        onClick = {
+                            onSendMessage(inputText)
+                            showEmojiKeyboard = false
+                        },
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
+                            .testTag("btn_send_message"),
+                        enabled = inputText.isNotBlank()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = "Kirim Pesan",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.ndregil.inchat.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,13 +19,19 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
+import com.ndregil.inchat.data.model.XmppMessage
 import org.jivesoftware.smackx.muc.RoomInfo
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomConfigurationDialog(
     roomJid: String,
     initialInfo: RoomInfo?,
+    moderationMessages: List<XmppMessage> = emptyList(),
     isLoading: Boolean = false,
     onDismiss: () -> Unit,
     onSaveConfig: (
@@ -39,6 +46,8 @@ fun RoomConfigurationDialog(
         password: String?
     ) -> Unit
 ) {
+    var activeTab by remember { mutableIntStateOf(0) } // 0 = Settings, 1 = Moderation History
+
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
@@ -56,7 +65,7 @@ fun RoomConfigurationDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.AdminPanelSettings,
+                            imageVector = if (activeTab == 0) Icons.Default.AdminPanelSettings else Icons.Default.History,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -64,7 +73,7 @@ fun RoomConfigurationDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Konfigurasi Ruangan MUC",
+                            text = if (activeTab == 0) "Konfigurasi Ruangan MUC" else "Riwayat Moderasi",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -75,16 +84,43 @@ fun RoomConfigurationDialog(
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                TabRow(
+                    selectedTabIndex = activeTab,
+                    containerColor = Color.Transparent,
+                    divider = {}
+                ) {
+                    Tab(
+                        selected = activeTab == 0,
+                        onClick = { activeTab = 0 },
+                        text = { Text("Pengaturan", fontSize = 13.sp) },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                    Tab(
+                        selected = activeTab == 1,
+                        onClick = { activeTab = 1 },
+                        text = { Text("Moderasi", fontSize = 13.sp) },
+                        icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
+                }
+                
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider()
             }
         },
         text = {
-            RoomConfigurationContent(
-                initialInfo = initialInfo,
-                isLoading = isLoading,
-                onSaveConfig = onSaveConfig
-            )
+            if (activeTab == 0) {
+                RoomConfigurationContent(
+                    initialInfo = initialInfo,
+                    isLoading = isLoading,
+                    onSaveConfig = onSaveConfig
+                )
+            } else {
+                ModerationHistoryContent(
+                    messages = moderationMessages
+                )
+            }
         },
         confirmButton = {},
         dismissButton = {
@@ -416,6 +452,95 @@ fun RoomConfigurationContent(
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Simpan Konfigurasi Ruangan (XEP-0045)", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun ModerationHistoryContent(messages: List<XmppMessage>) {
+    if (messages.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Belum ada riwayat moderasi",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Aksi seperti kick, ban, atau perubahan role akan muncul di sini.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            messages.reversed().forEach { msg ->
+                ModerationHistoryItem(message = msg)
+            }
+        }
+    }
+}
+
+@Composable
+fun ModerationHistoryItem(message: XmppMessage) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Gavel,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message.body,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(message.timestamp)),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp
+                )
             }
         }
     }

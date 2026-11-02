@@ -52,6 +52,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material3.Button
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+
 data class ThemeOption(
     val id: String,
     val name: String,
@@ -191,6 +199,10 @@ fun WallpaperBackground(
 fun ChatThemeSettingsDialog(
     currentTheme: String,
     currentWallpaper: String,
+    roomJid: String? = null,
+    roomName: String? = null,
+    roomAvatar: ByteArray? = null,
+    onSelectRoomAvatar: (() -> Unit)? = null,
     onSave: (theme: String, wallpaper: String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -209,7 +221,7 @@ fun ChatThemeSettingsDialog(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Setelan Tema & Wallpaper Chat",
+                    text = "Setelan Ruang, Tema & Wallpaper",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -222,6 +234,80 @@ fun ChatThemeSettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Section 0: Custom Room Avatar Image
+                if (onSelectRoomAvatar != null) {
+                    Text(
+                        text = "Foto Avatar Ruangan MUC (XEP-0084)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val bitmap = remember(roomAvatar) {
+                                if (roomAvatar != null && roomAvatar.isNotEmpty()) {
+                                    BitmapFactory.decodeByteArray(roomAvatar, 0, roomAvatar.size)
+                                } else null
+                            }
+                            if (bitmap != null) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Avatar Room",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoCamera,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = roomName ?: "Ruang MUC",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                text = "Unggah foto avatar untuk room ini",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Button(
+                            onClick = onSelectRoomAvatar,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text("Ubah Foto", fontSize = 11.5.sp)
+                        }
+                    }
+                }
+
                 // Section 1: Chat Bubble Color Theme
                 Text(
                     text = "Warna Bubble Pesan",

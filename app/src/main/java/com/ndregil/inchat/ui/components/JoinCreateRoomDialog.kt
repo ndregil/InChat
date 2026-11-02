@@ -35,10 +35,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Switch
 
 @Composable
 fun JoinCreateRoomDialog(
     defaultNickname: String,
+    isLoading: Boolean = false,
+    status: String? = null,
     onDismiss: () -> Unit,
     onJoinOrCreate: (roomJid: String, roomName: String, nickname: String, topic: String, password: String, saveToBookmarks: Boolean) -> Unit
 ) {
@@ -195,10 +202,38 @@ fun JoinCreateRoomDialog(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
-                    androidx.compose.material3.Switch(
+                    Switch(
                         checked = saveToBookmarks,
                         onCheckedChange = { saveToBookmarks = it }
                     )
+                }
+
+                if (status != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        color = if (status.contains("Gagal")) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (status.contains("Gagal")) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -210,9 +245,17 @@ fun JoinCreateRoomDialog(
                         onJoinOrCreate(roomJid.trim(), finalName.trim(), nickname.trim(), topic.trim(), password.trim(), saveToBookmarks)
                     }
                 },
-                enabled = roomJid.isNotBlank(),
+                enabled = roomJid.isNotBlank() && !isLoading,
                 modifier = Modifier.testTag("btn_confirm_room_dialog")
             ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text(if (selectedTab == 0) "Buat & Masuk" else "Gabung Room")
             }
         },

@@ -34,21 +34,28 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class XmppRepository(
     private val context: android.content.Context,
     private val database: AppDatabase,
     private val scope: CoroutineScope
 ) {
+    private val connectionMutex = Mutex()
+
     companion object {
         @Volatile
         private var INSTANCE: XmppRepository? = null
@@ -94,6 +101,9 @@ class XmppRepository(
 
     private val _userStatusMessage = kotlinx.coroutines.flow.MutableStateFlow("Active on InChat")
     val userStatusMessage: StateFlow<String> = _userStatusMessage.asStateFlow()
+
+    private val _autoJoinEvents = MutableSharedFlow<String>(extraBufferCapacity = 5)
+    val autoJoinEvents: SharedFlow<String> = _autoJoinEvents.asSharedFlow()
 
     val roomDao = database.roomDao()
     val messageDao = database.messageDao()
@@ -213,7 +223,7 @@ class XmppRepository(
         database.roomDao().markRoomAsRead(roomJid)
     }
 
-    suspend fun connect(account: XmppAccount, password: String = "") {
+    suspend fun connect(account: XmppAccount, password: String = "") = connectionMutex.withLock {
         val existing = database.accountDao().getActiveAccountSync()
         val pwdToSave = if (password.isNotBlank()) password else (existing?.password ?: "")
         database.accountDao().saveAccount(account.toEntity(pwdToSave))
@@ -225,7 +235,7 @@ class XmppRepository(
             if (creds.username.equals(account.username, ignoreCase = true) &&
                 creds.domain.equals(account.domain, ignoreCase = true)) {
                 // Already connected! Do not disconnect.
-                return
+                return@withLock
             }
         }
         
@@ -245,6 +255,7 @@ class XmppRepository(
             val conn = smackResult.getOrNull()
             if (conn != null) {
                 smackAvatarManager.onConnectionReady(conn)
+                setupReceiptListener(conn)
             }
 
             // Sync server-side bookmarks and auto-join
@@ -356,6 +367,14 @@ class XmppRepository(
         return smackAvatarManager.publishAvatar(bytes)
     }
 
+    suspend fun updateRoomAvatar(roomJid: String, bytes: ByteArray): Result<Unit> {
+        return smackAvatarManager.updateRoomAvatar(roomJid, bytes)
+    }
+
+    fun getRoomAvatar(roomJid: String): ByteArray? {
+        return smackAvatarManager.getAvatar(roomJid)
+    }
+
 
     suspend fun registerAccount(
         username: String,
@@ -389,32 +408,31 @@ class XmppRepository(
         _currentAccount.value = XmppAccount()
     }
 
-    @Volatile
-    private var isDirectChatListenerAttached = false
+    private var lastAttachedConnection: org.jivesoftware.smack.XMPPConnection? = null
 
     private fun setupDirectChatStanzaListener() {
         val conn = smackConnectionManager.getRawConnection() ?: return
-        if (!conn.isAuthenticated || isDirectChatListenerAttached) return
-        isDirectChatListenerAttached = true
+        if (!conn.isAuthenticated || lastAttachedConnection == conn) return
+        lastAttachedConnection = conn
 
-        val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
-        conn.addAsyncStanzaListener({ stanza ->
-            val msg = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
-            val bodyText = msg.body
-            if ((msg.type == org.jivesoftware.smack.packet.Message.Type.chat || msg.type == org.jivesoftware.smack.packet.Message.Type.normal) && !bodyText.isNullOrBlank()) {
-                val fromBareJid = msg.from?.asBareJid()?.toString() ?: return@addAsyncStanzaListener
+        val chatManager = smackConnectionManager.getChatManager() ?: return
+        chatManager.addIncomingListener { from, message, chat ->
+            val bodyText = message.body
+            if (!bodyText.isNullOrBlank()) {
+                val fromBareJid = from.asBareJid().toString()
                 val myJid = currentAccount.value.jid
-                if (fromBareJid.equals(myJid, ignoreCase = true)) return@addAsyncStanzaListener
+                if (fromBareJid.equals(myJid, ignoreCase = true)) return@addIncomingListener
 
+                // Filter out MUC messages if they somehow end up here (shouldn't with ChatManager)
                 if (fromBareJid.contains("conference.") || fromBareJid.contains("muc.") || smackMucManager.isRoomJoined(fromBareJid)) {
-                    return@addAsyncStanzaListener
+                    return@addIncomingListener
                 }
 
                 val senderNick = fromBareJid.substringBefore("@")
                 val avatar = smackAvatarManager.getAvatar(fromBareJid)
 
                 val xmppMsg = XmppMessage(
-                    id = msg.stanzaId ?: java.util.UUID.randomUUID().toString(),
+                    id = message.stanzaId ?: java.util.UUID.randomUUID().toString(),
                     roomJid = fromBareJid,
                     senderNickname = senderNick,
                     senderJid = fromBareJid,
@@ -422,6 +440,7 @@ class XmppRepository(
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
                     isMine = false,
+                    messageType = MessageType.CHAT,
                     status = DeliveryStatus.DELIVERED
                 )
 
@@ -429,7 +448,22 @@ class XmppRepository(
                     processIncomingMessage(xmppMsg)
                 }
             }
-        }, filter)
+        }
+        Log.i("XmppRepository", "ChatManager listener attached to connection ${conn.user}")
+    }
+
+    private fun setupReceiptListener(connection: org.jivesoftware.smack.XMPPConnection) {
+        val receiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
+        receiptManager.addReceiptReceivedListener { fromJid, toJid, receiptId, receipt ->
+            Log.d("XmppRepository", "Received delivery receipt for message $receiptId from $fromJid")
+            scope.launch {
+                try {
+                    database.messageDao().updateMessageStatus(receiptId, DeliveryStatus.DELIVERED)
+                } catch (e: Exception) {
+                    Log.e("XmppRepository", "Failed to update message status on receipt: ${e.message}")
+                }
+            }
+        }
     }
 
     private suspend fun processIncomingMessage(msg: XmppMessage) {
@@ -440,16 +474,21 @@ class XmppRepository(
             val existing = database.roomDao().getRoomByJid(msg.roomJid)
             if (existing != null) {
                 val updated = existing.copy(
-                    lastMessageText = if (msg.messageType == MessageType.WHISPER) "[Bisikan] ${msg.body}" else msg.body,
+                    lastMessageText = when(msg.messageType) {
+                        MessageType.WHISPER -> "[Bisikan] ${msg.body}"
+                        MessageType.CHAT -> msg.body
+                        else -> msg.body
+                    },
                     lastMessageTime = msg.timestamp,
                     unreadCount = if (msg.isMine) existing.unreadCount else existing.unreadCount + 1
                 )
                 database.roomDao().insertOrUpdateRoom(updated)
             } else {
                 // Auto-create 1-on-1 chat room for incoming direct message
+                val name = if (msg.senderNickname.isNotBlank() && msg.senderNickname != "System") msg.senderNickname else msg.roomJid.substringBefore("@")
                 val newRoom = RoomEntity(
                     jid = msg.roomJid,
-                    name = msg.senderNickname.ifBlank { msg.roomJid.substringBefore("@") },
+                    name = name,
                     topic = "Obrolan Langsung (1-on-1)",
                     myNickname = currentAccount.value.nickname.ifBlank { "User" },
                     occupantCount = 2,
@@ -469,7 +508,7 @@ class XmppRepository(
         }
     }
 
-    suspend fun joinRoom(roomJid: String, name: String, nickname: String, topic: String = "", password: String = "") {
+    suspend fun joinRoom(roomJid: String, name: String, nickname: String, topic: String = "", password: String = ""): Result<Unit> {
         val existing = database.roomDao().getRoomByJid(roomJid)
         val roomEntity = existing?.copy(
             isJoined = true,
@@ -495,7 +534,7 @@ class XmppRepository(
         )
         database.roomDao().insertOrUpdateRoom(roomEntity)
 
-        // Persist room configuration so room settings and credentials survive app restarts
+        // Persist room configuration
         val existingConfig = database.roomConfigDao().getRoomConfigSync(roomJid)
         val config = existingConfig?.copy(
             roomName = if (name.isNotBlank()) name else existingConfig.roomName,
@@ -517,15 +556,23 @@ class XmppRepository(
         database.roomConfigDao().insertOrUpdateConfig(config)
 
         // Join via Smack MUC if Smack connection is established
+        var smackResult: Result<Unit> = Result.success(Unit)
         if (smackConnectionManager.isConnected()) {
-            try {
-                smackMucManager.joinRoom(roomJid, nickname, password)
-            } catch (e: Exception) {
-                // Handled gracefully
+            val mucResult = smackMucManager.joinRoom(roomJid, nickname, password)
+            if (mucResult.isFailure) {
+                val exception = mucResult.exceptionOrNull()
+                smackResult = Result.failure(exception!!)
+                
+                // If it's not a MUC service, disable auto-join to prevent infinite loop on reconnection
+                if (exception.cause is org.jivesoftware.smackx.muc.MultiUserChatException.NotAMucServiceException) {
+                    Log.i("XmppRepository", "Disabling auto-join for non-MUC JID: $roomJid")
+                    updateRoomAutoJoin(roomJid, false)
+                }
             }
         }
 
         engine.joinRoom(roomJid, nickname, password)
+        return smackResult
     }
 
     suspend fun leaveRoom(roomJid: String, nickname: String) {
@@ -558,28 +605,40 @@ class XmppRepository(
         val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
         val savedRooms = database.roomDao().getAllRoomsList()
         val joinedJids = mutableSetOf<String>()
+        val joinedNames = mutableListOf<String>()
 
         for (cfg in autoJoinConfigs) {
             joinedJids.add(cfg.roomJid)
-            joinRoom(
+            val res = joinRoom(
                 roomJid = cfg.roomJid,
                 name = cfg.roomName,
                 nickname = cfg.nickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } },
                 topic = cfg.subject,
                 password = cfg.password.orEmpty()
             )
+            if (res.isSuccess) {
+                joinedNames.add(cfg.roomName.ifBlank { cfg.roomJid.substringBefore("@") })
+            }
         }
 
         for (room in savedRooms) {
             if (!joinedJids.contains(room.jid) && (room.isJoined || room.isBookmarked || room.isAutoJoin)) {
-                joinRoom(
+                val res = joinRoom(
                     roomJid = room.jid,
                     name = room.name,
                     nickname = room.myNickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } },
                     topic = room.topic,
                     password = room.password.orEmpty()
                 )
+                if (res.isSuccess) {
+                    joinedNames.add(room.name.ifBlank { room.jid.substringBefore("@") })
+                }
             }
+        }
+
+        if (joinedNames.isNotEmpty()) {
+            val namesStr = joinedNames.distinct().joinToString(", ")
+            _autoJoinEvents.emit("Berhasil bergabung otomatis ke room favorit: $namesStr")
         }
     }
 
@@ -835,6 +894,7 @@ class XmppRepository(
         val msg = engine.sendGroupMessage(cleanJid, text, myNickname).copy(
             senderJid = myJid,
             senderAvatar = myAvatar,
+            messageType = MessageType.CHAT,
             replyToMessageId = replyToMessageId,
             replyToSender = replyToSender,
             replyToText = replyToText
@@ -1158,8 +1218,18 @@ class XmppRepository(
     suspend fun revokeMembership(roomJid: String, jid: String) = smackMucManager.revokeMembership(roomJid, jid)
     suspend fun grantAdmin(roomJid: String, jid: String) = smackMucManager.grantAdmin(roomJid, jid)
     suspend fun revokeAdmin(roomJid: String, jid: String) = smackMucManager.revokeAdmin(roomJid, jid)
+    suspend fun grantOwnership(roomJid: String, jid: String) = smackMucManager.grantOwnership(roomJid, jid)
+    suspend fun revokeOwnership(roomJid: String, jid: String) = smackMucManager.revokeOwnership(roomJid, jid)
+    suspend fun grantVoice(roomJid: String, nickname: String) = smackMucManager.grantVoice(roomJid, nickname)
+    suspend fun revokeVoice(roomJid: String, nickname: String) = smackMucManager.revokeVoice(roomJid, nickname)
     suspend fun banUser(roomJid: String, jid: String, reason: String?) = smackMucManager.banUser(roomJid, jid, reason)
+    suspend fun unbanUser(roomJid: String, jid: String) = smackMucManager.unbanUser(roomJid, jid)
     suspend fun kickParticipant(roomJid: String, nickname: String, reason: String?) = smackMucManager.kickParticipant(roomJid, nickname, reason)
+
+    suspend fun getOwners(roomJid: String) = smackMucManager.getOwners(roomJid)
+    suspend fun getAdmins(roomJid: String) = smackMucManager.getAdmins(roomJid)
+    suspend fun getMembers(roomJid: String) = smackMucManager.getMembers(roomJid)
+    suspend fun getOutcasts(roomJid: String) = smackMucManager.getOutcasts(roomJid)
 
     private fun randomColorForRoom(roomJid: String): String {
         val colors = listOf("#0284C7", "#0D9488", "#7C3AED", "#D97706", "#DC2626", "#2563EB", "#059669")
@@ -1208,6 +1278,7 @@ private fun RoomEntity.toModel(): XmppRoom = XmppRoom(
     myRole = myRole,
     myAffiliation = myAffiliation,
     colorHex = colorHex,
+    isAutoJoin = isAutoJoin,
     bubbleTheme = bubbleTheme,
     wallpaperStyle = wallpaperStyle
 )

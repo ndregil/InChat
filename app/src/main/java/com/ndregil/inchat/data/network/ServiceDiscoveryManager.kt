@@ -98,6 +98,12 @@ class ServiceDiscoveryManager(
             _mucServiceDomains.value = resultList
             Log.d(TAG, "Discovered MUC service domains: $resultList")
             Result.success(resultList)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.w(TAG, "MUC service discovery timeout on server: ${e.message}")
+            val fallbackDomain = "conference.${connectionManager.currentCredentials.domain}"
+            val fallbackList = listOf(fallbackDomain)
+            _mucServiceDomains.value = fallbackList
+            Result.success(fallbackList)
         } catch (e: Exception) {
             Log.w(TAG, "Error finding MUC services via Smack: ${e.message}")
             val fallbackDomain = "conference.${connectionManager.currentCredentials.domain}"
@@ -128,6 +134,9 @@ class ServiceDiscoveryManager(
                 )
             }
             Result.success(items)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.e(TAG, "Discovery items timeout on $targetJid: ${e.message}")
+            Result.failure(Exception("Server tidak merespon permintaan daftar item (Timeout).", e))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to discover items on $targetJid: ${e.message}", e)
             Result.failure(e)
@@ -147,6 +156,9 @@ class ServiceDiscoveryManager(
             val jid = JidCreate.from(targetJid.trim())
             val info = discoManager.discoverInfo(jid)
             Result.success(info)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.e(TAG, "Discovery info timeout on $targetJid: ${e.message}")
+            Result.failure(Exception("Server tidak merespon permintaan informasi (Timeout).", e))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to discover info for $targetJid: ${e.message}", e)
             Result.failure(e)
@@ -295,6 +307,11 @@ class ServiceDiscoveryManager(
             _discoveredRooms.value = finalRooms
             Log.i(TAG, "Successfully discovered ${finalRooms.size} MUC rooms via XEP-0030")
             Result.success(finalRooms)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.e(TAG, "Service discovery timeout: ${e.message}", e)
+            val fallback = getFallbackDiscoveredRooms()
+            _discoveredRooms.value = fallback
+            Result.success(fallback)
         } catch (e: Exception) {
             Log.e(TAG, "Service discovery failed: ${e.message}", e)
             val fallback = getFallbackDiscoveredRooms()

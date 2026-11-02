@@ -179,6 +179,54 @@ class XmppAvatarManager(
         }
     }
 
+    /**
+     * Updates and publishes a custom room avatar for a MUC room using XEP-0084 (User Avatar) / PubSub.
+     */
+    suspend fun updateRoomAvatar(roomJid: String, bytes: ByteArray): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val key = resolveAvatarKey(roomJid)
+            avatarCache[key] = bytes
+            noAvatarSet.remove(key)
+            _avatarUpdates.emit(key)
+            _avatarUpdates.emit(roomJid)
+
+            val connection = currentConnection
+            if (connection != null && connection.isConnected) {
+                try {
+                    val pubSubManager = PubSubManager.getInstanceFor(connection)
+                    val hash = sha1Hash(bytes)
+                    val base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+
+                    val dataNode = try {
+                        pubSubManager.getLeafNode("urn:xmpp:avatar:data")
+                    } catch (e: Exception) {
+                        pubSubManager.createNode("urn:xmpp:avatar:data") as LeafNode
+                    }
+                    dataNode.publish(PayloadItem(hash, SimplePayload("<data xmlns='urn:xmpp:avatar:data'>$base64Data</data>")))
+
+                    val metadataNode = try {
+                        pubSubManager.getLeafNode("urn:xmpp:avatar:metadata")
+                    } catch (e: Exception) {
+                        pubSubManager.createNode("urn:xmpp:avatar:metadata") as LeafNode
+                    }
+                    val metadataPayload = SimplePayload(
+                        "<metadata xmlns='urn:xmpp:avatar:metadata'>" +
+                        "<info bytes='${bytes.size}' id='$hash' type='image/png' />" +
+                        "</metadata>"
+                    )
+                    metadataNode.publish(PayloadItem(hash, metadataPayload))
+                    Log.i(TAG, "Successfully published room avatar XEP-0084 for $roomJid")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Room PubSub/XEP-0084 avatar publish note for $roomJid: ${e.message}")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update room avatar for $roomJid: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     private fun sha1Hash(bytes: ByteArray): String {
         val md = MessageDigest.getInstance("SHA-1")
         val digest = md.digest(bytes)

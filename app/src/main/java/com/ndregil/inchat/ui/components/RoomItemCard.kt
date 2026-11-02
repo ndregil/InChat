@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,11 +42,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+
 @Composable
 fun RoomItemCard(
     room: XmppRoom,
     isSelected: Boolean,
     onClick: () -> Unit,
+    roomAvatar: ByteArray? = null,
     modifier: Modifier = Modifier
 ) {
     val roomColor = try {
@@ -82,7 +91,7 @@ fun RoomItemCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Room Avatar Icon with initial
+            // Room Avatar Icon with bitmap or initial
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -91,12 +100,26 @@ fun RoomItemCard(
                     .border(1.5.dp, roomColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = room.name.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = roomColor
-                )
+                val bitmap = remember(roomAvatar) {
+                    if (roomAvatar != null && roomAvatar.isNotEmpty()) {
+                        BitmapFactory.decodeByteArray(roomAvatar, 0, roomAvatar.size)
+                    } else null
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "Avatar ${room.name}",
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        text = room.name.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = roomColor
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -141,6 +164,16 @@ fun RoomItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Bookmarked indicator
+                    if (room.isBookmarked) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Favorit",
+                            modifier = Modifier.size(14.dp),
+                            tint = Color(0xFFFFD700) // Gold color
+                        )
+                    }
+
                     // Occupants pill
                     Row(
                         modifier = Modifier

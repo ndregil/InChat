@@ -10,6 +10,8 @@ import com.ndregil.inchat.data.local.AppDatabase
 import com.ndregil.inchat.data.local.entity.RoomConfigEntity
 import com.ndregil.inchat.data.model.ConnectionStatus
 import com.ndregil.inchat.data.model.DiscoveredRoom
+import com.ndregil.inchat.data.model.MessageType
+import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.PublicDirectoryRoom
 import com.ndregil.inchat.data.model.RoomOccupant
 import com.ndregil.inchat.data.model.RosterContact
@@ -25,9 +27,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,6 +63,23 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val myAvatar: StateFlow<ByteArray?> = combine(currentAccount, repository.smackAvatarManager.avatarUpdates) { acc, _ ->
         repository.smackAvatarManager.getAvatar(acc.jid)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val autoJoinToastStatus = MutableStateFlow<String?>(null)
+    fun clearAutoJoinToastStatus() { autoJoinToastStatus.value = null }
+
+    val ownersList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
+    val adminsList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
+    val membersList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
+    val outcastsList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
+    val isLoadingAffiliations = MutableStateFlow(false)
+
+    init {
+        viewModelScope.launch {
+            repository.autoJoinEvents.collect { msg ->
+                autoJoinToastStatus.value = msg
+            }
+        }
+    }
 
     // Search filter query
     private val _searchQuery = MutableStateFlow("")
@@ -140,6 +161,15 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    // Moderation History for active room
+    val activeRoomModerationHistory: StateFlow<List<XmppMessage>> = activeRoomMessages.map { list ->
+        list.filter { it.messageType == MessageType.MODERATION }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     // Public Directory & XEP-0030 Service Discovery
     private val _directoryRooms = MutableStateFlow<List<PublicDirectoryRoom>>(emptyList())
     val directoryRooms: StateFlow<List<PublicDirectoryRoom>> = _directoryRooms.asStateFlow()
@@ -200,6 +230,13 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     val roomConfigStatus = MutableStateFlow<String?>(null)
     val isRoomConfigLoading = MutableStateFlow(false)
+
+    val joinStatus = MutableStateFlow<String?>(null)
+    val isJoinLoading = MutableStateFlow(false)
+
+    fun clearJoinStatus() {
+        joinStatus.value = null
+    }
 
     fun clearRoomConfigStatus() {
         roomConfigStatus.value = null
@@ -424,14 +461,58 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         saveToBookmarks: Boolean = true
     ) {
         viewModelScope.launch {
-            val validJid = if (roomJid.contains("@")) roomJid else "$roomJid@conference.xmpp.today"
-            val validNick = if (nickname.isNotBlank()) nickname else currentAccount.value.nickname
-            repository.joinRoom(validJid, roomName, validNick, topic, password)
-            if (saveToBookmarks) {
-                repository.saveRoom(validJid, roomName, validNick, topic, password)
+            val trimmedJid = roomJid.trim()
+            if (trimmedJid.isBlank()) return@launch
+
+            isJoinLoading.value = true
+            joinStatus.value = "Menghubungkan ke $trimmedJid..."
+
+            val validJid = when {
+                trimmedJid.contains("@") -> {
+                    val parts = trimmedJid.split("@")
+                    val domain = parts.getOrNull(1) ?: ""
+                    // Typical MUC services have 'conference', 'muc', 'chat', 'room' in subdomain
+                    val looksLikeMuc = domain.contains("conference", true) || 
+                                      domain.contains("muc.", true) || 
+                                      domain.contains("chat.", true) ||
+                                      domain.contains("rooms.", true)
+                    
+                    if (!looksLikeMuc && !trimmedJid.contains("conference.xmpp.today")) {
+                        Log.d("XmppViewModel", "JID $trimmedJid might not be a MUC service. Warning user.")
+                        // We could show a specific warning UI here, but for now we'll just proceed and let the error handling catch it.
+                    }
+                    trimmedJid
+                }
+                else -> "$trimmedJid@conference.xmpp.today"
             }
-            _selectedRoomJid.value = validJid
-            isJoinCreateDialogOpen.value = false
+
+            val validNick = if (nickname.isNotBlank()) nickname.trim() else currentAccount.value.nickname
+            val result = repository.joinRoom(validJid, roomName.trim(), validNick, topic.trim(), password)
+            
+            result.fold(
+                onSuccess = {
+                    if (saveToBookmarks) {
+                        repository.saveRoom(validJid, roomName.trim(), validNick, topic.trim(), password)
+                    }
+                    _selectedRoomJid.value = validJid
+                    isJoinCreateDialogOpen.value = false
+                    joinStatus.value = null
+                },
+                onFailure = { err ->
+                    var msg = err.message ?: "Terjadi kesalahan tidak diketahui"
+                    if (msg.contains("tidak menyediakan layanan MUC")) {
+                        msg += "\n\nTip: Jika ini adalah JID teman Anda, gunakan fitur 'Mulai Obrolan Langsung' dari tab Kontak."
+                    }
+                    joinStatus.value = "Gagal bergabung: $msg"
+                    Log.e("XmppViewModel", "Join failed for $validJid", err)
+                    
+                    // If dialog is not open (e.g. joined from Directory), show a Toast
+                    if (!isJoinCreateDialogOpen.value) {
+                        android.widget.Toast.makeText(getApplication(), "Gagal bergabung: $msg", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
+            isJoinLoading.value = false
         }
     }
 
@@ -702,6 +783,64 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateRoomAvatar(roomJid: String, roomName: String, uri: android.net.Uri) {
+        viewModelScope.launch {
+            isAvatarUpdating.value = true
+            avatarUpdateStatus.value = "Memproses foto avatar room $roomName..."
+            val statusMsg = withContext(Dispatchers.IO) {
+                try {
+                    val app = getApplication<Application>()
+                    val inputStream = app.contentResolver.openInputStream(uri)
+                    val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+
+                    if (originalBitmap == null) {
+                        return@withContext "Gagal membaca gambar dari galeri."
+                    }
+
+                    val maxDim = 256
+                    val width = originalBitmap.width
+                    val height = originalBitmap.height
+                    val (newWidth, newHeight) = if (width > height) {
+                        val ratio = height.toFloat() / width.toFloat()
+                        maxDim to (maxDim * ratio).toInt()
+                    } else {
+                        val ratio = width.toFloat() / height.toFloat()
+                        (maxDim * ratio).toInt() to maxDim
+                    }
+
+                    val scaledBitmap = Bitmap.createScaledBitmap(
+                        originalBitmap,
+                        newWidth.coerceAtLeast(1),
+                        newHeight.coerceAtLeast(1),
+                        true
+                    )
+
+                    val byteArrayOutputStream = ByteArrayOutputStream()
+                    scaledBitmap.compress(Bitmap.CompressFormat.PNG, 90, byteArrayOutputStream)
+                    val bytes = byteArrayOutputStream.toByteArray()
+
+                    if (scaledBitmap != originalBitmap) {
+                        scaledBitmap.recycle()
+                    }
+                    originalBitmap.recycle()
+
+                    val result = repository.updateRoomAvatar(roomJid, bytes)
+                    if (result.isSuccess) {
+                        "Foto avatar room $roomName berhasil diperbarui!"
+                    } else {
+                        "Gagal memperbarui avatar room: ${result.exceptionOrNull()?.localizedMessage}"
+                    }
+                } catch (e: Exception) {
+                    Log.e("XmppViewModel", "Gagal memperbarui avatar room", e)
+                    "Error memperbarui avatar room: ${e.localizedMessage}"
+                }
+            }
+            avatarUpdateStatus.value = statusMsg
+            isAvatarUpdating.value = false
+        }
+    }
+
     fun connectAccount(account: XmppAccount, password: String = "") {
         viewModelScope.launch {
             repository.connect(account, password)
@@ -833,13 +972,67 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadRoomAffiliations(roomJid: String) {
+        viewModelScope.launch {
+            isLoadingAffiliations.value = true
+            val owners = repository.getOwners(roomJid).getOrElse { emptyList() }
+            val admins = repository.getAdmins(roomJid).getOrElse { emptyList() }
+            val members = repository.getMembers(roomJid).getOrElse { emptyList() }
+            val outcasts = repository.getOutcasts(roomJid).getOrElse { emptyList() }
+            
+            ownersList.value = owners
+            adminsList.value = admins
+            membersList.value = members
+            outcastsList.value = outcasts
+            isLoadingAffiliations.value = false
+        }
+    }
+
+    fun grantOwnership(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.grantOwnership(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+
+    fun revokeOwnership(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.revokeOwnership(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+
+    fun grantVoice(roomJid: String, nickname: String) = viewModelScope.launch {
+        repository.grantVoice(roomJid, nickname)
+    }
+
+    fun revokeVoice(roomJid: String, nickname: String) = viewModelScope.launch {
+        repository.revokeVoice(roomJid, nickname)
+    }
+
+    fun unbanUser(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.unbanUser(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+
     fun grantModerator(roomJid: String, nickname: String) = viewModelScope.launch { repository.grantModerator(roomJid, nickname) }
     fun revokeModerator(roomJid: String, nickname: String) = viewModelScope.launch { repository.revokeModerator(roomJid, nickname) }
-    fun grantMembership(roomJid: String, jid: String) = viewModelScope.launch { repository.grantMembership(roomJid, jid) }
-    fun revokeMembership(roomJid: String, jid: String) = viewModelScope.launch { repository.revokeMembership(roomJid, jid) }
-    fun grantAdmin(roomJid: String, jid: String) = viewModelScope.launch { repository.grantAdmin(roomJid, jid) }
-    fun revokeAdmin(roomJid: String, jid: String) = viewModelScope.launch { repository.revokeAdmin(roomJid, jid) }
-    fun banUser(roomJid: String, jid: String, reason: String?) = viewModelScope.launch { repository.banUser(roomJid, jid, reason) }
+    fun grantMembership(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.grantMembership(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+    fun revokeMembership(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.revokeMembership(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+    fun grantAdmin(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.grantAdmin(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+    fun revokeAdmin(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.revokeAdmin(roomJid, jid)
+        loadRoomAffiliations(roomJid)
+    }
+    fun banUser(roomJid: String, jid: String, reason: String?) = viewModelScope.launch {
+        repository.banUser(roomJid, jid, reason)
+        loadRoomAffiliations(roomJid)
+    }
     fun kickParticipant(roomJid: String, nickname: String, reason: String?) = viewModelScope.launch { repository.kickParticipant(roomJid, nickname, reason) }
 }
 

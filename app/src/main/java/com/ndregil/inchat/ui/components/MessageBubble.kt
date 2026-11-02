@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -362,26 +363,26 @@ fun MessageBubble(
                                 DeliveryStatus.SENDING -> Icon(
                                     imageVector = Icons.Default.Schedule,
                                     contentDescription = "Mengirim",
-                                    tint = textColor.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(11.dp)
+                                    tint = textColor.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(13.dp)
                                 )
                                 DeliveryStatus.SENT -> Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Terkirim",
+                                    contentDescription = "Terkirim ke Server",
                                     tint = textColor.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(11.dp)
+                                    modifier = Modifier.size(13.dp)
                                 )
                                 DeliveryStatus.DELIVERED -> Icon(
                                     imageVector = Icons.Default.DoneAll,
-                                    contentDescription = "Sampai",
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(12.dp)
+                                    contentDescription = "Sampai ke Penerima",
+                                    tint = Color(0xFF3B82F6), // Distinct blue color for delivery
+                                    modifier = Modifier.size(14.dp)
                                 )
-                                DeliveryStatus.FAILED -> Text(
-                                    text = "!",
-                                    color = MaterialTheme.colorScheme.error,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                DeliveryStatus.FAILED -> Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = "Gagal",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(13.dp)
                                 )
                             }
                         }

@@ -103,6 +103,10 @@ class XmppConnectionManager(
     @Volatile
     private var mucManager: MultiUserChatManager? = null
 
+    // Chat manager for 1-on-1 chats
+    @Volatile
+    private var chatManager: org.jivesoftware.smack.chat2.ChatManager? = null
+
     // Connection listener for Smack callbacks
     private val smackConnectionListener = object : ConnectionListener {
         override fun connected(connection: XMPPConnection) {
@@ -174,6 +178,20 @@ class XmppConnectionManager(
                 mucManager = MultiUserChatManager.getInstanceFor(conn)
             }
             return mucManager
+        }
+        return null
+    }
+
+    /**
+     * Access the [org.jivesoftware.smack.chat2.ChatManager] instance for 1-on-1 chats.
+     */
+    fun getChatManager(): org.jivesoftware.smack.chat2.ChatManager? {
+        val conn = tcpConnection
+        if (conn != null && conn.isAuthenticated) {
+            if (chatManager == null) {
+                chatManager = org.jivesoftware.smack.chat2.ChatManager.getInstanceFor(conn)
+            }
+            return chatManager
         }
         return null
     }
@@ -257,11 +275,15 @@ class XmppConnectionManager(
             connection.connect()
             Log.i(TAG, "TCP connection established successfully.")
 
+            // Increase default reply timeout (default is 5s, which often causes NoResponseException)
+            connection.replyTimeout = 15000 
+
             // Authenticate if credentials are provided
             if (username.isNotBlank() && creds.password.isNotBlank()) {
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
-                connection.login(username, creds.password, Resourcepart.from(resource))
-                Log.i(TAG, "User '$username' authenticated successfully.")
+                val resourceWithSuffix = Resourcepart.from(resource + "-" + (1000..9999).random())
+                connection.login(username, creds.password, resourceWithSuffix)
+                Log.i(TAG, "User '$username' authenticated successfully with resource $resourceWithSuffix")
             } else if (username.isNotBlank()) {
                 // Anonymous or passwordless attempt
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
@@ -271,6 +293,18 @@ class XmppConnectionManager(
 
             tcpConnection = connection
             mucManager = MultiUserChatManager.getInstanceFor(connection)
+            chatManager = org.jivesoftware.smack.chat2.ChatManager.getInstanceFor(connection)
+            
+            // Enable XEP-0280: Message Carbons
+            try {
+                val carbonManager = org.jivesoftware.smackx.carbons.CarbonManager.getInstanceFor(connection)
+                if (carbonManager.isSupportedByServer) {
+                    carbonManager.enableCarbons()
+                    Log.i(TAG, "Message Carbons (XEP-0280) enabled.")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to enable Message Carbons: ${e.message}")
+            }
             
             // Enable XEP-0199: XMPP Ping to keep connection alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
@@ -282,6 +316,11 @@ class XmppConnectionManager(
             // Enable XEP-0092: Software Version
             val versionManager = VersionManager.getInstanceFor(connection)
             versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
+
+            // Enable XEP-0184: Message Delivery Receipts
+            val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
+            deliveryReceiptManager.autoReceiptMode = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.AutoReceiptMode.always
+            deliveryReceiptManager.autoAddDeliveryReceiptRequests()
             
             _connectionStatus.value = ConnectionStatus.CONNECTED
 
@@ -358,6 +397,18 @@ class XmppConnectionManager(
                 conn.login()
             }
             mucManager = MultiUserChatManager.getInstanceFor(conn)
+            chatManager = org.jivesoftware.smack.chat2.ChatManager.getInstanceFor(conn)
+
+            // Enable XEP-0280: Message Carbons
+            try {
+                val carbonManager = org.jivesoftware.smackx.carbons.CarbonManager.getInstanceFor(conn)
+                if (carbonManager.isSupportedByServer) {
+                    carbonManager.enableCarbons()
+                    Log.i(TAG, "Message Carbons (XEP-0280) enabled.")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to enable Message Carbons: ${e.message}")
+            }
             
             // Enable XEP-0199: XMPP Ping
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(conn)
@@ -369,6 +420,11 @@ class XmppConnectionManager(
             // Enable XEP-0092: Software Version
             val versionManager = VersionManager.getInstanceFor(conn)
             versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
+
+            // Enable XEP-0184: Message Delivery Receipts
+            val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(conn)
+            deliveryReceiptManager.autoReceiptMode = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.AutoReceiptMode.always
+            deliveryReceiptManager.autoAddDeliveryReceiptRequests()
             
             _connectionStatus.value = ConnectionStatus.CONNECTED
             _lastError.value = null
@@ -624,6 +680,7 @@ class XmppConnectionManager(
         } finally {
             tcpConnection = null
             mucManager = null
+            chatManager = null
         }
     }
 }

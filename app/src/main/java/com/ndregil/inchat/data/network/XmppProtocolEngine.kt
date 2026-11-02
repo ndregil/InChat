@@ -106,7 +106,8 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
 
                 // Resource binding
                 delay(300)
-                sendRawStanza("<iq type='set' id='bind_1'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'><resource>AndroidMUC-Raw</resource></bind></iq>", "IQ")
+                val rawResource = "AndroidMUC-Raw-" + (1000..9999).random()
+                sendRawStanza("<iq type='set' id='bind_1'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'><resource>$rawResource</resource></bind></iq>", "IQ")
 
                 // Presence
                 delay(200)
@@ -152,7 +153,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
 
                     val isUrl = body.trim().startsWith("http")
                     val mType = when {
-                        type == "chat" -> MessageType.WHISPER
+                        type == "chat" -> MessageType.CHAT
                         isUrl -> MessageType.FILE
                         else -> MessageType.GROUPCHAT
                     }

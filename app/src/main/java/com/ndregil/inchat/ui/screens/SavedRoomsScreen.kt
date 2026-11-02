@@ -12,7 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +32,12 @@ fun SavedRoomsScreen(
     onRemoveBookmark: (String) -> Unit,
     onAddRoomClick: () -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredRooms = remember(savedRooms, searchQuery) {
+        if (searchQuery.isBlank()) savedRooms
+        else savedRooms.filter { it.name.contains(searchQuery, ignoreCase = true) || it.topic.contains(searchQuery, ignoreCase = true) || it.jid.contains(searchQuery, ignoreCase = true) }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -62,50 +68,71 @@ fun SavedRoomsScreen(
             }
         }
     ) { paddingValues ->
-        if (savedRooms.isEmpty()) {
-            Box(
+        Column(modifier = Modifier.padding(paddingValues)) {
+            // Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.BookmarkBorder,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Belum ada bookmark",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Simpan ruangan dari Discovery atau Multi-Room untuk akses cepat di sini.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("search_saved_rooms"),
+                placeholder = { Text("Cari favorit...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = if (searchQuery.isNotEmpty()) {
+                    {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Bersihkan")
+                        }
+                    }
+                } else null,
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            if (filteredRooms.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = if (searchQuery.isEmpty()) Icons.Default.BookmarkBorder else Icons.Default.SearchOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (searchQuery.isEmpty()) "Belum ada bookmark" else "Tidak ditemukan",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (searchQuery.isEmpty()) "Simpan ruangan dari Discovery atau Multi-Room untuk akses cepat di sini." else "Coba kata kunci lain.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 80.dp, top = 8.dp)
-            ) {
-                items(savedRooms, key = { it.jid }) { room ->
-                    SavedRoomItem(
-                        room = room,
-                        onClick = { onSelectRoom(room.jid) },
-                        onRemove = { onRemoveBookmark(room.jid) }
-                    )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 80.dp, top = 4.dp)
+                ) {
+                    items(filteredRooms) { room ->
+                        SavedRoomItem(
+                            room = room,
+                            onClick = { onSelectRoom(room.jid) },
+                            onRemove = { onRemoveBookmark(room.jid) }
+                        )
+                    }
                 }
             }
         }

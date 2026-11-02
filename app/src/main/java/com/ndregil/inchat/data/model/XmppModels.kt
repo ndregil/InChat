@@ -12,6 +12,7 @@ enum class ConnectionStatus {
 
 enum class MessageType {
     GROUPCHAT,
+    CHAT,
     WHISPER,
     SYSTEM_JOIN,
     SYSTEM_LEAVE,
@@ -20,7 +21,8 @@ enum class MessageType {
     ACTION,
     FILE,
     VOICE,
-    CALL_SIGNALLING
+    CALL_SIGNALLING,
+    MODERATION
 }
 
 enum class DeliveryStatus {
@@ -87,6 +89,7 @@ data class XmppRoom(
     val myRole: OccupantRole = OccupantRole.MEMBER,
     val myAffiliation: OccupantAffiliation = OccupantAffiliation.MEMBER,
     val colorHex: String = "#0284C7",
+    val isAutoJoin: Boolean = true,
     val bubbleTheme: String = "dregil-theme",
     val wallpaperStyle: String = "default"
 )
@@ -572,6 +575,13 @@ data class RoomOccupant(
     val isMe: Boolean = false,
     val avatar: ByteArray? = null,
     val clientCaps: ClientCaps = ClientCaps.resolveFor(nickname, jid)
+)
+
+data class MucAffiliate(
+    val jid: String,
+    val nickname: String? = null,
+    val affiliation: String = "none",
+    val role: String = "none"
 )
 
 

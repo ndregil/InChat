@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -36,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +49,8 @@ fun RoomTopicBanner(
     topic: String,
     roomJid: String,
     onTopicChange: (String) -> Unit,
+    isBookmarked: Boolean,
+    onBookmarkToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -92,6 +97,18 @@ fun RoomTopicBanner(
                         contentDescription = "Ubah Topik",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = { onBookmarkToggle() },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isBookmarked) Icons.Default.Star else Icons.Default.StarBorder,
+                        contentDescription = if (isBookmarked) "Hapus Favorit" else "Tambah Favorit",
+                        tint = if (isBookmarked) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 

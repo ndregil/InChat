@@ -43,6 +43,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -197,13 +204,22 @@ fun RosterContactsScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp)
         ) {
-            // User Presence Status & Broadcast Card (Updates status across all contacts & MUC rooms)
+            val myAvatar by viewModel.myAvatar.collectAsStateWithLifecycle()
+            val avatarPickerLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri: android.net.Uri? ->
+                uri?.let { viewModel.updateAvatar(it) }
+            }
+
+            // User Presence Status & Broadcast Card (Updates status & profile picture across all contacts & MUC rooms)
             UserPresenceControlCard(
                 currentPresence = myPresence,
                 statusMessage = myStatusMessage,
                 currentAccount = currentAccount,
                 contactsCount = contacts.size,
                 roomsCount = allRooms.size,
+                myAvatar = myAvatar,
+                onUpdateAvatarClick = { avatarPickerLauncher.launch("image/*") },
                 onPresenceChange = { newPresence, newStatusMsg ->
                     viewModel.updateMyPresence(newPresence, newStatusMsg)
                 },
@@ -903,6 +919,8 @@ fun UserPresenceControlCard(
     currentAccount: XmppAccount,
     contactsCount: Int,
     roomsCount: Int,
+    myAvatar: ByteArray? = null,
+    onUpdateAvatarClick: (() -> Unit)? = null,
     onPresenceChange: (UserPresence, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -960,31 +978,62 @@ fun UserPresenceControlCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // User Avatar with Presence dot
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = currentAccount.nickname.take(2).uppercase(Locale.getDefault()),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontSize = 16.sp
-                        )
+                // User Avatar with Presence dot & Photo Camera Edit Badge
+                Box(
+                    contentAlignment = Alignment.BottomEnd,
+                    modifier = Modifier.clickable { onUpdateAvatarClick?.invoke() }
+                ) {
+                    val decodedBitmap = remember(myAvatar) {
+                        if (myAvatar != null && myAvatar.isNotEmpty()) {
+                            try {
+                                BitmapFactory.decodeByteArray(myAvatar, 0, myAvatar.size)
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else null
                     }
 
-                    // Presence indicator dot
                     Box(
                         modifier = Modifier
-                            .size(14.dp)
+                            .size(52.dp)
                             .clip(CircleShape)
-                            .background(presenceColor)
-                            .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                    )
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (decodedBitmap != null) {
+                            Image(
+                                bitmap = decodedBitmap.asImageBitmap(),
+                                contentDescription = "Foto Profil Saya",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = currentAccount.nickname.take(2).uppercase(Locale.getDefault()),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+
+                    // Camera edit icon badge
+                    Surface(
+                        modifier = Modifier.size(18.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Ganti Foto Profil",
+                                modifier = Modifier.size(10.dp),
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -1091,10 +1140,27 @@ fun UserPresenceControlCard(
                         .fillMaxWidth()
                         .padding(top = 10.dp)
                 ) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                    )
+                    OutlinedButton(
+                        onClick = { onUpdateAvatarClick?.invoke() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoCamera,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Ganti Foto Profil XMPP",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.5.sp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
 
                     Text(
                         text = "Pesan Status Pribadi XMPP:",

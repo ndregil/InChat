@@ -202,6 +202,24 @@ class MultiUserChatManager(
             Log.i(TAG, "Successfully joined room $roomJid")
 
             Result.success(muc)
+        } catch (e: org.jivesoftware.smackx.muc.MultiUserChatException.NotAMucServiceException) {
+            Log.w(TAG, "Not a MUC service: $roomJid")
+            Result.failure(Exception("Domain '${JidCreate.entityBareFrom(roomJid).domain}' tidak menyediakan layanan MUC (XEP-45). Jika ini adalah akun pribadi, gunakan 'Obrolan Langsung'.", e))
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.w(TAG, "MUC join timeout: $roomJid")
+            Result.failure(Exception("Server tidak merespon permintaan masuk ke room $roomJid (Timeout). Coba beberapa saat lagi atau periksa koneksi internet Anda.", e))
+        } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+            val condition = e.stanzaError?.condition?.toString() ?: "unknown"
+            val text = e.stanzaError?.descriptiveText ?: "Terjadi kesalahan pada server"
+            Log.w(TAG, "MUC join error: $roomJid (condition: $condition)")
+            val userMsg = when (condition) {
+                "forbidden" -> "Anda tidak diizinkan masuk ke ruangan ini (Dilarang/Banned)."
+                "registration-required" -> "Ruangan ini membutuhkan registrasi atau keanggotaan terlebih dahulu."
+                "not-authorized" -> "Password ruangan salah atau diperlukan autentikasi tambahan."
+                "conflict" -> "Nickname sudah digunakan. Silakan gunakan nickname lain."
+                else -> "Gagal masuk ke room: $text ($condition)"
+            }
+            Result.failure(Exception(userMsg, e))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to join MUC room $roomJid: ${e.message}", e)
             Result.failure(e)
@@ -818,6 +836,151 @@ class MultiUserChatManager(
     }
 
     /**
+     * Grants owner affiliation to a user.
+     */
+    suspend fun grantOwnership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            muc.grantOwnership(JidCreate.entityBareFrom(jid))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Revokes owner affiliation from a user.
+     */
+    suspend fun revokeOwnership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            muc.revokeOwnership(JidCreate.entityBareFrom(jid))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Grants voice role to a visitor (makes participant).
+     */
+    suspend fun grantVoice(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            muc.grantVoice(Resourcepart.from(nickname))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Revokes voice role from a participant (makes visitor).
+     */
+    suspend fun revokeVoice(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            muc.revokeVoice(Resourcepart.from(nickname))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Unbans a user (removes from outcast list by revoking membership/outcast status).
+     */
+    suspend fun unbanUser(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            muc.revokeMembership(JidCreate.entityBareFrom(jid))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches owner affiliates list from room.
+     */
+    suspend fun getOwners(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            val list = muc.owners.map {
+                com.ndregil.inchat.data.model.MucAffiliate(
+                    jid = it.jid?.toString() ?: "",
+                    nickname = it.nick?.toString(),
+                    affiliation = "owner",
+                    role = it.role?.toString() ?: "none"
+                )
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches admin affiliates list from room.
+     */
+    suspend fun getAdmins(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            val list = muc.admins.map {
+                com.ndregil.inchat.data.model.MucAffiliate(
+                    jid = it.jid?.toString() ?: "",
+                    nickname = it.nick?.toString(),
+                    affiliation = "admin",
+                    role = it.role?.toString() ?: "none"
+                )
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches member affiliates list from room.
+     */
+    suspend fun getMembers(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            val list = muc.members.map {
+                com.ndregil.inchat.data.model.MucAffiliate(
+                    jid = it.jid?.toString() ?: "",
+                    nickname = it.nick?.toString(),
+                    affiliation = "member",
+                    role = it.role?.toString() ?: "none"
+                )
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches outcast (banned) affiliates list from room.
+     */
+    suspend fun getOutcasts(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            val list = muc.outcasts.map {
+                com.ndregil.inchat.data.model.MucAffiliate(
+                    jid = it.jid?.toString() ?: "",
+                    nickname = it.nick?.toString(),
+                    affiliation = "outcast",
+                    role = it.role?.toString() ?: "none"
+                )
+            }
+            Result.success(list)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Hooks a new [MucMessageListener] into a joined MUC room to process incoming messages.
      *
      * @param roomJid Room bare JID
@@ -899,13 +1062,65 @@ class MultiUserChatManager(
                 )
                 _incomingMessages.tryEmit(systemMsg)
             }
-            override fun kicked(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) { updateOccupantsForRoom(roomJid, muc) }
+            override fun kicked(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "$nick telah di-kick oleh $actorNick. Alasan: ${reason ?: "Tidak ada"}",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+            override fun banned(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "$nick telah di-ban oleh $actorNick. Alasan: ${reason ?: "Tidak ada"}",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
             override fun voiceGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
             override fun voiceRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun banned(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun membershipGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
+            override fun membershipGranted(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "${participant?.resourceOrNull} mendapatkan status Membership.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
             override fun membershipRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun moderatorGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
+            override fun moderatorGranted(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "${participant?.resourceOrNull} sekarang menjadi Moderator.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
             override fun moderatorRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
             override fun ownershipGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
             override fun ownershipRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
