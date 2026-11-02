@@ -876,15 +876,32 @@ fun MultiRoomMainScreen(
 
                 1 -> {
                     // Dedicated Saved Rooms / Bookmarks Screen
-                    SavedRoomsScreen(
-                        savedRooms = savedRooms,
-                        onSelectRoom = { jid ->
-                            viewModel.selectRoom(jid)
-                            activeNavIndex = 0
-                        },
-                        onRemoveBookmark = { jid -> viewModel.toggleSaveRoom(jid) },
-                        onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true }
-                    )
+                    if (showBookmarksScreen) {
+                        ManageBookmarksScreen(
+                            savedRooms = savedRooms,
+                            onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
+                            onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
+                            onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
+                            onBack = { showBookmarksScreen = false }
+                        )
+                    } else {
+                        val isSyncingBookmarks by viewModel.isSyncingBookmarks.collectAsStateWithLifecycle()
+                        SavedRoomsScreen(
+                            savedRooms = savedRooms,
+                            onSelectRoom = { jid ->
+                                viewModel.selectRoom(jid)
+                                activeNavIndex = 0
+                            },
+                            onRemoveBookmark = { jid -> viewModel.toggleSaveRoom(jid) },
+                            onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
+                            onOpenManageBookmarks = { showBookmarksScreen = true },
+                            onSyncBookmarks = { viewModel.syncBookmarks() },
+                            isSyncing = isSyncingBookmarks,
+                            getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) },
+                            onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
+                            onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) }
+                        )
+                    }
                 }
 
                 2 -> {
@@ -945,6 +962,7 @@ fun MultiRoomMainScreen(
                             savedRooms = savedRooms,
                             onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
                             onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
+                            onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
                             onBack = { showBookmarksScreen = false }
                         )
                     } else if (!showAccountSettingsDirectly) {
@@ -981,7 +999,11 @@ fun MultiRoomMainScreen(
                             isDarkMode = isDarkMode,
                             onToggleDarkMode = { viewModel.toggleDarkMode(systemDark) },
                             onNavigateToBookmarks = { showBookmarksScreen = true },
-                            onSwitchToAccountTab = { showAccountSettingsDirectly = true }
+                            onSwitchToAccountTab = { showAccountSettingsDirectly = true },
+                            autoApproveSubscription = viewModel.autoApproveSubscription.collectAsStateWithLifecycle().value,
+                            onToggleAutoApproveSubscription = { viewModel.setAutoApproveSubscription(it) },
+                            onSignOut = { viewModel.signOut() },
+                            onExitApp = { viewModel.exitApp() }
                         )
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -1170,6 +1192,7 @@ fun MultiRoomMainScreen(
             onRevokeAdmin = { jid -> viewModel.revokeAdmin(activeRoom!!.jid, jid) },
             onGrantOwnership = { jid -> viewModel.grantOwnership(activeRoom!!.jid, jid) },
             onRevokeOwnership = { jid -> viewModel.revokeOwnership(activeRoom!!.jid, jid) },
+            onGrantNone = { jid -> viewModel.grantNone(activeRoom!!.jid, jid) },
             onGrantVoice = { nick -> viewModel.grantVoice(activeRoom!!.jid, nick) },
             onRevokeVoice = { nick -> viewModel.revokeVoice(activeRoom!!.jid, nick) },
             onBanUser = { jid, reason -> viewModel.banUser(activeRoom!!.jid, jid, reason) },
@@ -1746,58 +1769,22 @@ fun ChatInputBar(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Attach File Button (Compact 36dp)
-                    IconButton(
-                        onClick = onAttachClick,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .align(Alignment.Bottom)
-                            .testTag("btn_attach_file")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AttachFile,
-                            contentDescription = "Lampirkan File",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Voice Record Button (Mic) - Moved near Attach Icon
-                    IconButton(
-                        onClick = {
-                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        modifier = Modifier
-                            .size(36.dp)
-                            .align(Alignment.Bottom)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .testTag("btn_voice_record")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Kirim Pesan Suara",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // Compact Auto-expanding Text Input Capsule
+                    // Google Search Bar Style Form Box Capsule
                     Surface(
                         modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 4.dp)
+                            .fillMaxWidth()
                             .animateContentSize(),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(26.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
                         border = androidx.compose.foundation.BorderStroke(
-                            width = 0.8.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                        )
+                            width = 1.dp,
+                            color = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                   else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                        ),
+                        shadowElevation = 1.dp
                     ) {
                         Row(
                             modifier = Modifier
@@ -1805,31 +1792,31 @@ fun ChatInputBar(
                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Emoji Button inside capsule
+                            // 1. Emoji button inside form box
                             IconButton(
                                 onClick = { showEmojiKeyboard = !showEmojiKeyboard },
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(36.dp)
                                     .testTag("btn_toggle_emoji")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.SentimentSatisfied,
                                     contentDescription = "Pilih Emoji",
                                     tint = if (showEmojiKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
-                            // Compact Auto-Expanding BasicTextField
+                            // 2. Text Input inside form box
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(horizontal = 4.dp, vertical = 6.dp)
+                                    .padding(horizontal = 4.dp, vertical = 8.dp)
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
-                                        text = "Tulis pesan",
-                                        fontSize = 13.5.sp,
+                                        text = "Tulis pesan...",
+                                        fontSize = 14.5.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -1844,36 +1831,69 @@ fun ChatInputBar(
                                         .testTag("chat_input_field"),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.5.sp,
-                                        lineHeight = 18.sp
+                                        fontSize = 14.5.sp,
+                                        lineHeight = 20.sp
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     minLines = 1,
                                     maxLines = 5
                                 )
                             }
-                        }
-                    }
 
-                    // Right Button: Send
-                    IconButton(
-                        onClick = {
-                            onSendMessage(inputText)
-                            showEmojiKeyboard = false
-                        },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
-                            .testTag("btn_send_message"),
-                        enabled = inputText.isNotBlank()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Send,
-                            contentDescription = "Kirim Pesan",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
+                            // 3. Attachment (Lampiran) button inside form box
+                            IconButton(
+                                onClick = onAttachClick,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("btn_attach_file")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = "Lampirkan File",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
+
+                            // 4. Voice (Mic) button inside form box
+                            IconButton(
+                                onClick = {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("btn_voice_record")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "Kirim Pesan Suara",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            // 5. Send button inside form box when text is entered
+                            AnimatedVisibility(visible = inputText.isNotBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        onSendMessage(inputText)
+                                        showEmojiKeyboard = false
+                                    },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
+                                        .testTag("btn_send_message")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Send,
+                                        contentDescription = "Kirim Pesan",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

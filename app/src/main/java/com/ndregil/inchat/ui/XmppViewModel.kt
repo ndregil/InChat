@@ -56,6 +56,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val rosterContacts: StateFlow<List<RosterContact>> = repository.rosterContacts
     val rosterPresenceMap: StateFlow<Map<String, UserPresence>> = repository.rosterPresenceMap
     val isRosterLoading: StateFlow<Boolean> = repository.isRosterLoading
+    val autoApproveSubscription: StateFlow<Boolean> = repository.autoApproveSubscription
+    fun setAutoApproveSubscription(enabled: Boolean) {
+        repository.setAutoApproveSubscription(enabled)
+    }
     val myPresence: StateFlow<UserPresence> = repository.userPresence
     val myStatusMessage: StateFlow<String> = repository.userStatusMessage
     val currentCall: StateFlow<com.ndregil.inchat.data.model.CallInfo?> = repository.currentCall
@@ -66,6 +70,26 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     val autoJoinToastStatus = MutableStateFlow<String?>(null)
     fun clearAutoJoinToastStatus() { autoJoinToastStatus.value = null }
+
+    val isSyncingBookmarks = MutableStateFlow(false)
+    fun syncBookmarks() {
+        viewModelScope.launch {
+            isSyncingBookmarks.value = true
+            try {
+                repository.syncServerBookmarks()
+                autoJoinToastStatus.value = "Favorit berhasil disinkronkan dari server."
+            } catch (e: Exception) {
+                Log.e("XmppViewModel", "Gagal sinkronisasi favorit: ${e.message}")
+                autoJoinToastStatus.value = "Gagal sinkronisasi: ${e.message}"
+            } finally {
+                isSyncingBookmarks.value = false
+            }
+        }
+    }
+
+    fun getRoomAvatar(roomJid: String): ByteArray? {
+        return repository.getRoomAvatar(roomJid)
+    }
 
     val ownersList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
     val adminsList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
@@ -859,6 +883,30 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun signOut(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                com.ndregil.inchat.data.network.fcm.XmppForegroundService.stopService(getApplication())
+            } catch (e: Exception) {
+                Log.e("XmppViewModel", "Error stopping service on sign out: ${e.message}")
+            }
+            repository.signOut()
+            onComplete()
+        }
+    }
+
+    fun exitApp(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                com.ndregil.inchat.data.network.fcm.XmppForegroundService.stopService(getApplication())
+            } catch (e: Exception) {
+                Log.e("XmppViewModel", "Error stopping service on exit: ${e.message}")
+            }
+            repository.exitApp()
+            onComplete()
+        }
+    }
+
     fun sendRawXmlStanza(xml: String) {
         repository.sendRawStanza(xml)
     }
@@ -954,6 +1002,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateRoomColor(roomJid: String, colorHex: String) {
+        viewModelScope.launch {
+            repository.updateRoomColor(roomJid, colorHex)
+        }
+    }
+
     fun saveRoomConfig(config: RoomConfigEntity) {
         viewModelScope.launch {
             repository.saveRoomConfig(config)
@@ -1004,6 +1058,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun revokeVoice(roomJid: String, nickname: String) = viewModelScope.launch {
         repository.revokeVoice(roomJid, nickname)
+    }
+
+    fun grantNone(roomJid: String, jid: String) = viewModelScope.launch {
+        repository.grantNone(roomJid, jid)
+        loadRoomAffiliations(roomJid)
     }
 
     fun unbanUser(roomJid: String, jid: String) = viewModelScope.launch {

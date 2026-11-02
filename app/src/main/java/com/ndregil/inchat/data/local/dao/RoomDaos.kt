@@ -83,6 +83,9 @@ interface RoomDao {
     @Query("UPDATE rooms SET bubbleTheme = :bubbleTheme, wallpaperStyle = :wallpaperStyle WHERE jid = :roomJid")
     suspend fun updateThemeAndWallpaper(roomJid: String, bubbleTheme: String, wallpaperStyle: String)
 
+    @Query("UPDATE rooms SET colorHex = :colorHex WHERE jid = :roomJid")
+    suspend fun updateColor(roomJid: String, colorHex: String)
+
     @Query("DELETE FROM rooms WHERE jid = :roomJid")
     suspend fun deleteRoom(roomJid: String)
 
@@ -183,6 +186,9 @@ interface RoomConfigDao {
 
     @Query("UPDATE room_configs SET bubbleTheme = :bubbleTheme, wallpaperStyle = :wallpaperStyle WHERE roomJid = :roomJid")
     suspend fun updateThemeAndWallpaper(roomJid: String, bubbleTheme: String, wallpaperStyle: String)
+
+    @Query("UPDATE room_configs SET colorHex = :colorHex WHERE roomJid = :roomJid")
+    suspend fun updateColor(roomJid: String, colorHex: String)
 
     @Query("DELETE FROM room_configs WHERE roomJid = :roomJid")
     suspend fun deleteConfig(roomJid: String)

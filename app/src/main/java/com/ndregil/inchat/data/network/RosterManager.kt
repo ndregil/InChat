@@ -96,6 +96,16 @@ class RosterManager(
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
+    private val _autoApproveSubscription = MutableStateFlow(true)
+    val autoApproveSubscription: StateFlow<Boolean> = _autoApproveSubscription.asStateFlow()
+
+    fun setAutoApproveSubscription(enabled: Boolean) {
+        _autoApproveSubscription.value = enabled
+        activeRoster?.let { roster ->
+            roster.subscriptionMode = if (enabled) Roster.SubscriptionMode.accept_all else Roster.SubscriptionMode.manual
+        }
+    }
+
     // Active Smack Roster instance
     @Volatile
     private var activeRoster: Roster? = null
@@ -243,6 +253,35 @@ class RosterManager(
         }, filter)
     }
 
+    private fun setupSubscriptionListener(connection: org.jivesoftware.smack.tcp.XMPPTCPConnection) {
+        val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Presence::class.java)
+        connection.addAsyncStanzaListener({ stanza ->
+            val presence = stanza as? org.jivesoftware.smack.packet.Presence ?: return@addAsyncStanzaListener
+            if (presence.type == org.jivesoftware.smack.packet.Presence.Type.subscribe) {
+                if (!_autoApproveSubscription.value) {
+                    Log.i(TAG, "Auto-approve subscription is disabled. Ignoring auto-accept for $presence")
+                    return@addAsyncStanzaListener
+                }
+                val fromJid = presence.from?.asBareJid() ?: return@addAsyncStanzaListener
+                Log.i(TAG, "Auto-accepting subscription request from $fromJid")
+                try {
+                    val response = PresenceBuilder.buildPresence()
+                        .ofType(org.jivesoftware.smack.packet.Presence.Type.subscribed)
+                        .to(fromJid)
+                        .build()
+                    connection.sendStanza(response)
+
+                    val roster = activeRoster ?: Roster.getInstanceFor(connection)
+                    if (!roster.contains(fromJid)) {
+                        roster.createItem(fromJid, fromJid.localpartOrNull?.asUnescapedString() ?: fromJid.toString(), null)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to auto-accept subscription: ${e.message}", e)
+                }
+            }
+        }, filter)
+    }
+
     /**
      * Initializes the Smack Roster for the active connection, sets subscription mode,
      * and attaches listeners.
@@ -262,8 +301,8 @@ class RosterManager(
             val roster = Roster.getInstanceFor(connection)
             activeRoster = roster
 
-            // Automatically accept incoming presence subscription requests
-            roster.subscriptionMode = Roster.SubscriptionMode.accept_all
+            // Automatically accept incoming presence subscription requests based on setting
+            roster.subscriptionMode = if (_autoApproveSubscription.value) Roster.SubscriptionMode.accept_all else Roster.SubscriptionMode.manual
 
             // Attach listeners (ensure not duplicated)
             roster.removeRosterListener(rosterListener)
@@ -273,6 +312,7 @@ class RosterManager(
             roster.addRosterLoadedListener(rosterLoadedListener)
 
             setupPepStanzaListener(connection)
+            setupSubscriptionListener(connection)
 
             if (roster.isLoaded) {
                 _isLoaded.value = true

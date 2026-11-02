@@ -1,6 +1,8 @@
 package com.ndregil.inchat.ui.screens
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -24,12 +26,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -47,6 +51,15 @@ import com.ndregil.inchat.ui.RegistrationState
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
 import com.ndregil.inchat.ui.theme.OnlineGreen
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 enum class SubSettingCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
@@ -78,6 +91,10 @@ fun SettingsScreen(
     onToggleDarkMode: () -> Unit,
     onNavigateToBookmarks: () -> Unit,
     onSwitchToAccountTab: () -> Unit,
+    autoApproveSubscription: Boolean,
+    onToggleAutoApproveSubscription: (Boolean) -> Unit,
+    onSignOut: () -> Unit = {},
+    onExitApp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedCategory by remember { mutableStateOf<SubSettingCategory?>(null) }
@@ -102,6 +119,8 @@ fun SettingsScreen(
                 onSelectCategory = { selectedCategory = it },
                 onUpdateAvatar = onUpdateAvatar,
                 onSwitchToAccountTab = onSwitchToAccountTab,
+                onSignOut = onSignOut,
+                onExitApp = onExitApp,
                 modifier = modifier
             )
         } else {
@@ -117,6 +136,10 @@ fun SettingsScreen(
                 onUpdateAvatar = onUpdateAvatar,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
+                autoApproveSubscription = autoApproveSubscription,
+                onToggleAutoApproveSubscription = onToggleAutoApproveSubscription,
+                onSignOut = onSignOut,
+                onExitApp = onExitApp,
                 onBack = { selectedCategory = null },
                 modifier = modifier
             )
@@ -133,8 +156,15 @@ fun MainSubSettingsMenu(
     onSelectCategory: (SubSettingCategory) -> Unit,
     onUpdateAvatar: (Uri) -> Unit,
     onSwitchToAccountTab: () -> Unit,
+    onSignOut: () -> Unit = {},
+    onExitApp: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    var showSignOutDialog by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
+
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -158,7 +188,7 @@ fun MainSubSettingsMenu(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
+            contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
         ) {
             // Profile & Connection Quick Header
             item {
@@ -189,7 +219,198 @@ fun MainSubSettingsMenu(
                     onClick = { onSelectCategory(category) }
                 )
             }
+
+            // Session & Application Management
+            item {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Sesi & Aplikasi",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Sign Out Card
+                        Surface(
+                            onClick = { showSignOutDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+                            modifier = Modifier.testTag("setting_action_signout")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(42.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AwayAmber.copy(alpha = 0.15f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                                            contentDescription = "Sign Out",
+                                            tint = AwayAmber,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Keluar Akun (Sign Out)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Keluar dari akun XMPP, hapus sesi login di perangkat, dan hentikan aplikasi.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        // Exit App Card
+                        Surface(
+                            onClick = { showExitDialog = true },
+                            shape = RoundedCornerShape(14.dp),
+                            color = DndRed.copy(alpha = 0.08f),
+                            border = BorderStroke(1.dp, DndRed.copy(alpha = 0.25f)),
+                            modifier = Modifier.testTag("setting_action_exit")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(42.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = DndRed.copy(alpha = 0.2f)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.PowerSettingsNew,
+                                            contentDescription = "Exit App",
+                                            tint = DndRed,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Keluar Aplikasi (Exit)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = DndRed
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Tutup aplikasi dan hentikan semua proses latar belakang (foreground service & koneksi).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(Icons.Default.ChevronRight, null, tint = DndRed)
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    if (showSignOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = AwayAmber, modifier = Modifier.size(32.dp)) },
+            title = { Text("Konfirmasi Keluar Akun", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial pada perangkat akan dihapus, koneksi ditutup, dan aplikasi akan berhenti berjalan.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutDialog = false
+                        onSignOut()
+                        activity?.finishAffinity()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AwayAmber, contentColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Keluar Akun", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showSignOutDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            icon = { Icon(Icons.Default.PowerSettingsNew, null, tint = DndRed, modifier = Modifier.size(32.dp)) },
+            title = { Text("Hentikan & Keluar Aplikasi?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Aplikasi akan ditutup dan seluruh proses latar belakang (termasuk foreground service anti-kill, koneksi XMPP, dan penjadwalan) akan dihentikan sepenuhnya.\n\nAkun Anda tetap tersimpan untuk login otomatis saat aplikasi dibuka kembali.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExitDialog = false
+                        onExitApp()
+                        activity?.finishAffinity()
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                        kotlin.system.exitProcess(0)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DndRed),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Hentikan & Keluar", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showExitDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 }
 
@@ -269,6 +490,10 @@ fun SubSettingDetailScreen(
     onUpdateAvatar: (Uri) -> Unit,
     onConnect: (XmppAccount, String) -> Unit,
     onDisconnect: () -> Unit,
+    autoApproveSubscription: Boolean,
+    onToggleAutoApproveSubscription: (Boolean) -> Unit,
+    onSignOut: () -> Unit = {},
+    onExitApp: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -304,7 +529,9 @@ fun SubSettingDetailScreen(
                     onUpdateAvatar = onUpdateAvatar,
                     onSwitchToAccountTab = onSwitchToAccountTab,
                     onConnect = onConnect,
-                    onDisconnect = onDisconnect
+                    onDisconnect = onDisconnect,
+                    onSignOut = onSignOut,
+                    onExitApp = onExitApp
                 )
                 SubSettingCategory.DISPLAY -> DisplaySubSettings(
                     isDarkMode = isDarkMode,
@@ -314,6 +541,8 @@ fun SubSettingDetailScreen(
                 SubSettingCategory.CONNECTION -> ConnectionSubSettings(
                     currentAccount = currentAccount,
                     connectionStatus = connectionStatus,
+                    autoApproveSubscription = autoApproveSubscription,
+                    onToggleAutoApprove = onToggleAutoApproveSubscription,
                     onConnect = onConnect,
                     onDisconnect = onDisconnect
                 )
@@ -335,8 +564,15 @@ fun AccountSubSettings(
     onUpdateAvatar: (Uri) -> Unit,
     onSwitchToAccountTab: () -> Unit,
     onConnect: (XmppAccount, String) -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    onSignOut: () -> Unit = {},
+    onExitApp: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    var showSignOutDialog by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
+
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -345,7 +581,7 @@ fun AccountSubSettings(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -423,6 +659,119 @@ fun AccountSubSettings(
                 }
             }
         }
+
+        // Dedicated Sign Out & Exit Section
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Tindakan Sesi & Aplikasi", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showSignOutDialog = true },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AwayAmber)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Keluar Akun", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = { showExitDialog = true },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = DndRed)
+                        ) {
+                            Icon(Icons.Default.PowerSettingsNew, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Keluar Aplikasi", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showSignOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = AwayAmber, modifier = Modifier.size(32.dp)) },
+            title = { Text("Konfirmasi Keluar Akun", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial pada perangkat akan dihapus, koneksi ditutup, dan aplikasi akan berhenti berjalan.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutDialog = false
+                        onSignOut()
+                        activity?.finishAffinity()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AwayAmber, contentColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Keluar Akun", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showSignOutDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            icon = { Icon(Icons.Default.PowerSettingsNew, null, tint = DndRed, modifier = Modifier.size(32.dp)) },
+            title = { Text("Hentikan & Keluar Aplikasi?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Aplikasi akan ditutup dan seluruh proses latar belakang (termasuk foreground service anti-kill, koneksi XMPP, dan penjadwalan) akan dihentikan sepenuhnya.\n\nAkun Anda tetap tersimpan untuk login otomatis saat aplikasi dibuka kembali.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExitDialog = false
+                        onExitApp()
+                        activity?.finishAffinity()
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                        kotlin.system.exitProcess(0)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DndRed),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Hentikan & Keluar", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showExitDialog = false },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 }
 
@@ -505,6 +854,8 @@ fun DisplaySubSettings(
 fun ConnectionSubSettings(
     currentAccount: XmppAccount,
     connectionStatus: ConnectionStatus,
+    autoApproveSubscription: Boolean,
+    onToggleAutoApprove: (Boolean) -> Unit,
     onConnect: (XmppAccount, String) -> Unit,
     onDisconnect: () -> Unit
 ) {
@@ -549,6 +900,30 @@ fun ConnectionSubSettings(
                             else -> DndRed
                         })
                     }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-Approve Subscription Requests", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text("Otomatis menyetujui permintaan kontak masuk (privacy control)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = autoApproveSubscription,
+                        onCheckedChange = onToggleAutoApprove,
+                        modifier = Modifier.testTag("switch_auto_approve_subscription")
+                    )
                 }
             }
         }
@@ -611,11 +986,147 @@ fun NotificationSubSettings() {
         mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
     }
 
+    // Notification Sound & Vibration States
+    var privateSound by remember { mutableStateOf("Default (Chime)") }
+    var mucSound by remember { mutableStateOf("Default (Group Beep)") }
+    var vibrationEnabled by remember { mutableStateOf(true) }
+    var soundPreviewToast by remember { mutableStateOf<String?>(null) }
+
+    val soundOptions = listOf("Default", "Whistle", "Pop", "Ping", "Chime", "Silent")
+    val mucSoundOptions = listOf("Default", "Group Beep", "Chime", "Bubble", "Silent")
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Notification Sound Settings Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            "Suara & Getar Notifikasi Pesan",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        "Pilih nada dering dan suara khusus untuk pesan pribadi (1-on-1) dan pesan grup MUC.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
+                    )
+
+                    // Vibration Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Getar Saat Pesan Masuk", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Getar perangkat ketika notifikasi diterima", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = vibrationEnabled,
+                            onCheckedChange = { vibrationEnabled = it },
+                            modifier = Modifier.testTag("switch_notification_vibration")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Private Message Sound Selector
+                    Text("Suara Pesan Pribadi (1-on-1)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("private_sound_selector")
+                    ) {
+                        items(soundOptions.size) { idx ->
+                            val sound = soundOptions[idx]
+                            val isSelected = privateSound == sound
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    privateSound = sound
+                                    soundPreviewToast = "Suara pesan pribadi diatur ke: $sound"
+                                },
+                                label = { Text(sound, fontSize = 11.sp) },
+                                leadingIcon = if (isSelected) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                } else null,
+                                modifier = Modifier.testTag("private_sound_${sound.lowercase().replace(" ", "_")}")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // MUC Message Sound Selector
+                    Text("Suara Pesan Grup MUC", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("muc_sound_selector")
+                    ) {
+                        items(mucSoundOptions.size) { idx ->
+                            val sound = mucSoundOptions[idx]
+                            val isSelected = mucSound == sound
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    mucSound = sound
+                                    soundPreviewToast = "Suara pesan MUC diatur ke: $sound"
+                                },
+                                label = { Text(sound, fontSize = 11.sp) },
+                                leadingIcon = if (isSelected) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                } else null,
+                                modifier = Modifier.testTag("muc_sound_${sound.lowercase().replace(" ", "_")}")
+                            )
+                        }
+                    }
+
+                    soundPreviewToast?.let { toast ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(toast, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Battery Optimization & Anti-Kill Card
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),

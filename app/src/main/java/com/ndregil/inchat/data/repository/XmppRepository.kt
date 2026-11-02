@@ -95,6 +95,10 @@ class XmppRepository(
     val rosterContacts: StateFlow<List<RosterContact>> = smackRosterManager.contacts
     val rosterPresenceMap: StateFlow<Map<String, UserPresence>> = smackRosterManager.presenceMap
     val isRosterLoading: StateFlow<Boolean> = smackRosterManager.isLoading
+    val autoApproveSubscription: StateFlow<Boolean> = smackRosterManager.autoApproveSubscription
+    fun setAutoApproveSubscription(enabled: Boolean) {
+        smackRosterManager.setAutoApproveSubscription(enabled)
+    }
 
     private val _userPresence = kotlinx.coroutines.flow.MutableStateFlow(UserPresence.ONLINE)
     val userPresence: StateFlow<UserPresence> = _userPresence.asStateFlow()
@@ -409,6 +413,26 @@ class XmppRepository(
         _currentAccount.value = XmppAccount()
     }
 
+    suspend fun signOut() {
+        try {
+            smackConnectionManager.disconnect()
+        } catch (_: Exception) {}
+        try {
+            engine.disconnect()
+        } catch (_: Exception) {}
+        database.accountDao().clearAccounts()
+        _currentAccount.value = XmppAccount()
+    }
+
+    suspend fun exitApp() {
+        try {
+            smackConnectionManager.disconnect()
+        } catch (_: Exception) {}
+        try {
+            engine.disconnect()
+        } catch (_: Exception) {}
+    }
+
     private var lastAttachedConnection: org.jivesoftware.smack.XMPPConnection? = null
     private val processedStanzaIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
 
@@ -454,12 +478,13 @@ class XmppRepository(
                 val isMucContext = smackMucManager.isRoomJoined(fromBareJid) ||
                         fromBareJid.contains("conference.", ignoreCase = true) ||
                         fromBareJid.contains("muc.", ignoreCase = true) ||
-                        roomEntity != null
+                        roomEntity != null ||
+                        message.type == org.jivesoftware.smack.packet.Message.Type.groupchat
 
-                // CASE 1: Private WHISPER Message in MUC Room
-                if (isMucContext && !resourcePart.isNullOrBlank()) {
+                // CASE 1: Private WHISPER Message in MUC Room or MUC context
+                if (isMucContext && !fromBareJid.equals(myBareJid, ignoreCase = true)) {
                     val roomJid = fromBareJid
-                    val senderNick = resourcePart
+                    val senderNick = resourcePart ?: fromStr.substringAfterLast("/").takeIf { it.isNotBlank() } ?: fromBareJid.substringBefore("@")
                     val myRoomNick = roomEntity?.myNickname ?: currentAccount.value.nickname
 
                     // Skip if sender is ourselves inside MUC
@@ -903,6 +928,11 @@ class XmppRepository(
         database.roomDao().updateThemeAndWallpaper(roomJid, bubbleTheme, wallpaperStyle)
     }
 
+    suspend fun updateRoomColor(roomJid: String, colorHex: String) {
+        database.roomConfigDao().updateColor(roomJid, colorHex)
+        database.roomDao().updateColor(roomJid, colorHex)
+    }
+
     suspend fun clearRoomChatHistory(roomJid: String) {
         database.messageDao().clearRoomMessages(roomJid)
     }
@@ -1288,6 +1318,7 @@ class XmppRepository(
         engine.sendRawStanza(xml)
     }
 
+    suspend fun grantNone(roomJid: String, jid: String) = smackMucManager.grantNone(roomJid, jid)
     suspend fun grantModerator(roomJid: String, nickname: String) = smackMucManager.grantModerator(roomJid, nickname)
     suspend fun revokeModerator(roomJid: String, nickname: String) = smackMucManager.revokeModerator(roomJid, nickname)
     suspend fun grantMembership(roomJid: String, jid: String) = smackMucManager.grantMembership(roomJid, jid)

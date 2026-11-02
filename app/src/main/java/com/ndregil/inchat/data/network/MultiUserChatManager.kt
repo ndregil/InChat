@@ -888,12 +888,29 @@ class MultiUserChatManager(
     }
 
     /**
-     * Unbans a user (removes from outcast list by revoking membership/outcast status).
+     * Sets a user's affiliation to none by revoking ownership, admin, and membership/outcast status.
+     */
+    suspend fun grantNone(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        try {
+            val entityJid = JidCreate.entityBareFrom(jid)
+            try { muc.revokeOwnership(entityJid) } catch (e: Exception) {}
+            try { muc.revokeAdmin(entityJid) } catch (e: Exception) {}
+            try { muc.revokeMembership(entityJid) } catch (e: Exception) {}
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Unbans a user.
      */
     suspend fun unbanUser(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
         val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
-            muc.revokeMembership(JidCreate.entityBareFrom(jid))
+            val entityJid = JidCreate.entityBareFrom(jid)
+            try { muc.revokeMembership(entityJid) } catch (e: Exception) {}
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
