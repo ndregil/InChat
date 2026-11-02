@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -292,6 +296,7 @@ fun MultiRoomMainScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             Surface(
                 modifier = Modifier
@@ -691,6 +696,8 @@ fun MultiRoomMainScreen(
             }
         }
     ) { paddingValues ->
+        val isImeOpen = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -698,7 +705,7 @@ fun MultiRoomMainScreen(
                     start = paddingValues.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
                     end = paddingValues.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
                     top = if (activeNavIndex == 0) paddingValues.calculateTopPadding() else 0.dp,
-                    bottom = paddingValues.calculateBottomPadding()
+                    bottom = if (isImeOpen) 0.dp else paddingValues.calculateBottomPadding()
                 )
                 .imePadding()
         ) {
@@ -925,6 +932,9 @@ fun MultiRoomMainScreen(
                         onSelectJoinedRoom = { jid ->
                             viewModel.selectRoom(jid)
                             activeNavIndex = 0
+                        },
+                        onOpenCreateRoom = {
+                            viewModel.isJoinCreateDialogOpen.value = true
                         }
                     )
                 }
@@ -1040,7 +1050,15 @@ fun MultiRoomMainScreen(
             onOpenAdminPanel = {
                 activeRoom?.let { viewModel.openAdminPanel(it.jid) }
             },
-            onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) }
+            onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
+            onGrantOwnership = { jid -> activeRoom?.let { room -> viewModel.grantOwnership(room.jid, jid) } },
+            onGrantAdmin = { jid -> activeRoom?.let { room -> viewModel.grantAdmin(room.jid, jid) } },
+            onGrantModerator = { nick -> activeRoom?.let { room -> viewModel.grantModerator(room.jid, nick) } },
+            onGrantMembership = { jid -> activeRoom?.let { room -> viewModel.grantMembership(room.jid, jid) } },
+            onGrantVoice = { nick -> activeRoom?.let { room -> viewModel.grantVoice(room.jid, nick) } },
+            onRevokeVoice = { nick -> activeRoom?.let { room -> viewModel.revokeVoice(room.jid, nick) } },
+            onKickUser = { nick, reason -> activeRoom?.let { room -> viewModel.kickParticipant(room.jid, nick, reason) } },
+            onBanUser = { jid, reason -> activeRoom?.let { room -> viewModel.banUser(room.jid, jid, reason) } }
         )
     }
 

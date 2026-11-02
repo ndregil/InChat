@@ -280,6 +280,9 @@ fun AdminOccupantItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(occupant.nickname, fontWeight = FontWeight.Bold)
+                    if (occupant.jid.isNotBlank()) {
+                        Text("Real JID: ${occupant.jid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                    }
                     Text("Role: ${occupant.role} | Affiliation: ${occupant.affiliation}", style = MaterialTheme.typography.bodySmall)
                 }
                 IconButton(onClick = { expanded = !expanded }) {

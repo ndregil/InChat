@@ -61,13 +61,22 @@ import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import android.widget.Toast
 import com.ndregil.inchat.data.model.XmppRoom
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,11 +92,157 @@ fun RoomDirectoryScreen(
     onDiscoverLocal: () -> Unit,
     onJoinRoom: (PublicDirectoryRoom) -> Unit,
     onSaveRoom: ((PublicDirectoryRoom) -> Unit)? = null,
-    onSelectJoinedRoom: (String) -> Unit
+    onSelectJoinedRoom: (String) -> Unit,
+    onOpenCreateRoom: (() -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showComplianceDialog by remember { mutableStateOf(false) }
     var discoveryMode by remember { mutableIntStateOf(0) } // 0: Global Search, 1: Local Services
+    var selectedService by remember { mutableStateOf<com.ndregil.inchat.data.model.DiscoveredItem?>(null) }
+
+    if (selectedService != null) {
+        val service = selectedService!!
+        val context = LocalContext.current
+        val clipboardManager = LocalClipboardManager.current
+        val isMuc = service.jid.contains("conference") || service.name.lowercase().contains("muc") || service.name.lowercase().contains("chat")
+
+        AlertDialog(
+            onDismissRequest = { selectedService = null },
+            icon = {
+                Icon(
+                    imageVector = when {
+                        service.jid.contains("conference") -> Icons.Default.Group
+                        service.jid.contains("upload") -> Icons.Default.CloudUpload
+                        service.jid.contains("proxy") -> Icons.Default.Router
+                        service.jid.contains("pubsub") -> Icons.Default.RssFeed
+                        service.jid.contains("search") -> Icons.Default.Search
+                        else -> Icons.Default.Extension
+                    },
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = service.name.ifBlank { service.jid },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = service.jid,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = when {
+                                    service.jid.contains("conference") -> "Tipe: Layanan Multi-User Chat (MUC)"
+                                    service.jid.contains("upload") -> "Tipe: Layanan HTTP File Upload (XEP-0363)"
+                                    service.jid.contains("proxy") -> "Tipe: Layanan SOCKS5 Proxy (XEP-0065)"
+                                    service.jid.contains("pubsub") -> "Tipe: Layanan Publish-Subscribe (XEP-0060)"
+                                    service.jid.contains("search") -> "Tipe: Layanan Pencarian Direktori Server"
+                                    else -> "Tipe: Layanan Komponen Server XMPP"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = when {
+                                    service.jid.contains("conference") -> "Server MUC ini dapat digunakan untuk bergabung atau membuat ruang percakapan grup baru."
+                                    service.jid.contains("upload") -> "Layanan ini memungkinkan pengiriman foto, rekaman suara, dan berkas ke penerima."
+                                    service.jid.contains("proxy") -> "Digunakan sebagai perantara transfer berkas langsung antar klien XMPP."
+                                    service.jid.contains("pubsub") -> "Mendukung saluran transmisi data, feed berita, dan notifikasi."
+                                    else -> "Komponen layanan aktif di server $serverDomain (XEP-0030 Service Discovery)."
+                                },
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (!service.node.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Node: ${service.node}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
+                    if (isMuc) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                val mucJid = service.jid
+                                selectedService = null
+                                discoveryMode = 0
+                                searchQuery = mucJid
+                                onRefresh(mucJid)
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Cari Room di Service Ini", fontSize = 12.sp)
+                        }
+
+                        if (onOpenCreateRoom != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    selectedService = null
+                                    onOpenCreateRoom()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Buat Room Baru di Server Ini", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        clipboardManager.setText(AnnotatedString(service.jid))
+                        Toast.makeText(context, "JID ${service.jid} disalin ke papan klip", Toast.LENGTH_SHORT).show()
+                        selectedService = null
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Salin JID Service")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedService = null }) {
+                    Text("Tutup")
+                }
+            }
+        )
+    }
 
     if (showComplianceDialog) {
         com.ndregil.inchat.ui.components.ComplianceSuiteDialog(
@@ -455,7 +610,10 @@ fun RoomDirectoryScreen(
                         }
                     } else {
                         items(discoveredServices, key = { it.jid + (it.node ?: "") }) { serviceItem ->
-                            ServiceItemCard(serviceItem)
+                            ServiceItemCard(
+                                item = serviceItem,
+                                onClick = { selectedService = serviceItem }
+                            )
                         }
                     }
                 }
@@ -613,11 +771,16 @@ fun DirectoryRoomCard(
 }
 
 @Composable
-fun ServiceItemCard(item: com.ndregil.inchat.data.model.DiscoveredItem) {
+fun ServiceItemCard(
+    item: com.ndregil.inchat.data.model.DiscoveredItem,
+    onClick: () -> Unit = {}
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .testTag("service_item_${item.jid}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
@@ -649,9 +812,9 @@ fun ServiceItemCard(item: com.ndregil.inchat.data.model.DiscoveredItem) {
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = item.name,
+                    text = item.name.ifBlank { item.jid },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -665,6 +828,37 @@ fun ServiceItemCard(item: com.ndregil.inchat.data.model.DiscoveredItem) {
                         text = "Node: ${item.node}",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = when {
+                            item.jid.contains("conference") -> "MUC"
+                            item.jid.contains("upload") -> "Upload"
+                            item.jid.contains("proxy") -> "Proxy"
+                            item.jid.contains("pubsub") -> "PubSub"
+                            item.jid.contains("search") -> "Search"
+                            else -> "Service"
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Detail",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(12.dp)
                     )
                 }
             }

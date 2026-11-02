@@ -151,12 +151,12 @@ class XmppRepository(
             }
         }
 
-        // Collect connection status to register direct 1-on-1 chat stanza listener
+        // Collect connection status to register direct 1-on-1 chat & whisper stanza listener
         scope.launch {
             try {
                 smackConnectionManager.connectionStatus.collect { status ->
                     if (status == ConnectionStatus.CONNECTED) {
-                        setupDirectChatStanzaListener()
+                        setupIncomingStanzaListener()
                     }
                 }
             } catch (e: Exception) {
@@ -256,6 +256,7 @@ class XmppRepository(
             if (conn != null) {
                 smackAvatarManager.onConnectionReady(conn)
                 setupReceiptListener(conn)
+                setupIncomingStanzaListener()
             }
 
             // Sync server-side bookmarks and auto-join
@@ -409,30 +410,95 @@ class XmppRepository(
     }
 
     private var lastAttachedConnection: org.jivesoftware.smack.XMPPConnection? = null
+    private val processedStanzaIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
 
-    private fun setupDirectChatStanzaListener() {
+    private fun setupIncomingStanzaListener() {
         val conn = smackConnectionManager.getRawConnection() ?: return
         if (!conn.isAuthenticated || lastAttachedConnection == conn) return
         lastAttachedConnection = conn
 
-        val chatManager = smackConnectionManager.getChatManager() ?: return
-        chatManager.addIncomingListener { from, message, chat ->
+        val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
+        conn.addAsyncStanzaListener({ stanza ->
+            val message = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
             val bodyText = message.body
-            if (!bodyText.isNullOrBlank()) {
-                val fromBareJid = from.asBareJid().toString()
-                val myJid = currentAccount.value.jid
-                if (fromBareJid.equals(myJid, ignoreCase = true)) return@addIncomingListener
+            if (bodyText.isNullOrBlank()) return@addAsyncStanzaListener
 
-                // Filter out MUC messages if they somehow end up here (shouldn't with ChatManager)
-                if (fromBareJid.contains("conference.") || fromBareJid.contains("muc.") || smackMucManager.isRoomJoined(fromBareJid)) {
-                    return@addIncomingListener
+            val stanzaId = message.stanzaId
+            if (!stanzaId.isNullOrBlank()) {
+                if (processedStanzaIds.contains(stanzaId)) return@addAsyncStanzaListener
+                if (processedStanzaIds.size > 500) processedStanzaIds.clear()
+                processedStanzaIds.add(stanzaId)
+            }
+
+            val fromJid = message.from ?: return@addAsyncStanzaListener
+            val fromStr = fromJid.toString()
+            val fromBareJid = fromJid.asBareJid().toString()
+            val myJid = currentAccount.value.jid
+            val myBareJid = if (myJid.contains("@")) myJid.substringBefore("@") + "@" + myJid.substringAfter("@").substringBefore("/") else myJid
+
+            // Ignore messages sent by self on this same resource connection
+            if (fromBareJid.equals(myBareJid, ignoreCase = true) && fromStr.equals(conn.user?.toString(), ignoreCase = true)) {
+                return@addAsyncStanzaListener
+            }
+
+            // Skip standard MUC groupchat stanzas (handled by MultiUserChat listeners)
+            if (message.type == org.jivesoftware.smack.packet.Message.Type.groupchat) {
+                return@addAsyncStanzaListener
+            }
+
+            val resourcePart = (fromJid as? org.jxmpp.jid.FullJid)?.resourcepart?.toString()
+                ?: fromStr.substringAfterLast("/").takeIf { fromStr.contains("/") && !it.equals(fromBareJid, ignoreCase = true) }
+
+            scope.launch(Dispatchers.IO) {
+                val roomEntity = database.roomDao().getRoomByJid(fromBareJid)
+                val isMucContext = smackMucManager.isRoomJoined(fromBareJid) ||
+                        fromBareJid.contains("conference.", ignoreCase = true) ||
+                        fromBareJid.contains("muc.", ignoreCase = true) ||
+                        roomEntity != null
+
+                // CASE 1: Private WHISPER Message in MUC Room
+                if (isMucContext && !resourcePart.isNullOrBlank()) {
+                    val roomJid = fromBareJid
+                    val senderNick = resourcePart
+                    val myRoomNick = roomEntity?.myNickname ?: currentAccount.value.nickname
+
+                    // Skip if sender is ourselves inside MUC
+                    if (senderNick.equals(myRoomNick, ignoreCase = true)) return@launch
+
+                    val avatar = smackAvatarManager.getAvatar(fromStr) ?: smackAvatarManager.getAvatar(roomJid)
+
+                    val xmppMsg = XmppMessage(
+                        id = stanzaId ?: java.util.UUID.randomUUID().toString(),
+                        roomJid = roomJid,
+                        senderNickname = senderNick,
+                        senderJid = fromStr,
+                        senderAvatar = avatar,
+                        body = bodyText,
+                        timestamp = System.currentTimeMillis(),
+                        isMine = false,
+                        messageType = MessageType.WHISPER,
+                        status = DeliveryStatus.DELIVERED,
+                        recipientNickname = myRoomNick
+                    )
+
+                    Log.i("XmppRepository", "Received WHISPER from '$senderNick' in room [$roomJid]: $bodyText")
+                    processIncomingMessage(xmppMsg)
+                    return@launch
                 }
 
-                val senderNick = fromBareJid.substringBefore("@")
+                // CASE 2: 1-on-1 Direct Chat message from a contact or non-contact JID
+                if (fromBareJid.equals(myBareJid, ignoreCase = true)) {
+                    return@launch
+                }
+
+                val contactMatch = rosterContacts.value.find { it.jid.equals(fromBareJid, ignoreCase = true) }
+                val senderNick = contactMatch?.name?.takeIf { it.isNotBlank() }
+                    ?: fromBareJid.substringBefore("@")
+
                 val avatar = smackAvatarManager.getAvatar(fromBareJid)
 
                 val xmppMsg = XmppMessage(
-                    id = message.stanzaId ?: java.util.UUID.randomUUID().toString(),
+                    id = stanzaId ?: java.util.UUID.randomUUID().toString(),
                     roomJid = fromBareJid,
                     senderNickname = senderNick,
                     senderJid = fromBareJid,
@@ -444,12 +510,12 @@ class XmppRepository(
                     status = DeliveryStatus.DELIVERED
                 )
 
-                scope.launch {
-                    processIncomingMessage(xmppMsg)
-                }
+                Log.i("XmppRepository", "Received 1-on-1 direct message from [$fromBareJid] ('$senderNick'): $bodyText")
+                processIncomingMessage(xmppMsg)
             }
-        }
-        Log.i("XmppRepository", "ChatManager listener attached to connection ${conn.user}")
+        }, filter)
+
+        Log.i("XmppRepository", "StanzaListener attached to connection ${conn.user} for direct messages & whispers")
     }
 
     private fun setupReceiptListener(connection: org.jivesoftware.smack.XMPPConnection) {
@@ -949,6 +1015,16 @@ class XmppRepository(
 
         val msg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(senderAvatar = myAvatar)
         database.messageDao().insertMessage(msg.toEntity())
+
+        val existing = database.roomDao().getRoomByJid(roomJid)
+        if (existing != null) {
+            database.roomDao().insertOrUpdateRoom(
+                existing.copy(
+                    lastMessageText = "[Bisikan ke @$targetNickname] $text",
+                    lastMessageTime = msg.timestamp
+                )
+            )
+        }
     }
 
     suspend fun updateRoomTopic(roomJid: String, newTopic: String, myNickname: String) {
