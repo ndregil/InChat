@@ -652,7 +652,7 @@ fun MultiRoomMainScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Pengaturan Server Room") },
+                                    text = { Text("Nickname & Pengaturan Room") },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                     onClick = {
                                         showRoomMenu = false
@@ -749,17 +749,6 @@ fun MultiRoomMainScreen(
                             },
                             onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
                         )
-
-                        // Expandable Room Topic Banner with Bookmark Toggle
-                        activeRoom?.let { room ->
-                            RoomTopicBanner(
-                                topic = room.topic,
-                                roomJid = room.jid,
-                                isBookmarked = room.isBookmarked,
-                                onTopicChange = { newTopic -> viewModel.updateTopic(newTopic) },
-                                onBookmarkToggle = { viewModel.toggleSaveRoom(room.jid) }
-                            )
-                        }
 
                         // Message Feed (Maximized space for leluasa group chat view)
                         Box(
@@ -1170,7 +1159,20 @@ fun MultiRoomMainScreen(
                 initialInfo = roomConfigInfo,
                 moderationMessages = moderationHistory,
                 isLoading = isRoomConfigLoading,
+                ownersList = ownersList,
+                adminsList = adminsList,
+                membersList = membersList,
+                outcastsList = outcastsList,
+                isLoadingAffiliations = isLoadingAffiliations,
+                onLoadAffiliations = { viewModel.loadRoomAffiliations(room.jid) },
+                onGrantOwnership = { jid -> viewModel.grantOwnership(room.jid, jid) },
+                onGrantAdmin = { jid -> viewModel.grantAdmin(room.jid, jid) },
+                onGrantMembership = { jid -> viewModel.grantMembership(room.jid, jid) },
+                onBanUser = { jid, reason -> viewModel.banUser(room.jid, jid, reason) },
+                onRevokeAffiliation = { jid -> viewModel.grantNone(room.jid, jid) },
+                myRole = room.myRole,
                 onDismiss = { viewModel.isRoomConfigOpen.value = false },
+                onUpdateNickname = { newNick -> viewModel.updateRoomNickname(room.jid, newNick) },
                 onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
                     viewModel.configureRoom(
                         roomJid = room.jid,
@@ -1826,7 +1828,7 @@ fun ChatInputBar(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Membalas @${replyingToMessage.senderNickname}",
+                                    text = "Membalas ${replyingToMessage.senderNickname.replace("@System", "").trim()}",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary

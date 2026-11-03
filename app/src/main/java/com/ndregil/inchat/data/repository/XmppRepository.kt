@@ -668,7 +668,8 @@ class XmppRepository(
                             isWhisper = msg.messageType == MessageType.WHISPER,
                             isDirect = isDirect,
                             roomTitle = roomName,
-                            timestamp = msg.timestamp
+                            timestamp = msg.timestamp,
+                            isMention = msg.body.contains(currentAccount.value.nickname, ignoreCase = true)
                         )
                         FcmPushManager.showSystemNotification(context, payload)
                     }
@@ -1018,8 +1019,15 @@ class XmppRepository(
         return smackMucManager.getRoomInfo(roomJid)
     }
 
-    suspend fun updateRoomNickname(roomJid: String, nickname: String) {
+    suspend fun updateRoomNickname(roomJid: String, nickname: String): Result<Unit> {
         database.roomConfigDao().updateNickname(roomJid, nickname)
+        database.roomDao().updateNickname(roomJid, nickname)
+        
+        return if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {
+            smackMucManager.changeNickname(roomJid, nickname)
+        } else {
+            Result.success(Unit)
+        }
     }
 
     suspend fun updateRoomThemeAndWallpaper(roomJid: String, bubbleTheme: String, wallpaperStyle: String) {

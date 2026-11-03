@@ -450,6 +450,24 @@ class MultiUserChatManager(
     }
 
     /**
+     * Changes user nickname in a joined MUC room (XEP-0045 7.6).
+     */
+    suspend fun changeNickname(roomJid: String, newNickname: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
+            IllegalStateException("Room $roomJid is not joined.")
+        )
+        try {
+            val nick = Resourcepart.from(newNickname.trim())
+            muc.changeNickname(nick)
+            roomNicknames[roomJid] = nick.toString()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to change nickname in $roomJid to '$newNickname': ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Sends a groupchat message to all participants in the MUC room.
      */
     suspend fun sendMessage(roomJid: String, body: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -1077,7 +1095,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "→ [$nick] bergabung ke ruangan sebagai $roleName$affName$statusMsg",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_JOIN
@@ -1095,7 +1113,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "← [$nick] telah meninggalkan ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE
@@ -1112,7 +1130,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] dikeluarkan dari ruangan (Kicked) oleh $actorNick$reasonStr",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1129,7 +1147,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] dilarang masuk ke ruangan (Banned) oleh $actorNick$reasonStr",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1144,7 +1162,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] diberikan hak bicara (Voice).",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1159,7 +1177,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• Hak bicara (Voice) [$nick] dicabut (Muted).",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1174,7 +1192,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] mendapatkan status Keanggotaan Resmi (Member).",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1189,7 +1207,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• Status Keanggotaan (Member) [$nick] telah dicabut.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1204,7 +1222,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] diangkat menjadi Moderator ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1219,7 +1237,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• Hak Moderator [$nick] telah dicabut.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1234,7 +1252,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] sekarang adalah Owner ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1249,7 +1267,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• Hak Owner [$nick] telah dicabut.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1264,7 +1282,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$nick] diangkat menjadi Admin ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1279,7 +1297,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• Hak Admin [$nick] telah dicabut.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
@@ -1295,7 +1313,7 @@ class MultiUserChatManager(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
-                    senderNickname = "System",
+                    senderNickname = "",
                     body = "• [$oldNick] mengganti nickname menjadi [$newNick].",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
@@ -1352,7 +1370,7 @@ class MultiUserChatManager(
                             id = java.util.UUID.randomUUID().toString(),
                             roomJid = roomJid,
                             senderJid = roomJid,
-                            senderNickname = "System",
+                            senderNickname = "",
                             body = presenceText,
                             timestamp = System.currentTimeMillis(),
                             messageType = if (presence.type == Presence.Type.unavailable) com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE else com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS

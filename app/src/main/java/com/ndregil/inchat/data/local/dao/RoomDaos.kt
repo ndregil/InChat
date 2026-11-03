@@ -80,6 +80,9 @@ interface RoomDao {
     @Query("UPDATE rooms SET password = :password WHERE jid = :roomJid")
     suspend fun updatePassword(roomJid: String, password: String?)
 
+    @Query("UPDATE rooms SET myNickname = :nickname WHERE jid = :roomJid")
+    suspend fun updateNickname(roomJid: String, nickname: String)
+
     @Query("UPDATE rooms SET bubbleTheme = :bubbleTheme, wallpaperStyle = :wallpaperStyle WHERE jid = :roomJid")
     suspend fun updateThemeAndWallpaper(roomJid: String, bubbleTheme: String, wallpaperStyle: String)
 

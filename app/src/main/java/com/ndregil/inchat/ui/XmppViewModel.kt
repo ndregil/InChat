@@ -1120,7 +1120,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateRoomNickname(roomJid: String, nickname: String) {
         viewModelScope.launch {
-            repository.updateRoomNickname(roomJid, nickname)
+            val result = repository.updateRoomNickname(roomJid, nickname)
+            if (result.isFailure) {
+                Log.e("XmppViewModel", "Gagal mengganti nickname di room $roomJid: ${result.exceptionOrNull()?.message}")
+                // Optionally show a toast or update a status flow
+            }
         }
     }
 

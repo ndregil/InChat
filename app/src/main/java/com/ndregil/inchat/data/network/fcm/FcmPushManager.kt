@@ -33,7 +33,8 @@ data class PushMessagePayload(
     val isWhisper: Boolean = false,
     val isDirect: Boolean = false,
     val roomTitle: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val isMention: Boolean = false
 )
 
 object FcmPushManager {
@@ -49,6 +50,7 @@ object FcmPushManager {
     private const val KEY_FCM_TOKEN = "fcm_token"
     private const val KEY_PUSH_ENABLED = "push_enabled"
     private const val KEY_PUSH_NODE = "push_node"
+    private const val KEY_MUC_NOTIFICATION_MODE = "muc_notification_mode"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -57,6 +59,9 @@ object FcmPushManager {
 
     private val _isPushEnabled = MutableStateFlow(true)
     val isPushEnabled: StateFlow<Boolean> = _isPushEnabled.asStateFlow()
+
+    private val _isMucMentionOnly = MutableStateFlow(true)
+    val isMucMentionOnly: StateFlow<Boolean> = _isMucMentionOnly.asStateFlow()
 
     private val _pushServerNode = MutableStateFlow("push.xmpp.today")
     val pushServerNode: StateFlow<String> = _pushServerNode.asStateFlow()
@@ -97,6 +102,7 @@ object FcmPushManager {
             _fcmToken.value = savedToken
         }
         _isPushEnabled.value = prefs.getBoolean(KEY_PUSH_ENABLED, true)
+        _isMucMentionOnly.value = prefs.getBoolean(KEY_MUC_NOTIFICATION_MODE, true)
         _pushServerNode.value = prefs.getString(KEY_PUSH_NODE, "push.xmpp.today") ?: "push.xmpp.today"
     }
 
@@ -110,6 +116,12 @@ object FcmPushManager {
         _isPushEnabled.value = enabled
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_PUSH_ENABLED, enabled).apply()
+    }
+
+    fun setMucNotificationMode(context: Context, mentionOnly: Boolean) {
+        _isMucMentionOnly.value = mentionOnly
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_MUC_NOTIFICATION_MODE, mentionOnly).apply()
     }
 
     fun setPushServerNode(context: Context, node: String) {
@@ -169,6 +181,11 @@ object FcmPushManager {
 
         // If the user is currently viewing this room in foreground, suppress notification
         if (isAppInForeground && activeRoomJid != null && activeRoomJid.equals(payload.roomJid, ignoreCase = true)) {
+            return
+        }
+
+        // Suppress MUC if it's not a mention and mention-only mode is active
+        if (!payload.isWhisper && !payload.isDirect && _isMucMentionOnly.value && !payload.isMention) {
             return
         }
 

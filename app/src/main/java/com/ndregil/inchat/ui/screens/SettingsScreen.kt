@@ -72,8 +72,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
     DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
-    NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
-    ABOUT("About", "InChat, XMPP Client for Android, versi & hak cipta", Icons.Default.Info)
+    NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -554,7 +553,6 @@ fun SubSettingDetailScreen(
                     onDisconnect = onDisconnect
                 )
                 SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
-                SubSettingCategory.ABOUT -> AboutSubSettings()
             }
         }
     }
@@ -1083,6 +1081,26 @@ fun NotificationSubSettings() {
                         modifier = Modifier.padding(top = 10.dp)
                     )
 
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // MUC Mention Only Toggle
+                    val isMucMentionOnly by FcmPushManager.isMucMentionOnly.collectAsStateWithLifecycle()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Notifikasi Grup MUC", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(if (isMucMentionOnly) "Hanya saat disebut (mention)" else "Semua pesan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Switch(
+                            checked = isMucMentionOnly,
+                            onCheckedChange = { FcmPushManager.setMucNotificationMode(context, it) },
+                            modifier = Modifier.testTag("switch_muc_mention_only")
+                        )
+                    }
+
                     // Android 13+ Permission Warning if not granted
                     if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         Spacer(modifier = Modifier.height(12.dp))
@@ -1464,168 +1482,7 @@ fun NotificationSubSettings() {
     }
 }
 
-// ==========================================
-// 5. ABOUT SUB-SETTING (EXACT USER SPECIFICATION)
-// ==========================================
-@Composable
-fun AboutSubSettings() {
-    val context = LocalContext.current
-    val clientVersionName = remember(context) {
-        try {
-            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "1.0"
-        } catch (e: Exception) {
-            "1.0"
-        }
-    }
-    val clientVersionCode = remember(context) {
-        try {
-            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                pInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                pInfo.versionCode.toLong()
-            }
-        } catch (e: Exception) {
-            1L
-        }
-    }
 
-    val appIconBitmap = remember(context) {
-        try {
-            val drawable = context.packageManager.getApplicationIcon(context.packageName)
-            drawable.toBitmap(192, 192).asImageBitmap()
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    val displayVersion = "v$clientVersionName (Build $clientVersionCode)"
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp)
-    ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // App Logo Icon loaded safely from PackageManager application icon
-                    Surface(
-                        modifier = Modifier
-                            .size(88.dp)
-                            .clip(CircleShape)
-                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            if (appIconBitmap != null) {
-                                Image(
-                                    bitmap = appIconBitmap,
-                                    contentDescription = "Logo Aplikasi InChat",
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Forum,
-                                    contentDescription = "InChat Logo",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // App Title
-                    Text(
-                        text = "InChat",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Subtitle
-                    Text(
-                        text = "XMPP Client for Android",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Client Version Badge with Real Package Version Name and Build Code
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = "Versi Klien Resmi",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = displayVersion,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    Text(
-                        text = "Aplikasi pesan instan XMPP tingkat lanjut untuk Android dengan dukungan Multi-User Chat (MUC), Presence, Delivery Receipts (XEP-0184), vCard & User Avatars (XEP-0084), Jingle Calls, Bookmarks, serta Manajemen Administrasi Moderasi Ruangan.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 20.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Copyright Banner
-                    Text(
-                        text = "Copyright © 2026 Ndregil",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
 
 // ==========================================
 // COMMON SHARED COMPONENTS

@@ -59,7 +59,8 @@ class XmppFirebaseMessagingService : FirebaseMessagingService() {
             senderNickname = senderNick,
             body = body,
             isWhisper = isWhisper,
-            timestamp = timestamp
+            timestamp = timestamp,
+            isMention = false
         )
 
         // 1. Save background message into SQLite Room database

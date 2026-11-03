@@ -21,6 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Color
 import com.ndregil.inchat.data.model.XmppMessage
+import com.ndregil.inchat.data.model.MucAffiliate
+import com.ndregil.inchat.data.model.OccupantRole
+import com.ndregil.inchat.data.model.OccupantAffiliation
 import org.jivesoftware.smackx.muc.RoomInfo
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -33,7 +36,20 @@ fun RoomConfigurationDialog(
     initialInfo: RoomInfo?,
     moderationMessages: List<XmppMessage> = emptyList(),
     isLoading: Boolean = false,
+    onLoadAffiliations: () -> Unit = {},
+    ownersList: List<MucAffiliate> = emptyList(),
+    adminsList: List<MucAffiliate> = emptyList(),
+    membersList: List<MucAffiliate> = emptyList(),
+    outcastsList: List<MucAffiliate> = emptyList(),
+    isLoadingAffiliations: Boolean = false,
+    onGrantOwnership: (String) -> Unit = {},
+    onGrantAdmin: (String) -> Unit = {},
+    onGrantMembership: (String) -> Unit = {},
+    onBanUser: (String, String?) -> Unit = { _, _ -> },
+    onRevokeAffiliation: (String) -> Unit = {},
+    myRole: OccupantRole = OccupantRole.NONE,
     onDismiss: () -> Unit,
+    onUpdateNickname: (String) -> Unit = {},
     onSaveConfig: (
         roomName: String?,
         description: String?,
@@ -46,7 +62,13 @@ fun RoomConfigurationDialog(
         password: String?
     ) -> Unit
 ) {
-    var activeTab by remember { mutableIntStateOf(0) } // 0 = Settings, 1 = Moderation History
+    var activeTab by remember { mutableIntStateOf(0) } // 0 = Settings, 1 = Moderation
+
+    LaunchedEffect(activeTab) {
+        if (activeTab == 1) {
+            onLoadAffiliations()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -65,7 +87,7 @@ fun RoomConfigurationDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (activeTab == 0) Icons.Default.AdminPanelSettings else Icons.Default.History,
+                            imageVector = if (activeTab == 0) Icons.Default.AdminPanelSettings else Icons.Default.Gavel,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -73,7 +95,7 @@ fun RoomConfigurationDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = if (activeTab == 0) "Konfigurasi Ruangan MUC" else "Riwayat Moderasi",
+                            text = if (activeTab == 0) "Konfigurasi Ruangan MUC" else "Administrasi & Moderasi",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -97,12 +119,14 @@ fun RoomConfigurationDialog(
                         text = { Text("Pengaturan", fontSize = 13.sp) },
                         icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     )
-                    Tab(
-                        selected = activeTab == 1,
-                        onClick = { activeTab = 1 },
-                        text = { Text("Moderasi", fontSize = 13.sp) },
-                        icon = { Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                    )
+                    if (myRole == OccupantRole.OWNER || myRole == OccupantRole.ADMIN) {
+                        Tab(
+                            selected = activeTab == 1,
+                            onClick = { activeTab = 1 },
+                            text = { Text("Moderasi", fontSize = 13.sp) },
+                            icon = { Icon(Icons.Default.Gavel, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -114,11 +138,21 @@ fun RoomConfigurationDialog(
                 RoomConfigurationContent(
                     initialInfo = initialInfo,
                     isLoading = isLoading,
-                    onSaveConfig = onSaveConfig
+                    onSaveConfig = onSaveConfig,
+                    onUpdateNickname = onUpdateNickname
                 )
             } else {
-                ModerationHistoryContent(
-                    messages = moderationMessages
+                ModerationTabContent(
+                    owners = ownersList,
+                    admins = adminsList,
+                    members = membersList,
+                    outcasts = outcastsList,
+                    isLoading = isLoadingAffiliations,
+                    onGrantOwnership = onGrantOwnership,
+                    onGrantAdmin = onGrantAdmin,
+                    onGrantMembership = onGrantMembership,
+                    onBanUser = onBanUser,
+                    onRevokeAffiliation = onRevokeAffiliation
                 )
             }
         },
@@ -128,7 +162,7 @@ fun RoomConfigurationDialog(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("dismiss_room_config_dialog")
             ) {
-                Text("Batal")
+                Text("Tutup")
             }
         }
     )
@@ -148,7 +182,8 @@ fun RoomConfigurationContent(
         isModerated: Boolean,
         allowSubjectChange: Boolean,
         password: String?
-    ) -> Unit
+    ) -> Unit,
+    onUpdateNickname: (String) -> Unit = {}
 ) {
     var roomName by remember(initialInfo) { mutableStateOf(initialInfo?.name ?: "") }
     var description by remember(initialInfo) { mutableStateOf(initialInfo?.description ?: "") }
@@ -161,12 +196,80 @@ fun RoomConfigurationContent(
     var password by remember(initialInfo) { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
 
+    // Use current nickname from some source if initialInfo doesn't have it, but we need a way to get it.
+    // In MUC, the nickname is part of the occupant info. For now, let's assume we pass it or it's in initialInfo (not standard for RoomInfo though).
+    // Actually, we can just let it be blank initially and user can type.
+    var myNickname by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Section: Personal Identity (Nickname)
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Face,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Nickname Saya di Ruangan Ini",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = myNickname,
+                        onValueChange = { myNickname = it },
+                        label = { Text("Ganti Nickname") },
+                        placeholder = { Text("Masukkan nickname baru...") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("room_nickname_input"),
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) }
+                    )
+
+                    Button(
+                        onClick = {
+                            if (myNickname.isNotBlank()) {
+                                onUpdateNickname(myNickname)
+                                myNickname = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(56.dp)
+                    ) {
+                        Text("Ganti")
+                    }
+                }
+                
+                Text(
+                    text = "Perubahan nickname akan langsung terlihat oleh partisipan lain.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         // Section 1: Room Identity & Description
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -452,6 +555,204 @@ fun RoomConfigurationContent(
                 Icon(Icons.Default.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Simpan Konfigurasi Ruangan (XEP-0045)", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+fun ModerationTabContent(
+    owners: List<MucAffiliate>,
+    admins: List<MucAffiliate>,
+    members: List<MucAffiliate>,
+    outcasts: List<MucAffiliate>,
+    isLoading: Boolean = false,
+    onGrantOwnership: (String) -> Unit,
+    onGrantAdmin: (String) -> Unit,
+    onGrantMembership: (String) -> Unit,
+    onBanUser: (String, String?) -> Unit,
+    onRevokeAffiliation: (String) -> Unit
+) {
+    var jidInput by remember { mutableStateOf("") }
+    var selectedType by remember { mutableStateOf("Member") }
+    val affiliationTypes = listOf("Owner", "Admin", "Member", "Outcast (Ban)")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Section: Add Affiliate
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Tambah Afiliasi / Role Baru",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                OutlinedTextField(
+                    value = jidInput,
+                    onValueChange = { jidInput = it },
+                    label = { Text("Real Bare JID") },
+                    placeholder = { Text("username@server.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    leadingIcon = { Icon(Icons.Default.AlternateEmail, contentDescription = null) }
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        var expanded by remember { mutableStateOf(false) }
+                        OutlinedButton(
+                            onClick = { expanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(selectedType)
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            affiliationTypes.forEach { type ->
+                                DropdownMenuItem(
+                                    text = { Text(type) },
+                                    onClick = {
+                                        selectedType = type
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (jidInput.isNotBlank()) {
+                                when (selectedType) {
+                                    "Owner" -> onGrantOwnership(jidInput)
+                                    "Admin" -> onGrantAdmin(jidInput)
+                                    "Member" -> onGrantMembership(jidInput)
+                                    "Outcast (Ban)" -> onBanUser(jidInput, "Moderasi via App")
+                                }
+                                jidInput = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Tambah")
+                    }
+                }
+            }
+        }
+
+        if (isLoading) {
+            Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        }
+
+        // Section: List Affiliates
+        AffiliationListSection(title = "Owners", list = owners, onRemove = onRevokeAffiliation)
+        AffiliationListSection(title = "Admins", list = admins, onRemove = onRevokeAffiliation)
+        AffiliationListSection(title = "Members", list = members, onRemove = onRevokeAffiliation)
+        AffiliationListSection(title = "Outcasts (Banned)", list = outcasts, onRemove = onRevokeAffiliation)
+        
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+fun AffiliationListSection(
+    title: String,
+    list: List<MucAffiliate>,
+    onRemove: (String) -> Unit
+) {
+    if (list.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "$title (${list.size})",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            list.forEach { affiliate ->
+                AffiliateItem(affiliate = affiliate, onRemove = { onRemove(affiliate.jid) })
+            }
+        }
+    }
+}
+
+@Composable
+fun AffiliateItem(
+    affiliate: MucAffiliate,
+    onRemove: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = affiliate.jid,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!affiliate.nickname.isNullOrBlank()) {
+                    Text(
+                        text = "Nick: ${affiliate.nickname}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Hapus",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
