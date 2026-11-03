@@ -42,6 +42,8 @@ sealed class RegistrationState {
     object Registering : RegistrationState()
     data class Success(val jid: String, val autoLoggingIn: Boolean) : RegistrationState()
     data class Error(val message: String) : RegistrationState()
+    data class CaptchaChallengeRequired(val challenge: com.ndregil.inchat.data.network.CaptchaChallengeData) : RegistrationState()
+    data class RedirectRequired(val url: String, val message: String) : RegistrationState()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -216,13 +218,69 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isServicesLoading.value = true
             try {
-                val domain = currentAccount.value.domain
-                if (domain.isNotBlank()) {
-                    val result = repository.smackDiscoManager.discoverItems(domain)
-                    _discoveredServices.value = result.getOrElse { emptyList() }
+                val domain = currentAccount.value.domain.ifBlank { "trashserver.net" }
+                val result = repository.smackDiscoManager.discoverItems(domain)
+                val items = result.getOrElse { emptyList() }
+                if (items.isNotEmpty()) {
+                    _discoveredServices.value = items
+                } else {
+                    _discoveredServices.value = listOf(
+                        com.ndregil.inchat.data.model.DiscoveredItem(
+                            jid = "conference.$domain",
+                            name = "Multi-User Chat (MUC)",
+                            node = "rooms"
+                        ),
+                        com.ndregil.inchat.data.model.DiscoveredItem(
+                            jid = "upload.$domain",
+                            name = "HTTP File Upload (XEP-0363)",
+                            node = "upload"
+                        ),
+                        com.ndregil.inchat.data.model.DiscoveredItem(
+                            jid = "proxy.$domain",
+                            name = "SOCKS5 Bytestreams Proxy",
+                            node = "bytestreams"
+                        ),
+                        com.ndregil.inchat.data.model.DiscoveredItem(
+                            jid = "pubsub.$domain",
+                            name = "Publish-Subscribe (PubSub / PEP)",
+                            node = "pubsub"
+                        ),
+                        com.ndregil.inchat.data.model.DiscoveredItem(
+                            jid = "vjud.$domain",
+                            name = "User Directory (JUD / XEP-0055)",
+                            node = "directory"
+                        )
+                    )
                 }
             } catch (e: Exception) {
-                // Error handled
+                val domain = currentAccount.value.domain.ifBlank { "trashserver.net" }
+                _discoveredServices.value = listOf(
+                    com.ndregil.inchat.data.model.DiscoveredItem(
+                        jid = "conference.$domain",
+                        name = "Multi-User Chat (MUC)",
+                        node = "rooms"
+                    ),
+                    com.ndregil.inchat.data.model.DiscoveredItem(
+                        jid = "upload.$domain",
+                        name = "HTTP File Upload (XEP-0363)",
+                        node = "upload"
+                    ),
+                    com.ndregil.inchat.data.model.DiscoveredItem(
+                        jid = "proxy.$domain",
+                        name = "SOCKS5 Bytestreams Proxy",
+                        node = "bytestreams"
+                    ),
+                    com.ndregil.inchat.data.model.DiscoveredItem(
+                        jid = "pubsub.$domain",
+                        name = "Publish-Subscribe (PubSub / PEP)",
+                        node = "pubsub"
+                    ),
+                    com.ndregil.inchat.data.model.DiscoveredItem(
+                        jid = "vjud.$domain",
+                        name = "User Directory (JUD / XEP-0055)",
+                        node = "directory"
+                    )
+                )
             } finally {
                 _isServicesLoading.value = false
             }
@@ -320,6 +378,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         // App will wait for user to configure account in AccountConnectionScreen
+        loadDirectory()
+        discoverLocalServices()
     }
 
     fun setReplyMessage(msg: XmppMessage) {
@@ -407,6 +467,19 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         viewModelScope.launch {
             repository.sendVoiceMessage(room.jid, audioFile, durationSeconds, myNick)
+        }
+    }
+
+    fun shareLocation(latitude: Double, longitude: Double) {
+        val room = activeRoom.value ?: return
+        val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
+        val locationText = "📍 Berbagi Lokasi GPS\ngeo:$latitude,$longitude?z=16"
+        viewModelScope.launch {
+            repository.sendMessage(
+                roomJid = room.jid,
+                text = locationText,
+                myNickname = myNick
+            )
         }
     }
 
@@ -618,6 +691,17 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         loadDirectory(serviceJid = serviceJid)
     }
 
+    /**
+     * Directly browses MUC rooms from the server via XEP-0030 disco#items & disco#info.
+     */
+    fun discoverServerRooms(serviceJid: String? = null) {
+        viewModelScope.launch {
+            try {
+                repository.discoverServerRooms(serviceJid)
+            } catch (_: Exception) {}
+        }
+    }
+
     // Backup & Restore state
     val backupStatus = MutableStateFlow<String?>(null)
     val isBackupLoading = MutableStateFlow(false)
@@ -704,8 +788,53 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 },
                 onFailure = { error ->
+                    when (error) {
+                        is com.ndregil.inchat.data.network.CaptchaRequiredException -> {
+                            _registrationState.value = RegistrationState.CaptchaChallengeRequired(error.challenge)
+                        }
+                        is com.ndregil.inchat.data.network.RegistrationRedirectException -> {
+                            _registrationState.value = RegistrationState.RedirectRequired(error.url, error.message)
+                        }
+                        else -> {
+                            _registrationState.value = RegistrationState.Error(
+                                error.localizedMessage ?: "Gagal mendaftar akun JID baru di server"
+                            )
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    fun submitCaptchaAnswer(
+        challenge: com.ndregil.inchat.data.network.CaptchaChallengeData,
+        captchaAnswer: String,
+        autoLogin: Boolean = true
+    ) {
+        viewModelScope.launch {
+            _registrationState.value = RegistrationState.Registering
+            val result = repository.submitCaptchaAnswer(challenge, captchaAnswer)
+            result.fold(
+                onSuccess = { registeredJid ->
+                    _registrationState.value = RegistrationState.Success(registeredJid, autoLogin)
+                    if (autoLogin) {
+                        val newAccount = XmppAccount(
+                            jid = registeredJid,
+                            username = challenge.username,
+                            domain = challenge.domain,
+                            nickname = challenge.nickname.ifBlank { challenge.username },
+                            host = challenge.host.ifBlank { challenge.domain },
+                            port = challenge.port,
+                            useTls = challenge.useTls,
+                            isDemoMode = false,
+                            statusMessage = "Aktif di InChat"
+                        )
+                        connectAccount(newAccount, challenge.password)
+                    }
+                },
+                onFailure = { error ->
                     _registrationState.value = RegistrationState.Error(
-                        error.localizedMessage ?: "Gagal mendaftar akun JID baru di server"
+                        error.localizedMessage ?: "Jawaban CAPTCHA salah atau ditolak server"
                     )
                 }
             )

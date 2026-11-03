@@ -655,10 +655,11 @@ data class RosterContact(
     val pepActivity: String? = null,
     val pepMood: String? = null,
     val pepTune: String? = null,
-    val pepStatus: String? = null
+    val pepStatus: String? = null,
+    val nickname: String? = null
 ) {
     val displayName: String
-        get() = name.ifBlank { jid.substringBefore("@") }
+        get() = nickname?.ifBlank { null } ?: name.ifBlank { jid.substringBefore("@") }
 
     val statusCategory: StatusIndicatorCategory
         get() = when (presence) {

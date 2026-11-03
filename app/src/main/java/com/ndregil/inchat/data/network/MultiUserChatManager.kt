@@ -98,6 +98,9 @@ class MultiUserChatManager(
     private val _serverBookmarks = MutableStateFlow<List<BookmarkedConference>>(emptyList())
     val serverBookmarks: StateFlow<List<BookmarkedConference>> = _serverBookmarks.asStateFlow()
 
+    // Cache of occupant presence states per room: roomJid -> (nickname -> Pair(UserPresence, statusText))
+    private val roomOccupantPresenceCache = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Pair<com.ndregil.inchat.data.model.UserPresence, String>>>()
+
     init {
         // Listen for avatar updates to refresh UI automatically
         scope.launch {
@@ -637,11 +640,14 @@ class MultiUserChatManager(
 
         try {
             val bookmarkManager = BookmarkManager.getBookmarkManager(conn)
-            val bareJid = JidCreate.entityBareFrom(roomJid.trim())
-            val nick = nickname?.let { Resourcepart.from(it.trim()) }
+            val cleanJidStr = roomJid.substringBefore("/").trim()
+            val bareJid = JidCreate.entityBareFrom(cleanJidStr)
+            val nick = nickname?.trim()?.takeIf { it.isNotEmpty() }?.let { Resourcepart.from(it) }
+            val pass = password?.trim()?.takeIf { it.isNotEmpty() }
+            val bookmarkName = name.trim().ifEmpty { bareJid.localpartOrNull?.toString() ?: "Room" }
             
-            bookmarkManager.addBookmarkedConference(name.trim(), bareJid, autoJoin, nick, password)
-            Log.i(TAG, "Successfully saved bookmark for $roomJid to server.")
+            bookmarkManager.addBookmarkedConference(bookmarkName, bareJid, autoJoin, nick, pass)
+            Log.i(TAG, "Successfully saved bookmark for $cleanJidStr to server (autojoin=$autoJoin).")
             fetchBookmarks() // Refresh local state
             Result.success(Unit)
         } catch (e: Exception) {
@@ -659,9 +665,10 @@ class MultiUserChatManager(
 
         try {
             val bookmarkManager = BookmarkManager.getBookmarkManager(conn)
-            val bareJid = JidCreate.entityBareFrom(roomJid.trim())
+            val cleanJidStr = roomJid.substringBefore("/").trim()
+            val bareJid = JidCreate.entityBareFrom(cleanJidStr)
             bookmarkManager.removeBookmarkedConference(bareJid)
-            Log.i(TAG, "Successfully removed bookmark for $roomJid from server.")
+            Log.i(TAG, "Successfully removed bookmark for $cleanJidStr from server.")
             fetchBookmarks() // Refresh local state
             Result.success(Unit)
         } catch (e: Exception) {
@@ -1045,105 +1052,256 @@ class MultiUserChatManager(
         muc.addMessageListener(mucMessageListener)
         roomMessageListeners.getOrPut(roomJid) { mutableListOf() }.add(mucMessageListener)
 
-        // Participant status listener (catches join/leave/kick/ban events)
+        // Participant status listener (catches join/leave/kick/ban/role/nick events like BombusMod)
         muc.addParticipantStatusListener(object : org.jivesoftware.smackx.muc.ParticipantStatusListener {
             override fun joined(participant: EntityFullJid?) {
                 Log.d(TAG, "MUC [$roomJid] Participant joined: $participant")
                 updateOccupantsForRoom(roomJid, muc)
                 
                 val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val occ = muc.getOccupant(participant)
+                val roleName = when (occ?.role) {
+                    MUCRole.moderator -> "Moderator"
+                    MUCRole.participant -> "Partisipan"
+                    MUCRole.visitor -> "Pengunjung"
+                    else -> "Partisipan"
+                }
+                val affName = when (occ?.affiliation) {
+                    MUCAffiliation.owner -> " (Owner)"
+                    MUCAffiliation.admin -> " (Admin)"
+                    MUCAffiliation.member -> " (Member)"
+                    else -> ""
+                }
+                val statusMsg = muc.getOccupantPresence(participant)?.status?.takeIf { it.isNotBlank() }?.let { " [\"$it\"]" } ?: ""
                 val systemMsg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "$nick telah bergabung ke ruangan.",
+                    body = "→ [$nick] bergabung ke ruangan sebagai $roleName$affName$statusMsg",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_JOIN
                 )
                 _incomingMessages.tryEmit(systemMsg)
             }
+
             override fun left(participant: EntityFullJid?) {
                 Log.d(TAG, "MUC [$roomJid] Participant left: $participant")
                 updateOccupantsForRoom(roomJid, muc)
                 
                 val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                roomOccupantPresenceCache[roomJid]?.remove(nick)
                 val systemMsg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "$nick telah meninggalkan ruangan.",
+                    body = "← [$nick] telah meninggalkan ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE
                 )
                 _incomingMessages.tryEmit(systemMsg)
             }
+
             override fun kicked(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
                 updateOccupantsForRoom(roomJid, muc)
                 val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
                 val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
+                val reasonStr = if (!reason.isNullOrBlank()) " (Alasan: $reason)" else ""
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "$nick telah di-kick oleh $actorNick. Alasan: ${reason ?: "Tidak ada"}",
+                    body = "• [$nick] dikeluarkan dari ruangan (Kicked) oleh $actorNick$reasonStr",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
                 _incomingMessages.tryEmit(msg)
             }
+
             override fun banned(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
                 updateOccupantsForRoom(roomJid, muc)
                 val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
                 val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
+                val reasonStr = if (!reason.isNullOrBlank()) " (Alasan: $reason)" else ""
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "$nick telah di-ban oleh $actorNick. Alasan: ${reason ?: "Tidak ada"}",
+                    body = "• [$nick] dilarang masuk ke ruangan (Banned) oleh $actorNick$reasonStr",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
                 _incomingMessages.tryEmit(msg)
             }
-            override fun voiceGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun voiceRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
+
+            override fun voiceGranted(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• [$nick] diberikan hak bicara (Voice).",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun voiceRevoked(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• Hak bicara (Voice) [$nick] dicabut (Muted).",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
             override fun membershipGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "${participant?.resourceOrNull} mendapatkan status Membership.",
+                    body = "• [$nick] mendapatkan status Keanggotaan Resmi (Member).",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
                 _incomingMessages.tryEmit(msg)
             }
-            override fun membershipRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
+
+            override fun membershipRevoked(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• Status Keanggotaan (Member) [$nick] telah dicabut.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
             override fun moderatorGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "System",
-                    body = "${participant?.resourceOrNull} sekarang menjadi Moderator.",
+                    body = "• [$nick] diangkat menjadi Moderator ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
                 _incomingMessages.tryEmit(msg)
             }
-            override fun moderatorRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun ownershipGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun ownershipRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun adminGranted(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun adminRevoked(participant: EntityFullJid?) { updateOccupantsForRoom(roomJid, muc) }
-            override fun nicknameChanged(participant: EntityFullJid?, newNickname: Resourcepart?) { updateOccupantsForRoom(roomJid, muc) }
+
+            override fun moderatorRevoked(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• Hak Moderator [$nick] telah dicabut.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun ownershipGranted(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• [$nick] sekarang adalah Owner ruangan.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun ownershipRevoked(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• Hak Owner [$nick] telah dicabut.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun adminGranted(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• [$nick] diangkat menjadi Admin ruangan.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun adminRevoked(participant: EntityFullJid?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• Hak Admin [$nick] telah dicabut.",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
+                )
+                _incomingMessages.tryEmit(msg)
+            }
+
+            override fun nicknameChanged(participant: EntityFullJid?, newNickname: Resourcepart?) {
+                updateOccupantsForRoom(roomJid, muc)
+                val oldNick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val newNick = newNickname?.toString() ?: "Nama Baru"
+                val msg = XmppMessage(
+                    id = java.util.UUID.randomUUID().toString(),
+                    roomJid = roomJid,
+                    senderJid = roomJid,
+                    senderNickname = "System",
+                    body = "• [$oldNick] mengganti nickname menjadi [$newNick].",
+                    timestamp = System.currentTimeMillis(),
+                    messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
+                )
+                _incomingMessages.tryEmit(msg)
+            }
         })
 
         // Subject / Topic change listener
@@ -1154,41 +1312,68 @@ class MultiUserChatManager(
             }
         })
 
-        // Presence listener
+        // Participant presence listener for real-time presence (Online, Chat, Away, DND, Offline, status message)
         val presenceListener = org.jivesoftware.smack.StanzaListener { stanza ->
             val presence = stanza as Presence
             val fromJid = presence.from
-            if (fromJid != null && fromJid.asBareJid().toString() == roomJid) {
+            if (fromJid != null && fromJid.asBareJid().toString().equals(roomJid, ignoreCase = true)) {
                 val nick = fromJid.resourceOrNull?.toString() ?: return@StanzaListener
-                if (nick == myNickname) return@StanzaListener
-                
-                val type = presence.type // available, unavailable
-                val mode = presence.mode // away, dnd, etc.
-                
-                val statusText = if (type == Presence.Type.unavailable) "disconnected" else {
-                    when (mode) {
-                        Presence.Mode.away -> "Away"
-                        Presence.Mode.dnd -> "Do Not Disturb"
-                        Presence.Mode.chat -> "Free to chat"
-                        else -> "Online"
+
+                // Update real-time occupant presence list
+                updateOccupantsForRoom(roomJid, muc)
+
+                val userPresence = presence.toUserPresence()
+                val customStatus = presence.status ?: ""
+
+                val roomCache = roomOccupantPresenceCache.getOrPut(roomJid) { mutableMapOf() }
+                val prev = roomCache[nick]
+                val currentPair = Pair(userPresence, customStatus)
+
+                if (prev != currentPair) {
+                    roomCache[nick] = currentPair
+
+                    // Only emit status message if this is a subsequent change (avoid initial spam on join)
+                    if (prev != null && nick != myNickname) {
+                        val modeName = when (presence.mode) {
+                            Presence.Mode.away -> "Away"
+                            Presence.Mode.dnd -> "Jangan Ganggu (DND)"
+                            Presence.Mode.chat -> "Bebas Mengobrol"
+                            Presence.Mode.xa -> "Extended Away"
+                            else -> if (presence.type == Presence.Type.unavailable) "Offline" else "Online"
+                        }
+                        val statusSnippet = if (customStatus.isNotBlank()) " (\"$customStatus\")" else ""
+                        val presenceText = if (presence.type == Presence.Type.unavailable) {
+                            "← [$nick] sekarang Offline$statusSnippet"
+                        } else {
+                            "• [$nick] sekarang [$modeName]$statusSnippet"
+                        }
+
+                        val systemMsg = XmppMessage(
+                            id = java.util.UUID.randomUUID().toString(),
+                            roomJid = roomJid,
+                            senderJid = roomJid,
+                            senderNickname = "System",
+                            body = presenceText,
+                            timestamp = System.currentTimeMillis(),
+                            messageType = if (presence.type == Presence.Type.unavailable) com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE else com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
+                        )
+                        _incomingMessages.tryEmit(systemMsg)
                     }
                 }
-                
-                val systemMsg = XmppMessage(
-                    id = java.util.UUID.randomUUID().toString(),
-                    roomJid = roomJid,
-                    senderJid = roomJid,
-                    senderNickname = "System",
-                    body = "$nick: $statusText",
-                    timestamp = System.currentTimeMillis(),
-                    messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
-                )
-                _incomingMessages.tryEmit(systemMsg)
             }
         }
         val presenceFilter = org.jivesoftware.smack.filter.StanzaTypeFilter(Presence::class.java)
         connectionManager.getRawConnection()?.addAsyncStanzaListener(presenceListener, presenceFilter)
         roomPresenceListeners.getOrPut(roomJid) { mutableListOf() }.add(presenceListener)
+
+        // Also add direct ParticipantListener on MUC
+        try {
+            muc.addParticipantListener { presence ->
+                updateOccupantsForRoom(roomJid, muc)
+            }
+        } catch (e: Exception) {
+            // Handled safely
+        }
     }
 
     /**
@@ -1222,11 +1407,13 @@ class MultiUserChatManager(
 
                 val isMe = nickname.equals(myNickname, ignoreCase = true)
 
-                val role = when (occupant?.role) {
-                    MUCRole.moderator -> OccupantRole.ADMIN
-                    MUCRole.participant -> OccupantRole.MEMBER
-                    MUCRole.visitor -> OccupantRole.VISITOR
-                    else -> OccupantRole.NONE
+                val role = when {
+                    occupant?.affiliation == MUCAffiliation.owner -> OccupantRole.OWNER
+                    occupant?.affiliation == MUCAffiliation.admin -> OccupantRole.ADMIN
+                    occupant?.role == MUCRole.moderator -> OccupantRole.ADMIN
+                    occupant?.role == MUCRole.participant -> OccupantRole.PARTICIPANT
+                    occupant?.role == MUCRole.visitor -> OccupantRole.VISITOR
+                    else -> OccupantRole.MEMBER
                 }
 
                 val affiliation = when (occupant?.affiliation) {
@@ -1240,6 +1427,14 @@ class MultiUserChatManager(
                 val smackPresence = muc.getOccupantPresence(occupantJid)
                 val userPresence = smackPresence?.toUserPresence() ?: UserPresence.ONLINE
                 val statusMessage = smackPresence?.status ?: ""
+                val defaultStatus = when (userPresence) {
+                    UserPresence.ONLINE -> "Online"
+                    UserPresence.CHAT -> "Bebas Chat"
+                    UserPresence.AWAY -> "Away"
+                    UserPresence.XA -> "Extended Away"
+                    UserPresence.DND -> "Jangan Ganggu"
+                    UserPresence.OFFLINE -> "Offline"
+                }
                 val myJid = connectionManager.credentials.value.jid
                 val realJid = if (isMe && myJid.isNotBlank()) {
                     myJid
@@ -1283,7 +1478,7 @@ class MultiUserChatManager(
                         role = role,
                         affiliation = affiliation,
                         presence = userPresence,
-                        statusText = statusMessage.ifBlank { if (isMe) "Anda" else "Online" },
+                        statusText = statusMessage.ifBlank { if (isMe) "Kamu" else defaultStatus },
                         isMe = isMe,
                         avatar = avatar,
                         clientCaps = occupantCaps

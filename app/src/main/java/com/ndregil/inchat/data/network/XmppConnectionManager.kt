@@ -241,7 +241,7 @@ class XmppConnectionManager(
                 .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
                 .setSecurityMode(
-                    if (creds.useTls) ConnectionConfiguration.SecurityMode.ifpossible
+                    if (creds.useTls) ConnectionConfiguration.SecurityMode.required
                     else ConnectionConfiguration.SecurityMode.disabled
                 )
 
@@ -354,7 +354,7 @@ class XmppConnectionManager(
                 .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
                 .setSecurityMode(
-                    if (creds.useTls) ConnectionConfiguration.SecurityMode.ifpossible
+                    if (creds.useTls) ConnectionConfiguration.SecurityMode.required
                     else ConnectionConfiguration.SecurityMode.disabled
                 )
 
@@ -506,9 +506,21 @@ class XmppConnectionManager(
     ): Result<String> = withContext(Dispatchers.IO) {
         var tempConnection: XMPPTCPConnection? = null
         try {
-            val cleanDomain = domain.trim().lowercase(Locale.getDefault())
+            val rawDomain = domain.trim().lowercase(Locale.getDefault())
+            val cleanDomain = when (rawDomain) {
+                "conversations.m", "conversation.im", "conversations.i" -> "conversations.im"
+                "trashserver.n", "trashserver.de" -> "trashserver.net"
+                "xmpp.j" -> "xmpp.jp"
+                else -> rawDomain
+            }
             val cleanUser = username.trim()
-            val cleanHost = host.trim().ifBlank { cleanDomain }
+            val rawHost = host.trim().ifBlank { cleanDomain }
+            val cleanHost = when (rawHost.lowercase(Locale.getDefault())) {
+                "conversations.m", "conversation.im", "conversations.i" -> "conversations.im"
+                "trashserver.n", "trashserver.de" -> "trashserver.net"
+                "xmpp.j" -> "xmpp.jp"
+                else -> rawHost
+            }
 
             Log.i(TAG, "Starting In-Band Registration (XEP-0077) for user '$cleanUser' at $cleanDomain ($cleanHost:$port)")
 
@@ -518,7 +530,7 @@ class XmppConnectionManager(
                 .setPort(port)
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
                 .setSecurityMode(
-                    if (useTls) ConnectionConfiguration.SecurityMode.ifpossible
+                    if (useTls) ConnectionConfiguration.SecurityMode.required
                     else ConnectionConfiguration.SecurityMode.disabled
                 )
 
@@ -532,9 +544,29 @@ class XmppConnectionManager(
                 }
             }
 
-            val config = configBuilder.build()
-            tempConnection = XMPPTCPConnection(config)
-            tempConnection.connect()
+            try {
+                val config = configBuilder.build()
+                tempConnection = XMPPTCPConnection(config)
+                tempConnection.connect()
+            } catch (connErr: Exception) {
+                Log.w(TAG, "Primary registration connection to $cleanHost:$port failed (${connErr.message}), trying fallback direct host connection...")
+                try {
+                    val fallbackBuilder = XMPPTCPConnectionConfiguration.builder()
+                        .setXmppDomain(domainJid)
+                        .setHost(cleanDomain)
+                        .setPort(port)
+                        .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
+                        .setSecurityMode(
+                            if (useTls) ConnectionConfiguration.SecurityMode.required
+                            else ConnectionConfiguration.SecurityMode.disabled
+                        )
+                    val fallbackConfig = fallbackBuilder.build()
+                    tempConnection = XMPPTCPConnection(fallbackConfig)
+                    tempConnection.connect()
+                } catch (fallbackErr: Exception) {
+                    throw connErr
+                }
+            }
 
             val accountManager = AccountManager.getInstance(tempConnection)
             accountManager.sensitiveOperationOverInsecureConnection(true)
@@ -553,27 +585,151 @@ class XmppConnectionManager(
             Log.i(TAG, "Server $cleanDomain account creation support: $supportsCreation, instructions: $instructions")
 
             val localpart = Localpart.from(cleanUser)
-            val attributes = mutableMapOf<String, String>()
-            if (nickname.isNotBlank()) {
-                attributes["name"] = nickname.trim()
-            }
-            if (email.isNotBlank()) {
-                attributes["email"] = email.trim()
-            }
+            var registrationSuccess = false
+
+            // Step 1: Query server for registration fields/form (XEP-0077)
+            val queryReg = org.jivesoftware.smackx.iqregister.packet.Registration()
+            queryReg.type = org.jivesoftware.smack.packet.IQ.Type.get
+            queryReg.to = JidCreate.from(cleanDomain)
+
+            var serverDataForm: org.jivesoftware.smackx.xdata.packet.DataForm? = null
+            var oobRedirectUrl: String? = null
+            var iqResponseXml = ""
 
             try {
-                if (attributes.isNotEmpty()) {
-                    accountManager.createAccount(localpart, password, attributes)
-                } else {
-                    accountManager.createAccount(localpart, password)
+                val collector = tempConnection.createStanzaCollectorAndSend(queryReg)
+                val responseIq = collector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+                iqResponseXml = responseIq.toXML().toString()
+
+                // Check for Out-Of-Band Data redirection (XEP-0077 <x xmlns='jabber:x:oob'>)
+                val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+                oobRedirectUrl = oobRegex.find(iqResponseXml)?.groupValues?.get(1)?.trim()
+
+                if (responseIq is org.jivesoftware.smackx.iqregister.packet.Registration) {
+                    serverDataForm = responseIq.getExtension(org.jivesoftware.smackx.xdata.packet.DataForm::class.java)
+                        ?: org.jivesoftware.smackx.xdata.packet.DataForm.from(responseIq)
                 }
-            } catch (e: XMPPException.XMPPErrorException) {
-                val condition = e.stanzaError?.condition?.toString()
-                if ((condition == "bad-request" || condition == "not-acceptable") && attributes.isNotEmpty()) {
-                    Log.w(TAG, "Server rejected extra registration attributes, retrying with username & password only...")
+            } catch (e: Exception) {
+                Log.w(TAG, "Query registration IQ form note: ${e.message}")
+            }
+
+            if (!oobRedirectUrl.isNullOrBlank()) {
+                Log.i(TAG, "Server $cleanDomain requested OOB web registration redirect: $oobRedirectUrl")
+                try { tempConnection.disconnect() } catch (_: Exception) {}
+                return@withContext Result.failure(Exception("Server $cleanDomain mengarahkan registrasi ke Portal Web resmi (XEP-0077 OOB): $oobRedirectUrl"))
+            }
+
+            Log.d(TAG, "Registration IQ Response XML for $cleanDomain: $iqResponseXml")
+
+            // Step 1B: Check for CAPTCHA challenge (XEP-0158) & Bits of Binary (XEP-0231 urn:xmpp:bob)
+            val captchaImageBytes = XmppBobManager.extractBytesFromStanza(iqResponseXml)
+            if (captchaImageBytes != null) {
+                Log.i(TAG, "Extracted Bits of Binary (XEP-0231) CAPTCHA image bytes: ${captchaImageBytes.size} bytes")
+            }
+
+            var captchaImageUrl: String? = null
+
+
+            if (captchaImageBytes == null) {
+                val mediaUrlRegex = Regex("""https?://[^\s<"]+(?:captcha|ocr|challenge|bob)[^\s<"]*""", RegexOption.IGNORE_CASE)
+                captchaImageUrl = mediaUrlRegex.find(iqResponseXml)?.value?.trim()
+            }
+
+            val challengeVar = if (iqResponseXml.contains("var='challenge'") || iqResponseXml.contains("var=\"challenge\"")) "challenge" else "ocr"
+
+            if (captchaImageBytes != null || !captchaImageUrl.isNullOrBlank()) {
+                val challenge = CaptchaChallengeData(
+                    domain = cleanDomain,
+                    username = cleanUser,
+                    password = password,
+                    host = cleanHost,
+                    port = port,
+                    email = email,
+                    nickname = nickname,
+                    useTls = useTls,
+                    challengeVar = challengeVar,
+                    captchaImageBytes = captchaImageBytes,
+                    captchaImageUrl = captchaImageUrl
+                )
+                Log.i(TAG, "CAPTCHA challenge detected for domain $cleanDomain (Bits of Binary / XEP-0158). Interrupting flow for user verification.")
+                try { tempConnection.disconnect() } catch (_: Exception) {}
+                return@withContext Result.failure(CaptchaRequiredException(challenge))
+            }
+
+            // Step 2: If server returned DataForm (XEP-0077 DataForms / Conversations style), submit DataForm dynamically
+            if (serverDataForm != null) {
+                try {
+                    Log.i(TAG, "Server $cleanDomain returned DataForm for registration. Dynamically building XEP-0077 DataForm...")
+                    val submitReg = org.jivesoftware.smackx.iqregister.packet.Registration()
+                    submitReg.type = org.jivesoftware.smack.packet.IQ.Type.set
+                    submitReg.to = JidCreate.from(cleanDomain)
+
+                    val formBuilder = org.jivesoftware.smackx.xdata.packet.DataForm.builder(org.jivesoftware.smackx.xdata.packet.DataForm.Type.submit)
+
+                    // Map all fields from the server form dynamically
+                    for (field in serverDataForm.fields) {
+                        val varName = field.variable ?: continue
+                        val fB = org.jivesoftware.smackx.xdata.FormField.builder(varName)
+                        when (varName.lowercase()) {
+                            "username" -> fB.setValue(cleanUser)
+                            "password" -> fB.setValue(password)
+                            "email" -> if (email.isNotBlank()) fB.setValue(email.trim()) else { field.values.firstOrNull()?.let { fB.setValue(it) } }
+                            "name", "given", "nick", "nickname" -> if (nickname.isNotBlank()) fB.setValue(nickname.trim()) else { field.values.firstOrNull()?.let { fB.setValue(it) } }
+                            "form_type" -> fB.setValue("jabber:iq:register")
+                            else -> {
+                                for (valItem in field.values) {
+                                    fB.addValue(valItem)
+                                }
+                            }
+                        }
+                        formBuilder.addField(fB.build())
+                    }
+
+                    // Guarantee core fields if missing from server field list
+                    if (serverDataForm.getField("username") == null) {
+                        formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("username").setValue(cleanUser).build())
+                    }
+                    if (serverDataForm.getField("password") == null) {
+                        formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("password").setValue(password).build())
+                    }
+
+                    val submitForm = formBuilder.build()
+                    submitReg.addExtension(submitForm)
+
+                    val submitCollector = tempConnection.createStanzaCollectorAndSend(submitReg)
+                    submitCollector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+                    registrationSuccess = true
+                    Log.i(TAG, "Registrasi via DataForm (XEP-0077) berhasil di server $cleanDomain")
+                } catch (dfErr: Exception) {
+                    Log.w(TAG, "DataForm registration attempt failed: ${dfErr.message}, falling back to AccountManager...")
+                }
+            }
+
+            // Step 3: Fallback to AccountManager (Try username & password first)
+            if (!registrationSuccess) {
+                val attributes = mutableMapOf<String, String>()
+                if (nickname.isNotBlank()) attributes["name"] = nickname.trim()
+                if (email.isNotBlank()) attributes["email"] = email.trim()
+
+                try {
+                    // Primary attempt: Username & Password strictly (most compatible with all XMPP servers)
                     accountManager.createAccount(localpart, password)
-                } else {
-                    throw e
+                    registrationSuccess = true
+                    Log.i(TAG, "Registrasi standar (username & password) berhasil di server $cleanDomain")
+                } catch (e: XMPPException.XMPPErrorException) {
+                    val condition = e.stanzaError?.condition?.toString()
+                    Log.w(TAG, "Standard registration with username/password returned condition: $condition")
+                    if (attributes.isNotEmpty()) {
+                        try {
+                            Log.i(TAG, "Retrying registration with extra attributes...")
+                            accountManager.createAccount(localpart, password, attributes)
+                            registrationSuccess = true
+                        } catch (_: Exception) {
+                            throw e
+                        }
+                    } else {
+                        throw e
+                    }
                 }
             }
 
@@ -585,22 +741,64 @@ class XmppConnectionManager(
             Log.i(TAG, "Registrasi JID nyata berhasil dibuat di server: $registeredJid")
             Result.success(registeredJid)
         } catch (e: XMPPException.XMPPErrorException) {
+            val stanzaXml = e.stanzaError?.toXML()?.toString() ?: ""
+            val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+            val oobUrl = oobRegex.find(stanzaXml)?.groupValues?.get(1)?.trim()
+                ?: Regex("""https?://[^\s<"]+(?:register|account|signup|verify|captcha)[^\s<"]*""", RegexOption.IGNORE_CASE).find(stanzaXml)?.value?.trim()
+            
             val condition = e.stanzaError?.condition?.toString()
             val descriptiveText = e.stanzaError?.descriptiveText
-            val errorMsg = when (condition) {
-                "conflict" -> "Username '$username' sudah digunakan di server $domain. Silakan pilih username lain."
-                "not-allowed", "forbidden" -> "Server $domain tidak mengizinkan pendaftaran langsung via TCP (XEP-0077 dimatikan oleh admin server untuk mencegah spam bot). Silakan daftar melalui Web Portal Server, lalu login di tab 'Masuk Akun'."
-                "bad-request" -> "Server $domain menolak format registrasi (password mungkin terlalu pendek atau karakter tidak sesuai standar server)."
-                "resource-constraint" -> "Server $domain sedang membatasi registrasi baru (rate limit IP). Coba beberapa saat lagi atau coba server lain."
-                else -> if (!descriptiveText.isNullOrBlank()) descriptiveText else "Server $domain menolak registrasi (Stanza condition: ${condition ?: "unknown"})."
+
+            val redirectUrl = when {
+                !oobUrl.isNullOrBlank() -> oobUrl
+                condition == "not-allowed" || condition == "forbidden" || condition == "not-acceptable" -> {
+                    when {
+                        domain.contains("xmpp.jp", ignoreCase = true) -> "https://xmpp.jp/signup"
+                        domain.contains("conversations.im", ignoreCase = true) -> "https://conversations.im/account/"
+                        domain.contains("trashserver.net", ignoreCase = true) -> "https://trashserver.net/register/"
+                        domain.contains("jabber.at", ignoreCase = true) -> "https://jabber.at/account/register"
+                        else -> "https://$domain"
+                    }
+                }
+                else -> null
+            }
+
+            val errorMsg = when {
+                !oobUrl.isNullOrBlank() ->
+                    "Server $domain mengarahkan registrasi ke Portal Web resmi (XEP-0077 OOB): $oobUrl"
+                condition == "conflict" ->
+                    "Username '$username' sudah digunakan di server $domain. Silakan pilih username lain."
+                condition == "not-allowed" || condition == "forbidden" ->
+                    "Server $domain membatasi pendaftaran langsung via TCP (kebijakan anti-spam server). Mengalihkan ke Portal Web..."
+                condition == "not-acceptable" ->
+                    "Server $domain membutuhkan penyelesaian Captcha atau verifikasi tambahan. Mengalihkan ke Portal Web..."
+                condition == "bad-request" ->
+                    "Server $domain menolak format pendaftaran (membutuhkan verifikasi Captcha/Web atau format password tidak sesuai)."
+                condition == "resource-constraint" ->
+                    "Server $domain membatasi pendaftaran baru (rate limit IP). Coba beberapa saat lagi atau gunakan Portal Web."
+                else ->
+                    if (!descriptiveText.isNullOrBlank()) descriptiveText else "Server $domain menolak pendaftaran (Stanza error: ${condition ?: "unknown"})."
             }
             Log.e(TAG, "Registration failed with stanza error: $errorMsg", e)
             try { tempConnection?.disconnect() } catch (_: Exception) {}
-            Result.failure(Exception(errorMsg))
+
+            if (redirectUrl != null) {
+                Result.failure(RegistrationRedirectException(redirectUrl, errorMsg))
+            } else {
+                Result.failure(Exception(errorMsg))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register JID account: ${e.message}", e)
             try { tempConnection?.disconnect() } catch (_: Exception) {}
-            val fallbackMsg = e.localizedMessage?.ifBlank { null } ?: "Gagal terhubung ke server $domain untuk registrasi. Pastikan domain aktif dan coba server lain (misalnya trashserver.net atau jabber.de)."
+            val errText = e.message ?: ""
+            val fallbackMsg = when {
+                errText.contains("NX_DOMAIN", ignoreCase = true) || errText.contains("UnknownHost", ignoreCase = true) || errText.contains("ResolutionUnsuccessfulException", ignoreCase = true) ->
+                    "Domain '$domain' tidak ditemukan di internet. Mohon periksa ejaan domain Anda (contoh: conversations.im, xmpp.jp, trashserver.net)."
+                errText.contains("EndpointConnectionException", ignoreCase = true) || errText.contains("Connection refused", ignoreCase = true) ->
+                    "Gagal terhubung ke $domain:$port. Server mungkin sedang offline atau port diblokir."
+                else ->
+                    e.localizedMessage?.ifBlank { null } ?: "Gagal terhubung ke server $domain untuk registrasi. Pastikan domain aktif dan coba server lain."
+            }
             Result.failure(Exception(fallbackMsg))
         }
     }
@@ -665,6 +863,63 @@ class XmppConnectionManager(
     }
 
     /**
+     * Submits a solved CAPTCHA challenge (XEP-0158) back to the XMPP server via DataForm.
+     */
+    suspend fun submitCaptchaAnswer(
+        challenge: CaptchaChallengeData,
+        captchaAnswer: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        var tempConnection: XMPPTCPConnection? = null
+        try {
+            val configBuilder = XMPPTCPConnectionConfiguration.builder()
+                .setXmppDomain(JidCreate.domainBareFrom(challenge.domain))
+                .setHost(challenge.host.ifBlank { challenge.domain })
+                .setPort(challenge.port)
+                .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
+                .setSecurityMode(
+                    if (challenge.useTls) ConnectionConfiguration.SecurityMode.required
+                    else ConnectionConfiguration.SecurityMode.disabled
+                )
+
+            val config = configBuilder.build()
+            tempConnection = XMPPTCPConnection(config)
+            tempConnection.connect()
+
+            val submitReg = org.jivesoftware.smackx.iqregister.packet.Registration()
+            submitReg.type = org.jivesoftware.smack.packet.IQ.Type.set
+            submitReg.to = JidCreate.from(challenge.domain)
+
+            val formBuilder = org.jivesoftware.smackx.xdata.packet.DataForm.builder(org.jivesoftware.smackx.xdata.packet.DataForm.Type.submit)
+            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("FORM_TYPE").setValue("jabber:iq:register").build())
+            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("username").setValue(challenge.username).build())
+            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("password").setValue(challenge.password).build())
+            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder(challenge.challengeVar).setValue(captchaAnswer.trim()).build())
+
+            if (challenge.email.isNotBlank()) {
+                formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("email").setValue(challenge.email.trim()).build())
+            }
+            if (challenge.nickname.isNotBlank()) {
+                formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("name").setValue(challenge.nickname.trim()).build())
+            }
+
+            submitReg.addExtension(formBuilder.build())
+
+            val collector = tempConnection.createStanzaCollectorAndSend(submitReg)
+            collector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+
+            try { tempConnection.disconnect() } catch (_: Exception) {}
+
+            val registeredJid = "${challenge.username}@${challenge.domain}"
+            Log.i(TAG, "Registrasi dengan CAPTCHA (XEP-0158) berhasil: $registeredJid")
+            Result.success(registeredJid)
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal mengirim jawaban CAPTCHA: ${e.message}", e)
+            try { tempConnection?.disconnect() } catch (_: Exception) {}
+            Result.failure(Exception("Jawaban CAPTCHA salah atau ditolak server: ${e.localizedMessage ?: "Unknown error"}"))
+        }
+    }
+
+    /**
      * Internal safe cleanup of TCP socket and listeners without throwing exceptions.
      */
     private fun safeDisconnectInternal() {
@@ -684,3 +939,22 @@ class XmppConnectionManager(
         }
     }
 }
+
+data class CaptchaChallengeData(
+    val domain: String,
+    val username: String,
+    val password: String,
+    val host: String = "",
+    val port: Int = 5222,
+    val email: String = "",
+    val nickname: String = "",
+    val useTls: Boolean = true,
+    val challengeVar: String = "ocr",
+    val captchaImageBytes: ByteArray? = null,
+    val captchaImageUrl: String? = null
+)
+
+class CaptchaRequiredException(val challenge: CaptchaChallengeData) : Exception("Server ${challenge.domain} memerlukan verifikasi CAPTCHA (XEP-0158).")
+
+class RegistrationRedirectException(val url: String, override val message: String) : Exception(message)
+

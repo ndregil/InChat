@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Info
@@ -548,6 +549,22 @@ fun MultiRoomMainScreen(
                                 }
                             }
 
+                            // Quick Bookmark Toggle (XEP-0048)
+                            val isCurrentBookmarked = activeRoom?.isBookmarked == true
+                            IconButton(
+                                onClick = { activeRoom?.let { viewModel.toggleSaveRoom(it.jid) } },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("btn_quick_bookmark")
+                            ) {
+                                Icon(
+                                    imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    contentDescription = if (isCurrentBookmarked) "Hapus dari Favorit" else "Simpan ke Favorit (XEP-0048)",
+                                    tint = if (isCurrentBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
                             // Stanza Console Shortcut
                             IconButton(
                                 onClick = { viewModel.isStanzaConsoleOpen.value = true },
@@ -857,12 +874,14 @@ fun MultiRoomMainScreen(
                             }
                         }
 
-                        // Input Bar (Compact, Auto-expanding, Voice Note Support)
+                        // Input Bar (Compact, Auto-expanding, Voice Note & Camera Photo Support)
                         ChatInputBar(
                             inputText = currentInput,
                             onInputChange = { viewModel.currentInputText.value = it },
                             onSendMessage = { viewModel.sendMessage(it) },
                             onAttachClick = { filePicker.launch("*/*") },
+                            onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
+                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
                             onCallClick = { viewModel.initiateCall(it) },
                             whisperTarget = whisperTarget,
                             replyingToMessage = replyingToMessage,
@@ -905,7 +924,10 @@ fun MultiRoomMainScreen(
                 }
 
                 2 -> {
-                    // XMPP Roster & Contacts
+                    // XMPP Roster & Contacts (RFC 6121 / XEP-0115 / XEP-0172)
+                    LaunchedEffect(Unit) {
+                        viewModel.refreshRoster()
+                    }
                     RosterContactsScreen(
                         viewModel = viewModel,
                         onStartDirectChat = { jid, name ->
@@ -916,9 +938,23 @@ fun MultiRoomMainScreen(
                 }
 
                 3 -> {
-                    // Public MUC Directory & Local Service Discovery
+                    // Public MUC Directory & Local Service Discovery (XEP-0030)
                     val discoveredServices by viewModel.discoveredServices.collectAsStateWithLifecycle()
                     val isServicesLoading by viewModel.isServicesLoading.collectAsStateWithLifecycle()
+                    val discoveredRooms by viewModel.discoveredRooms.collectAsStateWithLifecycle()
+                    val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
+                    
+                    LaunchedEffect(Unit) {
+                        if (directoryRooms.isEmpty()) {
+                            viewModel.loadDirectory()
+                        }
+                        if (discoveredServices.isEmpty()) {
+                            viewModel.discoverLocalServices()
+                        }
+                        if (discoveredRooms.isEmpty()) {
+                            viewModel.discoverServerRooms()
+                        }
+                    }
                     
                     RoomDirectoryScreen(
                         directoryRooms = directoryRooms,
@@ -952,6 +988,18 @@ fun MultiRoomMainScreen(
                         },
                         onOpenCreateRoom = {
                             viewModel.isJoinCreateDialogOpen.value = true
+                        },
+                        discoveredMucRooms = discoveredRooms,
+                        isDiscoveringServerRooms = isDiscovering,
+                        onDiscoverServerRooms = { viewModel.discoverServerRooms() },
+                        onJoinDiscoveredRoom = { discRoom ->
+                            viewModel.joinOrCreateRoom(
+                                roomJid = discRoom.jid,
+                                roomName = discRoom.name,
+                                nickname = currentAccount.nickname,
+                                topic = discRoom.description.ifBlank { discRoom.subject }
+                            )
+                            activeNavIndex = 0
                         }
                     )
                 }
@@ -1041,6 +1089,9 @@ fun MultiRoomMainScreen(
                                     viewModel.createInstantAccount(user, dom, nick)
                                 },
                                 onResetRegistrationState = { viewModel.resetRegistrationState() },
+                                onSolveCaptcha = { challenge, answer ->
+                                    viewModel.submitCaptchaAnswer(challenge, answer)
+                                },
                                 backupStatus = backupStatus,
                                 isBackupLoading = isBackupLoading,
                                 onExportBackup = { uri, pwd -> viewModel.exportBackup(uri, pwd) },
@@ -1643,6 +1694,8 @@ fun ChatInputBar(
     onInputChange: (String) -> Unit,
     onSendMessage: (String) -> Unit,
     onAttachClick: () -> Unit,
+    onShareLocation: (Double, Double) -> Unit,
+    onAttachPhoto: ((android.net.Uri, String, Long) -> Unit)? = null,
     onCallClick: (String) -> Unit,
     whisperTarget: RoomOccupant?,
     replyingToMessage: XmppMessage? = null,
@@ -1650,11 +1703,48 @@ fun ChatInputBar(
     onSendVoice: ((java.io.File, Int) -> Unit)? = null
 ) {
     var showEmojiKeyboard by remember { mutableStateOf(false) }
+    var showAttachMenu by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var currentAmpRatio by remember { mutableFloatStateOf(0f) }
 
     val context = LocalContext.current
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            try {
+                val photoFile = java.io.File(context.cacheDir, "camera_photo_${System.currentTimeMillis()}.jpg")
+                java.io.FileOutputStream(photoFile).use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                }
+                val uri = try {
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        photoFile
+                    )
+                } catch (e: Exception) {
+                    android.net.Uri.fromFile(photoFile)
+                }
+                onAttachPhoto?.invoke(uri, photoFile.name, photoFile.length())
+                android.widget.Toast.makeText(context, "Foto berhasil diambil!", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, "Gagal menyimpan foto: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            takePictureLauncher.launch(null)
+        } else {
+            android.widget.Toast.makeText(context, "Izin kamera diperlukan untuk mengambil foto", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Recording timer & amplitude polling
     LaunchedEffect(isRecording) {
@@ -1682,6 +1772,25 @@ fun ChatInputBar(
             }
         } else {
             android.widget.Toast.makeText(context, "Izin mikrofon diperlukan untuk merekam pesan suara", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
+        val loc = try {
+            locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+        } catch (e: Exception) { null }
+
+        val lat = loc?.latitude ?: -6.200000
+        val lng = loc?.longitude ?: 106.816666
+        onShareLocation(lat, lng)
+        if (isGranted) {
+            android.widget.Toast.makeText(context, "Lokasi GPS berhasil dibagikan!", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            android.widget.Toast.makeText(context, "Izin lokasi tidak diberikan, membagikan lokasi standar", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1841,18 +1950,50 @@ fun ChatInputBar(
                             }
 
                             // 3. Attachment (Lampiran) button inside form box
-                            IconButton(
-                                onClick = onAttachClick,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_attach_file")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AttachFile,
-                                    contentDescription = "Lampirkan File",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(21.dp)
-                                )
+                            Box {
+                                IconButton(
+                                    onClick = { showAttachMenu = true },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .testTag("btn_attach_file")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AttachFile,
+                                        contentDescription = "Lampirkan",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(21.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showAttachMenu,
+                                    onDismissRequest = { showAttachMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Ambil Foto (Kamera)") },
+                                        leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            showAttachMenu = false
+                                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Lampirkan File / Dokumen") },
+                                        leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            showAttachMenu = false
+                                            onAttachClick()
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Bagikan Lokasi (ShareLoc)") },
+                                        leadingIcon = { Icon(Icons.Default.Explore, contentDescription = null, tint = Color(0xFFEF4444)) },
+                                        onClick = {
+                                            showAttachMenu = false
+                                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                        }
+                                    )
+                                }
                             }
 
                             // 4. Voice (Mic) button inside form box

@@ -55,11 +55,14 @@ class FcmPushNotificationTest {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val mucChannel = notificationManager.getNotificationChannel(FcmPushManager.CHANNEL_MUC)
         val whisperChannel = notificationManager.getNotificationChannel(FcmPushManager.CHANNEL_WHISPER)
+        val directChannel = notificationManager.getNotificationChannel(FcmPushManager.CHANNEL_DIRECT)
 
         assertNotNull("MUC notification channel should exist", mucChannel)
         assertNotNull("Whisper notification channel should exist", whisperChannel)
+        assertNotNull("Direct notification channel should exist", directChannel)
         assertEquals("XMPP Room & Group Chat", mucChannel.name)
         assertEquals("Bisikan Pribadi XMPP", whisperChannel.name)
+        assertEquals("Obrolan Pribadi (1-on-1)", directChannel.name)
     }
 
     @Test
@@ -108,13 +111,36 @@ class FcmPushNotificationTest {
     }
 
     @Test
-    fun testNotificationSuppressedWhenRoomIsActive() {
+    fun testDirectMessageUsesDirectChannel() {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        val directPayload = PushMessagePayload(
+            roomJid = "alice@xmpp.today",
+            senderNickname = "Alice Wonderland",
+            body = "Halo dari pesan langsung 1-on-1",
+            isWhisper = false,
+            isDirect = true,
+            roomTitle = "Alice Wonderland"
+        )
+
+        FcmPushManager.showSystemNotification(context, directPayload)
+
+        val notification = shadowNotificationManager.allNotifications.last()
+        assertEquals(FcmPushManager.CHANNEL_DIRECT, notification.channelId)
+        val title = notification.extras.getString("android.title")
+        assertEquals("Alice Wonderland", title)
+    }
+
+    @Test
+    fun testNotificationSuppressedWhenRoomIsActiveInForeground() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val shadowNotificationManager = shadowOf(notificationManager)
         val initialCount = shadowNotificationManager.allNotifications.size
 
-        // Set the active room
+        // Set the active room and foreground
         FcmPushManager.activeRoomJid = testRoomJid
+        FcmPushManager.isAppInForeground = true
 
         val payload = PushMessagePayload(
             roomJid = testRoomJid,
@@ -125,7 +151,30 @@ class FcmPushNotificationTest {
 
         FcmPushManager.showSystemNotification(context, payload)
 
-        assertEquals("No new notification should be posted when room is active", initialCount, shadowNotificationManager.allNotifications.size)
+        assertEquals("No new notification should be posted when room is active in foreground", initialCount, shadowNotificationManager.allNotifications.size)
+    }
+
+    @Test
+    fun testNotificationFiresWhenAppIsBackgroundedEvenIfRoomWasActive() {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val shadowNotificationManager = shadowOf(notificationManager)
+
+        // User was in this room, but app is now in background
+        FcmPushManager.activeRoomJid = testRoomJid
+        FcmPushManager.isAppInForeground = false
+
+        val payload = PushMessagePayload(
+            roomJid = testRoomJid,
+            senderNickname = "ServerBot",
+            body = "Pesan masuk saat aplikasi di background harus memunculkan notifikasi",
+            isWhisper = false
+        )
+
+        FcmPushManager.showSystemNotification(context, payload)
+
+        val notification = shadowNotificationManager.allNotifications.last()
+        assertNotNull(notification)
+        assertEquals("Pesan masuk saat aplikasi di background harus memunculkan notifikasi", notification.extras.getCharSequence("android.text")?.toString())
     }
 
     @Test

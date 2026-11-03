@@ -29,6 +29,8 @@ import com.ndregil.inchat.data.network.RosterManager
 import com.ndregil.inchat.data.network.ServiceDiscoveryManager
 import com.ndregil.inchat.data.network.XmppConnectionManager
 import com.ndregil.inchat.data.network.XmppProtocolEngine
+import com.ndregil.inchat.data.network.fcm.FcmPushManager
+import com.ndregil.inchat.data.network.fcm.PushMessagePayload
 import org.jxmpp.jid.impl.JidCreate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -263,6 +265,16 @@ class XmppRepository(
                 setupIncomingStanzaListener()
             }
 
+            // Initialize and synchronize XMPP Roster contacts (RFC 6121, XEP-0115, XEP-0172)
+            scope.launch {
+                try {
+                    smackRosterManager.initializeRoster()
+                    smackRosterManager.loadContacts(forceReload = true)
+                } catch (e: Exception) {
+                    Log.e("XmppRepository", "Error during roster sync: ${e.message}")
+                }
+            }
+
             // Sync server-side bookmarks and auto-join
             scope.launch {
                 try {
@@ -403,7 +415,17 @@ class XmppRepository(
         )
     }
 
+    suspend fun submitCaptchaAnswer(
+        challenge: com.ndregil.inchat.data.network.CaptchaChallengeData,
+        captchaAnswer: String
+    ): Result<String> {
+        return smackConnectionManager.submitCaptchaAnswer(challenge, captchaAnswer)
+    }
+
     suspend fun disconnect() {
+        try {
+            smackRosterManager.release()
+        } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
         } catch (e: Exception) {
@@ -415,6 +437,9 @@ class XmppRepository(
 
     suspend fun signOut() {
         try {
+            smackRosterManager.release()
+        } catch (_: Exception) {}
+        try {
             smackConnectionManager.disconnect()
         } catch (_: Exception) {}
         try {
@@ -425,6 +450,9 @@ class XmppRepository(
     }
 
     suspend fun exitApp() {
+        try {
+            smackRosterManager.release()
+        } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
         } catch (_: Exception) {}
@@ -568,6 +596,9 @@ class XmppRepository(
                     lastMessageText = when(msg.messageType) {
                         MessageType.WHISPER -> "[Bisikan] ${msg.body}"
                         MessageType.CHAT -> msg.body
+                        MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
+                        MessageType.VOICE -> "[Pesan Suara]"
+                        MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
                         else -> msg.body
                     },
                     lastMessageTime = msg.timestamp,
@@ -584,7 +615,13 @@ class XmppRepository(
                     myNickname = currentAccount.value.nickname.ifBlank { "User" },
                     occupantCount = 2,
                     unreadCount = if (msg.isMine) 0 else 1,
-                    lastMessageText = msg.body,
+                    lastMessageText = when(msg.messageType) {
+                        MessageType.WHISPER -> "[Bisikan] ${msg.body}"
+                        MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
+                        MessageType.VOICE -> "[Pesan Suara]"
+                        MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
+                        else -> msg.body
+                    },
                     lastMessageTime = msg.timestamp,
                     isJoined = true,
                     isBookmarked = true,
@@ -593,6 +630,49 @@ class XmppRepository(
                     colorHex = randomColorForRoom(msg.roomJid)
                 )
                 database.roomDao().insertOrUpdateRoom(newRoom)
+            }
+
+            // Post notification for incoming messages (MUC, Whisper, 1-on-1 Direct Chat)
+            if (!msg.isMine &&
+                msg.messageType != MessageType.SYSTEM_JOIN &&
+                msg.messageType != MessageType.SYSTEM_LEAVE &&
+                msg.messageType != MessageType.SYSTEM_STATUS &&
+                msg.messageType != MessageType.SYSTEM_TOPIC &&
+                (msg.body.isNotBlank() || !msg.fileName.isNullOrBlank())
+            ) {
+                // Discard stale history replay older than 30 seconds
+                val isRecent = (System.currentTimeMillis() - msg.timestamp) < 30_000L
+                if (isRecent) {
+                    val roomConfig = database.roomConfigDao().getRoomConfigSync(msg.roomJid)
+                    val notificationsEnabledForRoom = roomConfig?.notificationsEnabled ?: true
+
+                    if (notificationsEnabledForRoom) {
+                        val isDirect = msg.messageType == MessageType.CHAT ||
+                                (!msg.roomJid.contains("conference.", ignoreCase = true) && !msg.roomJid.contains("muc.", ignoreCase = true))
+                        val roomName = existing?.name ?: msg.roomJid.substringBefore("@")
+                        val senderName = msg.senderNickname.ifBlank { msg.senderJid.substringBefore("@") }
+
+                        val bodySnippet = when (msg.messageType) {
+                            MessageType.WHISPER -> "[Bisikan] ${msg.body}"
+                            MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
+                            MessageType.VOICE -> "[Pesan Suara]"
+                            MessageType.ACTION -> "* $senderName ${msg.body}"
+                            else -> msg.body
+                        }
+
+                        val payload = PushMessagePayload(
+                            messageId = msg.id,
+                            roomJid = msg.roomJid,
+                            senderNickname = senderName,
+                            body = bodySnippet,
+                            isWhisper = msg.messageType == MessageType.WHISPER,
+                            isDirect = isDirect,
+                            roomTitle = roomName,
+                            timestamp = msg.timestamp
+                        )
+                        FcmPushManager.showSystemNotification(context, payload)
+                    }
+                }
             }
         } catch (e: Exception) {
             // Handled safely
@@ -713,7 +793,7 @@ class XmppRepository(
         }
 
         for (room in savedRooms) {
-            if (!joinedJids.contains(room.jid) && (room.isJoined || room.isBookmarked || room.isAutoJoin)) {
+            if (!joinedJids.contains(room.jid) && (room.isAutoJoin || room.isJoined)) {
                 val res = joinRoom(
                     roomJid = room.jid,
                     name = room.name,
@@ -771,14 +851,17 @@ class XmppRepository(
             database.roomConfigDao().insertOrUpdateConfig(newConfig)
         }
 
-        // Sync with server
+        // Sync with server (XEP-0048 Bookmarks)
         if (smackConnectionManager.isConnected()) {
             if (newBookmarkState) {
+                val autoJoin = config?.isAutoJoin ?: room?.isAutoJoin ?: true
+                val pass = config?.password ?: room?.password
                 smackMucManager.saveBookmark(
                     roomJid = roomJid,
                     name = room?.name ?: roomJid.substringBefore("@"),
                     nickname = room?.myNickname ?: currentAccount.value.nickname,
-                    autoJoin = true
+                    password = pass,
+                    autoJoin = autoJoin
                 )
             } else {
                 smackMucManager.removeBookmark(roomJid)
@@ -870,6 +953,22 @@ class XmppRepository(
     suspend fun updateRoomAutoJoin(roomJid: String, isAutoJoin: Boolean) {
         database.roomConfigDao().updateAutoJoin(roomJid, isAutoJoin)
         database.roomDao().updateAutoJoin(roomJid, isAutoJoin)
+
+        // Sync autojoin flag to server bookmark (XEP-0048) if room is bookmarked
+        if (smackConnectionManager.isConnected()) {
+            val cfg = database.roomConfigDao().getRoomConfigSync(roomJid)
+            val room = database.roomDao().getRoomByJid(roomJid)
+            val isBookmarked = cfg?.isBookmarked ?: room?.isBookmarked ?: false
+            if (isBookmarked) {
+                smackMucManager.saveBookmark(
+                    roomJid = roomJid,
+                    name = cfg?.roomName ?: room?.name ?: roomJid.substringBefore("@"),
+                    nickname = cfg?.nickname ?: room?.myNickname ?: currentAccount.value.nickname,
+                    password = cfg?.password ?: room?.password,
+                    autoJoin = isAutoJoin
+                )
+            }
+        }
     }
 
     suspend fun updateRoomPassword(roomJid: String, password: String?) {
@@ -1258,8 +1357,13 @@ class XmppRepository(
         return result.getOrElse { emptyList() }
     }
 
+    suspend fun discoverServerRooms(serviceJid: String? = null): List<DiscoveredRoom> {
+        val result = smackDiscoManager.discoverRooms(serviceJid)
+        return result.getOrElse { emptyList() }
+    }
+
     suspend fun loadRosterContacts(): List<RosterContact> {
-        return smackRosterManager.loadContacts().getOrElse { smackRosterManager.contacts.value }
+        return smackRosterManager.loadContacts(forceReload = true).getOrElse { smackRosterManager.contacts.value }
     }
 
     suspend fun addRosterContact(jid: String, name: String, group: String? = null): Result<Unit> {

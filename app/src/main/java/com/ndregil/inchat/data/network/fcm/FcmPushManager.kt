@@ -31,6 +31,8 @@ data class PushMessagePayload(
     val senderNickname: String,
     val body: String,
     val isWhisper: Boolean = false,
+    val isDirect: Boolean = false,
+    val roomTitle: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -38,6 +40,7 @@ object FcmPushManager {
 
     const val CHANNEL_MUC = "xmpp_muc_channel"
     const val CHANNEL_WHISPER = "xmpp_whisper_channel"
+    const val CHANNEL_DIRECT = "xmpp_direct_channel"
     const val EXTRA_ROOM_JID = "target_room_jid"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val ACTION_MARK_AS_READ = "com.ndregil.inchat.ACTION_MARK_AS_READ"
@@ -63,6 +66,9 @@ object FcmPushManager {
 
     // Tracks currently active/foreground room JID to avoid spamming alerts if user is in that room
     var activeRoomJid: String? = null
+
+    // Tracks if app is currently in foreground; if backgrounded, notifications are always shown
+    var isAppInForeground: Boolean = true
 
     fun init(context: Context) {
         createNotificationChannels(context)
@@ -138,8 +144,20 @@ object FcmPushManager {
                 setShowBadge(true)
             }
 
+            // Direct 1-on-1 Chat Channel
+            val directChannel = NotificationChannel(
+                CHANNEL_DIRECT,
+                "Obrolan Pribadi (1-on-1)",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifikasi pesan obrolan langsung (1-on-1) XMPP"
+                enableVibration(true)
+                setShowBadge(true)
+            }
+
             notificationManager.createNotificationChannel(mucChannel)
             notificationManager.createNotificationChannel(whisperChannel)
+            notificationManager.createNotificationChannel(directChannel)
         }
     }
 
@@ -149,15 +167,19 @@ object FcmPushManager {
     fun showSystemNotification(context: Context, payload: PushMessagePayload) {
         if (!_isPushEnabled.value) return
 
-        // If the user is currently viewing this room, suppress notification
-        if (activeRoomJid != null && activeRoomJid.equals(payload.roomJid, ignoreCase = true)) {
+        // If the user is currently viewing this room in foreground, suppress notification
+        if (isAppInForeground && activeRoomJid != null && activeRoomJid.equals(payload.roomJid, ignoreCase = true)) {
             return
         }
 
         _lastReceivedPayload.value = payload
 
         val notificationId = (payload.roomJid.hashCode() and 0x7FFFFFFF)
-        val channelId = if (payload.isWhisper) CHANNEL_WHISPER else CHANNEL_MUC
+        val channelId = when {
+            payload.isWhisper -> CHANNEL_WHISPER
+            payload.isDirect -> CHANNEL_DIRECT
+            else -> CHANNEL_MUC
+        }
 
         // Intent to open MainActivity on notification click
         val contentIntent = Intent(context, MainActivity::class.java).apply {
@@ -184,10 +206,18 @@ object FcmPushManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val title = if (payload.isWhisper) {
-            "Bisikan dari ${payload.senderNickname}"
-        } else {
-            "${payload.senderNickname} (${payload.roomJid.substringBefore("@")})"
+        val title = when {
+            payload.isWhisper -> {
+                val inRoom = if (!payload.roomTitle.isNullOrBlank()) " (${payload.roomTitle})" else ""
+                "Bisikan dari ${payload.senderNickname}$inRoom"
+            }
+            payload.isDirect -> {
+                payload.roomTitle?.takeIf { it.isNotBlank() } ?: payload.senderNickname.ifBlank { payload.roomJid.substringBefore("@") }
+            }
+            else -> {
+                val roomDisplay = payload.roomTitle?.takeIf { it.isNotBlank() } ?: payload.roomJid.substringBefore("@")
+                "${payload.senderNickname} • $roomDisplay"
+            }
         }
 
         val largeIconBitmap = try {
@@ -195,6 +225,8 @@ object FcmPushManager {
         } catch (e: Exception) {
             null
         }
+
+        val defaultSoundUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.ndregil.inchat.R.drawable.ic_notification_small)
@@ -210,8 +242,10 @@ object FcmPushManager {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setAutoCancel(true)
+            .setSound(defaultSoundUri)
+            .setVibrate(longArrayOf(0, 250, 150, 250))
             .setContentIntent(contentPendingIntent)
-            .addAction(android.R.drawable.ic_menu_view, "Buka Room", contentPendingIntent)
+            .addAction(android.R.drawable.ic_menu_view, "Buka Chat", contentPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Tandai Dibaca", markReadPendingIntent)
 
         try {

@@ -1,6 +1,7 @@
 package com.ndregil.inchat.ui.components
 
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
@@ -45,6 +48,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,6 +115,30 @@ fun OccupantRosterSheet(
     val myOccupant = occupants.find { it.isMe }
     val isMyUserAdmin = myOccupant?.role == OccupantRole.OWNER || myOccupant?.role == OccupantRole.ADMIN || myOccupant?.affiliation == OccupantAffiliation.OWNER || myOccupant?.affiliation == OccupantAffiliation.ADMIN
 
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedRoleFilter by remember { mutableStateOf<String?>(null) } // null = All, "admin" = Owner/Admin, "member" = Member/Participant, "visitor" = Visitor
+
+    val onlineCount = occupants.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }
+    val awayCount = occupants.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }
+    val dndCount = occupants.count { it.presence == UserPresence.DND }
+
+    val filteredOccupants = remember(occupants, searchQuery, selectedRoleFilter) {
+        occupants.filter { occ ->
+            val matchesSearch = searchQuery.isBlank() ||
+                occ.nickname.contains(searchQuery, ignoreCase = true) ||
+                occ.statusText.contains(searchQuery, ignoreCase = true) ||
+                occ.jid.contains(searchQuery, ignoreCase = true)
+
+            val matchesRole = when (selectedRoleFilter) {
+                "admin" -> occ.role == OccupantRole.OWNER || occ.role == OccupantRole.ADMIN || occ.affiliation == OccupantAffiliation.OWNER || occ.affiliation == OccupantAffiliation.ADMIN
+                "member" -> occ.role == OccupantRole.PARTICIPANT || occ.role == OccupantRole.MEMBER
+                "visitor" -> occ.role == OccupantRole.VISITOR
+                else -> true
+            }
+            matchesSearch && matchesRole
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -169,22 +198,85 @@ fun OccupantRosterSheet(
                 }
             }
 
-            Text(
-                text = "${occupants.size} Partisipan aktif di room MUC ini (klik anggota untuk moderasi / Real JID & caps)",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 12.dp)
+            // Presence counters summary bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PresenceCounterBadge(color = OnlineGreen, count = onlineCount, label = "Online")
+                PresenceCounterBadge(color = AwayAmber, count = awayCount, label = "Away")
+                PresenceCounterBadge(color = DndRed, count = dndCount, label = "DND")
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "Total: ${occupants.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Search input field
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Cari nickname atau status...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .testTag("search_occupants_input")
             )
+
+            // Role filter chips
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    FilterChip(
+                        selected = selectedRoleFilter == null,
+                        onClick = { selectedRoleFilter = null },
+                        label = { Text("Semua (${occupants.size})") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedRoleFilter == "admin",
+                        onClick = { selectedRoleFilter = "admin" },
+                        label = { Text("Admin & Owner") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedRoleFilter == "member",
+                        onClick = { selectedRoleFilter = "member" },
+                        label = { Text("Partisipan") }
+                    )
+                }
+                item {
+                    FilterChip(
+                        selected = selectedRoleFilter == "visitor",
+                        onClick = { selectedRoleFilter = "visitor" },
+                        label = { Text("Visitor") }
+                    )
+                }
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(360.dp)
-                    .padding(vertical = 8.dp)
+                    .height(300.dp)
+                    .padding(vertical = 4.dp)
             ) {
-                items(occupants) { occupant ->
+                items(filteredOccupants, key = { it.nickname }) { occupant ->
                     OccupantItemRow(
                         occupant = occupant,
                         onWhisper = { onWhisperClick(occupant) },
@@ -709,5 +801,33 @@ fun OccupantActionDialog(
             TextButton(onClick = onDismiss) { Text("Tutup") }
         }
     )
+}
+
+@Composable
+private fun PresenceCounterBadge(color: Color, count: Int, label: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = color.copy(alpha = 0.12f),
+        border = BorderStroke(0.6.dp, color.copy(alpha = 0.4f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            Text(
+                text = "$count $label",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+    }
 }
 

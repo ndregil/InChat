@@ -46,11 +46,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.ConnectionStatus
 import com.ndregil.inchat.data.model.XmppAccount
+import com.ndregil.inchat.data.network.fcm.FcmPushManager
+import com.ndregil.inchat.data.network.fcm.PushMessagePayload
 import com.ndregil.inchat.data.network.fcm.XmppForegroundService
 import com.ndregil.inchat.ui.RegistrationState
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
 import com.ndregil.inchat.ui.theme.OnlineGreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.graphics.drawable.toBitmap
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -986,6 +993,25 @@ fun NotificationSubSettings() {
         mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
     }
 
+    val isAllMessagesPushEnabled by FcmPushManager.isPushEnabled.collectAsStateWithLifecycle()
+
+    var hasNotificationPermission by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else true
+        )
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasNotificationPermission = isGranted
+    }
+
     // Notification Sound & Vibration States
     var privateSound by remember { mutableStateOf("Default (Chime)") }
     var mucSound by remember { mutableStateOf("Default (Group Beep)") }
@@ -1000,6 +1026,192 @@ fun NotificationSubSettings() {
         contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Master Notification Toggle Card (All Messages)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("card_notification_all_messages"),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(40.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "Notifikasi Semua Pesan",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    if (isAllMessagesPushEnabled) "Aktif untuk seluruh pesan masuk" else "Notifikasi dinonaktifkan",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isAllMessagesPushEnabled) OnlineGreen else MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isAllMessagesPushEnabled,
+                            onCheckedChange = { FcmPushManager.setPushEnabled(context, it) },
+                            modifier = Modifier.testTag("switch_all_messages_notification")
+                        )
+                    }
+
+                    Text(
+                        "Tampilkan notifikasi bilah status & heads-up untuk seluruh pesan masuk: Room MUC, Obrolan Langsung (1-on-1), dan Bisikan Rahasia.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+
+                    // Android 13+ Permission Warning if not granted
+                    if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "Izin Notifikasi Belum Diberikan",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        "Android 13+ memerlukan izin sistem agar pesan dapat muncul di bilah notifikasi.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    },
+                                    modifier = Modifier.testTag("btn_grant_notification_permission"),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Izinkan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Test Notification Quick Actions
+                    Text(
+                        "Uji Coba Notifikasi Sistem Langsung",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val testPayload = PushMessagePayload(
+                                    roomJid = "general@conference.xmpp.today",
+                                    senderNickname = "Budi (MUC)",
+                                    body = "Halo rekan-rekan! Selamat datang di room diskusi.",
+                                    isWhisper = false,
+                                    isDirect = false,
+                                    roomTitle = "Ruang Umum MUC"
+                                )
+                                FcmPushManager.showSystemNotification(context, testPayload)
+                                soundPreviewToast = "Notifikasi MUC dikirim ke bilah status"
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_test_notification_muc"),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Room MUC", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val testPayload = PushMessagePayload(
+                                    roomJid = "alice@xmpp.today",
+                                    senderNickname = "Alice W.",
+                                    body = "Hai! Ini uji notifikasi pesan obrolan pribadi 1-on-1.",
+                                    isWhisper = false,
+                                    isDirect = true,
+                                    roomTitle = "Alice Wonderland"
+                                )
+                                FcmPushManager.showSystemNotification(context, testPayload)
+                                soundPreviewToast = "Notifikasi 1-on-1 dikirim ke bilah status"
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_test_notification_direct"),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("1-on-1 Direct", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val testPayload = PushMessagePayload(
+                                    roomJid = "general@conference.xmpp.today",
+                                    senderNickname = "Charlie",
+                                    body = "Psst.. ini notifikasi bisikan rahasia khusus kamu.",
+                                    isWhisper = true,
+                                    isDirect = false,
+                                    roomTitle = "Ruang Umum MUC"
+                                )
+                                FcmPushManager.showSystemNotification(context, testPayload)
+                                soundPreviewToast = "Notifikasi bisikan dikirim ke bilah status"
+                            },
+                            modifier = Modifier.weight(1f).testTag("btn_test_notification_whisper"),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Bisikan", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
         // Notification Sound Settings Card
         item {
             Card(
@@ -1257,7 +1469,39 @@ fun NotificationSubSettings() {
 // ==========================================
 @Composable
 fun AboutSubSettings() {
-    val clientVersion = "v1.2.0 (Build 202611)"
+    val context = LocalContext.current
+    val clientVersionName = remember(context) {
+        try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "1.0"
+        } catch (e: Exception) {
+            "1.0"
+        }
+    }
+    val clientVersionCode = remember(context) {
+        try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pInfo.versionCode.toLong()
+            }
+        } catch (e: Exception) {
+            1L
+        }
+    }
+
+    val appIconBitmap = remember(context) {
+        try {
+            val drawable = context.packageManager.getApplicationIcon(context.packageName)
+            drawable.toBitmap(192, 192).asImageBitmap()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    val displayVersion = "v$clientVersionName (Build $clientVersionCode)"
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -1278,19 +1522,33 @@ fun AboutSubSettings() {
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // App Logo Icon
+                    // App Logo Icon loaded safely from PackageManager application icon
                     Surface(
-                        modifier = Modifier.size(72.dp),
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), CircleShape),
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Forum,
-                                contentDescription = "InChat Logo",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            if (appIconBitmap != null) {
+                                Image(
+                                    bitmap = appIconBitmap,
+                                    contentDescription = "Logo Aplikasi InChat",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Forum,
+                                    contentDescription = "InChat Logo",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
                         }
                     }
 
@@ -1316,18 +1574,30 @@ fun AboutSubSettings() {
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Client Version Badge
+                    // Client Version Badge with Real Package Version Name and Build Code
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                     ) {
-                        Text(
-                            text = clientVersion,
+                        Row(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Verified,
+                                contentDescription = "Versi Klien Resmi",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = displayVersion,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))

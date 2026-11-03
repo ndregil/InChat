@@ -32,6 +32,13 @@ class MainActivity : ComponentActivity() {
         com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(this)
         handleNotificationIntent(intent)
 
+        // Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         setContent {
             val isDarkModeOverride by viewModel.isDarkMode.collectAsStateWithLifecycle()
             val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
@@ -43,6 +50,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        FcmPushManager.isAppInForeground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        FcmPushManager.isAppInForeground = false
     }
 
     override fun onNewIntent(intent: Intent) {

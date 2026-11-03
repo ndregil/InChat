@@ -138,6 +138,7 @@ class RosterManager(
             val userPresence = presence.toUserPresence()
             val statusMsg = presence.status ?: ""
 
+            // XEP-0115: Entity Capabilities
             val capsExt = try {
                 presence?.let { p ->
                     org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
@@ -147,26 +148,33 @@ class RosterManager(
                 null
             }
 
+            // XEP-0172: User Nickname
+            val extractedNick = extractNickname(presence)
+
+            val existing = _contacts.value.find { it.jid.equals(fromJid, ignoreCase = true) }
+            val effectiveName = extractedNick ?: existing?.nickname ?: existing?.name ?: fromJid.substringBefore("@")
+
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = fromJid.substringBefore("@"),
+                name = effectiveName,
                 jid = fromJid,
-                node = capsExt?.node ?: "",
-                ver = capsExt?.ver ?: "",
-                hash = capsExt?.hash ?: "sha-1"
+                node = capsExt?.node ?: existing?.clientCaps?.rawNode ?: "",
+                ver = capsExt?.ver ?: existing?.clientCaps?.ver ?: "",
+                hash = capsExt?.hash ?: existing?.clientCaps?.hash ?: "sha-1"
             )
 
-            Log.d(TAG, "Presence changed for $fromJid: $userPresence ($statusMsg)")
+            Log.d(TAG, "Presence changed for $fromJid: $userPresence ($statusMsg), nick: $extractedNick, caps: ${contactCaps.clientName}")
 
             // Update presence map
             _presenceMap.value = _presenceMap.value + (fromJid to userPresence)
 
-            // Update contact in contacts list
+            // Update contact in contacts list with XEP-0115 caps and XEP-0172 nickname
             _contacts.value = _contacts.value.map { contact ->
                 if (contact.jid.equals(fromJid, ignoreCase = true)) {
                     contact.copy(
                         presence = userPresence,
                         statusMessage = if (statusMsg.isNotBlank()) statusMsg else contact.statusMessage,
-                        clientCaps = contactCaps
+                        clientCaps = contactCaps,
+                        nickname = extractedNick ?: contact.nickname
                     )
                 } else {
                     contact
@@ -204,6 +212,7 @@ class RosterManager(
             var mood: String? = null
             var tune: String? = null
             var pepStatus: String? = null
+            var pepNick: String? = null
 
             event.extensions.filterIsInstance<org.jivesoftware.smackx.pubsub.ItemsExtension>().forEach { items ->
                 when (items.node) {
@@ -234,10 +243,17 @@ class RosterManager(
                         val st = "status>([^<]+)<".toRegex().find(xml)?.groupValues?.get(1)
                         if (!st.isNullOrBlank()) pepStatus = st
                     }
+                    "http://jabber.org/protocol/nick" -> {
+                        val item = items.items.firstOrNull() as? org.jivesoftware.smackx.pubsub.PayloadItem<*>
+                        val xml = item?.payload?.toString() ?: ""
+                        val nk = "<nick[^>]*>([^<]+)</nick>".toRegex().find(xml)?.groupValues?.get(1)
+                            ?: "<text[^>]*>([^<]+)</text>".toRegex().find(xml)?.groupValues?.get(1)
+                        if (!nk.isNullOrBlank()) pepNick = nk.trim()
+                    }
                 }
             }
 
-            if (activity != null || mood != null || tune != null || pepStatus != null) {
+            if (activity != null || mood != null || tune != null || pepStatus != null || pepNick != null) {
                 _contacts.value = _contacts.value.map { contact ->
                     if (contact.jid.equals(fromJid, ignoreCase = true)) {
                         contact.copy(
@@ -245,7 +261,8 @@ class RosterManager(
                             pepMood = mood ?: contact.pepMood,
                             pepTune = tune ?: contact.pepTune,
                             pepStatus = pepStatus ?: contact.pepStatus,
-                            statusMessage = pepStatus ?: contact.statusMessage
+                            statusMessage = pepStatus ?: contact.statusMessage,
+                            nickname = pepNick ?: contact.nickname
                         )
                     } else contact
                 }
@@ -257,26 +274,54 @@ class RosterManager(
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Presence::class.java)
         connection.addAsyncStanzaListener({ stanza ->
             val presence = stanza as? org.jivesoftware.smack.packet.Presence ?: return@addAsyncStanzaListener
-            if (presence.type == org.jivesoftware.smack.packet.Presence.Type.subscribe) {
-                if (!_autoApproveSubscription.value) {
-                    Log.i(TAG, "Auto-approve subscription is disabled. Ignoring auto-accept for $presence")
-                    return@addAsyncStanzaListener
-                }
-                val fromJid = presence.from?.asBareJid() ?: return@addAsyncStanzaListener
-                Log.i(TAG, "Auto-accepting subscription request from $fromJid")
-                try {
-                    val response = PresenceBuilder.buildPresence()
-                        .ofType(org.jivesoftware.smack.packet.Presence.Type.subscribed)
-                        .to(fromJid)
-                        .build()
-                    connection.sendStanza(response)
-
-                    val roster = activeRoster ?: Roster.getInstanceFor(connection)
-                    if (!roster.contains(fromJid)) {
-                        roster.createItem(fromJid, fromJid.localpartOrNull?.asUnescapedString() ?: fromJid.toString(), null)
+            when (presence.type) {
+                org.jivesoftware.smack.packet.Presence.Type.subscribe -> {
+                    if (!_autoApproveSubscription.value) {
+                        Log.i(TAG, "Auto-approve subscription is disabled. Ignoring auto-accept for $presence")
+                        return@addAsyncStanzaListener
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to auto-accept subscription: ${e.message}", e)
+                    val fromJid = presence.from?.asBareJid() ?: return@addAsyncStanzaListener
+                    Log.i(TAG, "Auto-accepting subscription request from $fromJid with mutual subscription")
+                    try {
+                        // 1. Accept incoming subscription request
+                        val response = PresenceBuilder.buildPresence()
+                            .ofType(org.jivesoftware.smack.packet.Presence.Type.subscribed)
+                            .to(fromJid)
+                            .build()
+                        connection.sendStanza(response)
+
+                        // 2. Request mutual presence subscription back
+                        val subscribeBack = PresenceBuilder.buildPresence()
+                            .ofType(org.jivesoftware.smack.packet.Presence.Type.subscribe)
+                            .to(fromJid)
+                            .build()
+                        connection.sendStanza(subscribeBack)
+
+                        val roster = activeRoster ?: Roster.getInstanceFor(connection)
+                        if (!roster.contains(fromJid)) {
+                            roster.createItem(fromJid, fromJid.localpartOrNull?.asUnescapedString() ?: fromJid.toString(), null)
+                        }
+                        coroutineScope.launch {
+                            refreshContactsFromRoster()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to auto-accept subscription: ${e.message}", e)
+                    }
+                }
+                org.jivesoftware.smack.packet.Presence.Type.subscribed -> {
+                    Log.i(TAG, "Subscription accepted by peer: ${presence.from}")
+                    coroutineScope.launch {
+                        refreshContactsFromRoster()
+                    }
+                }
+                org.jivesoftware.smack.packet.Presence.Type.unsubscribed -> {
+                    Log.i(TAG, "Subscription removed by peer: ${presence.from}")
+                    coroutineScope.launch {
+                        refreshContactsFromRoster()
+                    }
+                }
+                else -> {
+                    // Handled by rosterListener
                 }
             }
         }, filter)
@@ -338,7 +383,7 @@ class RosterManager(
     /**
      * Fetches or refreshes contacts list from Smack Roster, with offline fallback.
      */
-    suspend fun loadContacts(): Result<List<RosterContact>> = withContext(Dispatchers.IO) {
+    suspend fun loadContacts(forceReload: Boolean = false): Result<List<RosterContact>> = withContext(Dispatchers.IO) {
         val connection = connectionManager.getRawConnection()
         if (connection == null || !connection.isAuthenticated) {
             _isLoaded.value = true
@@ -351,10 +396,15 @@ class RosterManager(
 
             val roster = activeRoster ?: Roster.getInstanceFor(connection).also {
                 activeRoster = it
+                it.removeRosterListener(rosterListener)
                 it.addRosterListener(rosterListener)
+                it.removeRosterLoadedListener(rosterLoadedListener)
+                it.addRosterLoadedListener(rosterLoadedListener)
+                setupPepStanzaListener(connection)
+                setupSubscriptionListener(connection)
             }
 
-            if (!roster.isLoaded) {
+            if (!roster.isLoaded || forceReload) {
                 try {
                     roster.reload()
                 } catch (e: Exception) {
@@ -413,6 +463,18 @@ class RosterManager(
                 connection.sendStanza(subscribePresence)
 
                 Log.i(TAG, "Contact added to roster and subscription sent: $bareJid")
+                
+                val immediateContact = RosterContact(
+                    jid = cleanJid,
+                    name = cleanName,
+                    presence = UserPresence.OFFLINE,
+                    statusMessage = "Menunggu konfirmasi...",
+                    groups = if (!groupName.isNullOrBlank()) listOf(groupName.trim()) else listOf("Kontak"),
+                    subscriptionType = "none",
+                    isPendingApproval = true
+                )
+                _contacts.value = _contacts.value.filterNot { it.jid.equals(cleanJid, ignoreCase = true) } + immediateContact
+                
                 refreshContactsFromRoster()
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -626,14 +688,18 @@ class RosterManager(
             return _contacts.value
         }
 
+        val existingMap = _contacts.value.associateBy { it.jid.lowercase() }
+
         val mappedContacts = entries.map { entry ->
             val bareJid = entry.jid
             val jidString = bareJid.toString()
+            val existing = existingMap[jidString.lowercase()]
             val presence = roster.getPresence(bareJid)
             val userPresence = presence.toUserPresence()
-            val statusMsg = presence.status ?: ""
+            val statusMsg = presence.status ?: existing?.statusMessage ?: ""
             val groupNames = entry.groups.map { it.name }
 
+            // XEP-0115 Entity Capabilities
             val capsExt = try {
                 presence?.let { p ->
                     org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
@@ -643,12 +709,17 @@ class RosterManager(
                 null
             }
 
+            // XEP-0172 User Nickname
+            val nickFromPresence = extractNickname(presence) ?: existing?.nickname
+
+            val effectiveName = nickFromPresence ?: entry.name ?: existing?.name ?: jidString.substringBefore("@")
+
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = entry.name ?: jidString.substringBefore("@"),
+                name = effectiveName,
                 jid = jidString,
-                node = capsExt?.node ?: "",
-                ver = capsExt?.ver ?: "",
-                hash = capsExt?.hash ?: "sha-1"
+                node = capsExt?.node ?: existing?.clientCaps?.rawNode ?: "",
+                ver = capsExt?.ver ?: existing?.clientCaps?.ver ?: "",
+                hash = capsExt?.hash ?: existing?.clientCaps?.hash ?: "sha-1"
             )
 
             RosterContact(
@@ -659,14 +730,48 @@ class RosterManager(
                 groups = groupNames,
                 subscriptionType = entry.type.name.lowercase(),
                 isPendingApproval = entry.isApproved.not(),
-                avatar = avatarManager.getAvatar(jidString),
-                clientCaps = contactCaps
+                avatar = avatarManager.getAvatar(jidString) ?: existing?.avatar,
+                clientCaps = contactCaps,
+                pepActivity = existing?.pepActivity,
+                pepMood = existing?.pepMood,
+                pepTune = existing?.pepTune,
+                pepStatus = existing?.pepStatus,
+                nickname = nickFromPresence
             )
         }
 
         _contacts.value = mappedContacts
         _presenceMap.value = mappedContacts.associate { it.jid to it.presence }
         return mappedContacts
+    }
+
+    /**
+     * Extracts user nickname from presence stanza in accordance with XEP-0172.
+     */
+    fun extractNickname(presence: Presence?): String? {
+        if (presence == null) return null
+        // 1. Try Smack Nick extension (org.jivesoftware.smackx.nick.packet.Nick)
+        try {
+            val nick = presence.getExtension(org.jivesoftware.smackx.nick.packet.Nick::class.java)
+            if (nick != null && !nick.name.isNullOrBlank()) {
+                return nick.name.trim()
+            }
+        } catch (_: Throwable) {}
+        // 2. Try XML extension parsing for xmlns='http://jabber.org/protocol/nick'
+        try {
+            val ext = presence.extensions.firstOrNull { it.elementName == "nick" && it.namespace == "http://jabber.org/protocol/nick" }
+            if (ext is org.jivesoftware.smackx.nick.packet.Nick) {
+                return ext.name?.trim()
+            }
+            if (ext != null) {
+                val xml = ext.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+                val match = "<nick[^>]*>([^<]+)</nick>".toRegex().find(xml)?.groupValues?.get(1)
+                if (!match.isNullOrBlank()) {
+                    return match.trim()
+                }
+            }
+        } catch (_: Throwable) {}
+        return null
     }
 
     /**

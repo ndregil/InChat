@@ -94,11 +94,15 @@ fun RoomDirectoryScreen(
     onJoinRoom: (PublicDirectoryRoom) -> Unit,
     onSaveRoom: ((PublicDirectoryRoom) -> Unit)? = null,
     onSelectJoinedRoom: (String) -> Unit,
-    onOpenCreateRoom: (() -> Unit)? = null
+    onOpenCreateRoom: (() -> Unit)? = null,
+    discoveredMucRooms: List<com.ndregil.inchat.data.model.DiscoveredRoom> = emptyList(),
+    isDiscoveringServerRooms: Boolean = false,
+    onDiscoverServerRooms: () -> Unit = {},
+    onJoinDiscoveredRoom: ((com.ndregil.inchat.data.model.DiscoveredRoom) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var showComplianceDialog by remember { mutableStateOf(false) }
-    var discoveryMode by remember { mutableIntStateOf(0) } // 0: Global Search, 1: Local Services
+    var discoveryMode by remember { mutableIntStateOf(0) } // 0: Global Search, 1: Server MUC (XEP-0030), 2: Local Services
     var selectedService by remember { mutableStateOf<com.ndregil.inchat.data.model.DiscoveredItem?>(null) }
 
     if (selectedService != null) {
@@ -272,7 +276,11 @@ fun RoomDirectoryScreen(
                                 fontSize = 17.sp
                             )
                             Text(
-                                text = if (discoveryMode == 0) "search.jabber.network" else serverDomain,
+                                text = when (discoveryMode) {
+                                    0 -> "search.jabber.network"
+                                    1 -> "Server MUC (XEP-0030)"
+                                    else -> serverDomain
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.primary
@@ -283,7 +291,11 @@ fun RoomDirectoryScreen(
                 actions = {
                     IconButton(
                         onClick = { 
-                            if (discoveryMode == 0) onRefresh(searchQuery) else onDiscoverLocal() 
+                            when (discoveryMode) {
+                                0 -> onRefresh(searchQuery)
+                                1 -> onDiscoverServerRooms()
+                                else -> onDiscoverLocal()
+                            }
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -324,14 +336,23 @@ fun RoomDirectoryScreen(
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 0,
                     onClick = { discoveryMode = 0 },
-                    text = { Text("Global Search", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text("Global Search", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 1,
                     onClick = { 
                         discoveryMode = 1
+                        onDiscoverServerRooms()
+                    },
+                    text = { Text("Server MUC (XEP-0030)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                )
+                androidx.compose.material3.Tab(
+                    selected = discoveryMode == 2,
+                    onClick = { 
+                        discoveryMode = 2
                         onDiscoverLocal()
                     },
+                    text = { Text("Local Services", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -473,73 +494,111 @@ fun RoomDirectoryScreen(
                     )
                 }
             } else {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Daftar komponen dan layanan di server $serverDomain (XEP-0030):",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Router, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Layanan Server $serverDomain",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Komponen protokol XEP-0030 (MUC, Upload, Proxy)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 11.sp
+                            )
+                        }
+                        IconButton(
+                            onClick = onDiscoverLocal,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Pindai Ulang", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
             }
 
-            val currentLoading = if (discoveryMode == 0) isLoading else isServicesLoading
+            val currentLoading = when (discoveryMode) {
+                0 -> isLoading
+                1 -> false // DiscoveredMucRoomsList handles its own loading state smoothly
+                else -> isServicesLoading
+            }
             if (currentLoading) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp),
+                        .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(36.dp))
-                }
-            } else if (discoveryMode == 0 && directoryRooms.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Explore,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (searchQuery.isBlank()) "Belum ada room ditemukan" else "Tidak ada room ditemukan untuk '$searchQuery'",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Coba kata kunci lain atau muat ulang daftar room populer search.jabber.network",
+                            text = if (discoveryMode == 0) "Memuat daftar room global..." else "Memindai komponen server $serverDomain...",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(
-                            onClick = {
-                                searchQuery = ""
-                                onRefresh("")
-                            }
-                        ) {
-                            Text("Tampilkan Room Populer")
-                        }
                     }
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 120.dp, top = 4.dp)
-                ) {
-                    if (discoveryMode == 0) {
+            } else if (discoveryMode == 0) {
+                if (directoryRooms.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Explore,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (searchQuery.isBlank()) "Belum ada room ditemukan" else "Tidak ada room ditemukan untuk '$searchQuery'",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Coba kata kunci lain atau muat ulang daftar room populer search.jabber.network",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = {
+                                    searchQuery = ""
+                                    onRefresh("")
+                                }
+                            ) {
+                                Text("Tampilkan Room Populer")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 120.dp, top = 4.dp)
+                    ) {
                         items(directoryRooms, key = { it.jid }) { roomItem ->
                             val isAlreadyJoined = joinedRooms.any { it.jid == roomItem.jid && it.isJoined }
                             DirectoryRoomCard(
@@ -550,7 +609,76 @@ fun RoomDirectoryScreen(
                                 onSaveRoom = onSaveRoom
                             )
                         }
-                    } else {
+                    }
+                }
+            } else if (discoveryMode == 1) {
+                // Server MUC Room Discovery (XEP-0030)
+                com.ndregil.inchat.ui.components.DiscoveredMucRoomsList(
+                    rooms = discoveredMucRooms,
+                    isLoading = isDiscoveringServerRooms,
+                    joinedRoomJids = joinedRooms.filter { it.isJoined }.map { it.jid }.toSet(),
+                    onJoinRoom = { discRoom ->
+                        if (onJoinDiscoveredRoom != null) {
+                            onJoinDiscoveredRoom(discRoom)
+                        } else {
+                            onJoinRoom(discRoom.toPublicDirectoryRoom())
+                        }
+                    },
+                    onSelectJoinedRoom = onSelectJoinedRoom,
+                    onRefresh = onDiscoverServerRooms,
+                    onBookmarkRoom = onSaveRoom?.let { saveFn ->
+                        { discRoom -> saveFn(discRoom.toPublicDirectoryRoom()) }
+                    },
+                    serverDomain = serverDomain
+                )
+            } else {
+                // Local Services (discoveryMode == 2)
+                if (discoveredServices.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Router,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "Belum Ada Layanan Terdeteksi",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Tekan tombol di bawah untuk memindai komponen MUC, HTTP File Upload, dan Proxy di server $serverDomain",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(
+                                onClick = onDiscoverLocal
+                            ) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pindai Layanan Server")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(bottom = 120.dp, top = 4.dp)
+                    ) {
                         items(discoveredServices, key = { it.jid + (it.node ?: "") }) { serviceItem ->
                             ServiceItemCard(
                                 item = serviceItem,
