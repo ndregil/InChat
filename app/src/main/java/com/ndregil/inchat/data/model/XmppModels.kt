@@ -163,6 +163,24 @@ data class ClientCaps(
     companion object {
         val CLIENT_REGISTRY: List<ClientDefinition> = listOf(
             ClientDefinition(
+                patterns = listOf("slixmpp.com", "slixmpp"),
+                clientName = "Slixmpp",
+                canonicalNodeUri = "slixmpp.com",
+                platform = ClientPlatform.BOT,
+                iconResId = com.ndregil.inchat.R.drawable.ic_client_slixmpp,
+                defaultVersion = "1.0",
+                defaultOs = "Python"
+            ),
+            ClientDefinition(
+                patterns = listOf("jtalk.ustyugov.net/caps", "jtalk", "jtalk.ustyugov.net"),
+                clientName = "jTalk",
+                canonicalNodeUri = "jtalk.ustyugov.net/caps",
+                platform = ClientPlatform.ANDROID,
+                iconResId = com.ndregil.inchat.R.drawable.ic_client_jtalk,
+                defaultVersion = "1.0",
+                defaultOs = "Mobile"
+            ),
+            ClientDefinition(
                 patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat"),
                 clientName = "InChat",
                 canonicalNodeUri = "http://ndregil.inchat",

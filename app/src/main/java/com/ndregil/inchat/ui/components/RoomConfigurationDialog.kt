@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,9 @@ import org.jivesoftware.smackx.muc.RoomInfo
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,8 +52,12 @@ fun RoomConfigurationDialog(
     onBanUser: (String, String?) -> Unit = { _, _ -> },
     onRevokeAffiliation: (String) -> Unit = {},
     myRole: OccupantRole = OccupantRole.NONE,
+    myAffiliation: OccupantAffiliation = OccupantAffiliation.NONE,
+    initialNotificationMode: Int = 0,
     onDismiss: () -> Unit,
     onUpdateNickname: (String) -> Unit = {},
+    onUpdateTopic: (String) -> Unit = {},
+    onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
     onSaveConfig: (
         roomName: String?,
         description: String?,
@@ -59,7 +67,12 @@ fun RoomConfigurationDialog(
         isMembersOnly: Boolean,
         isModerated: Boolean,
         allowSubjectChange: Boolean,
-        password: String?
+        password: String?,
+        notificationMode: Int,
+        maxUsers: Int?,
+        enableLogging: Boolean,
+        allowInvites: Boolean,
+        whois: String?
     ) -> Unit
 ) {
     var activeTab by remember { mutableIntStateOf(0) } // 0 = Settings, 1 = Moderation
@@ -119,14 +132,12 @@ fun RoomConfigurationDialog(
                         text = { Text("Pengaturan", fontSize = 13.sp) },
                         icon = { Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp)) }
                     )
-                    if (myRole == OccupantRole.OWNER || myRole == OccupantRole.ADMIN) {
-                        Tab(
-                            selected = activeTab == 1,
-                            onClick = { activeTab = 1 },
-                            text = { Text("Moderasi", fontSize = 13.sp) },
-                            icon = { Icon(Icons.Default.Gavel, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                        )
-                    }
+                    Tab(
+                        selected = activeTab == 1,
+                        onClick = { activeTab = 1 },
+                        text = { Text("Moderasi", fontSize = 13.sp) },
+                        icon = { Icon(Icons.Default.Gavel, contentDescription = null, modifier = Modifier.size(18.dp)) }
+                    )
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -137,23 +148,42 @@ fun RoomConfigurationDialog(
             if (activeTab == 0) {
                 RoomConfigurationContent(
                     initialInfo = initialInfo,
+                    initialNotificationMode = initialNotificationMode,
                     isLoading = isLoading,
+                    myRole = myRole,
+                    myAffiliation = myAffiliation,
                     onSaveConfig = onSaveConfig,
-                    onUpdateNickname = onUpdateNickname
+                    onUpdateNickname = onUpdateNickname,
+                    onUpdateTopic = onUpdateTopic,
+                    onUpdateRoomAvatar = onUpdateRoomAvatar
                 )
             } else {
-                ModerationTabContent(
-                    owners = ownersList,
-                    admins = adminsList,
-                    members = membersList,
-                    outcasts = outcastsList,
-                    isLoading = isLoadingAffiliations,
-                    onGrantOwnership = onGrantOwnership,
-                    onGrantAdmin = onGrantAdmin,
-                    onGrantMembership = onGrantMembership,
-                    onBanUser = onBanUser,
-                    onRevokeAffiliation = onRevokeAffiliation
-                )
+                val hasModerationAccess = myRole == OccupantRole.OWNER || myRole == OccupantRole.ADMIN ||
+                        myAffiliation == OccupantAffiliation.OWNER || myAffiliation == OccupantAffiliation.ADMIN
+                if (hasModerationAccess) {
+                    ModerationTabContent(
+                        owners = ownersList,
+                        admins = adminsList,
+                        members = membersList,
+                        outcasts = outcastsList,
+                        isLoading = isLoadingAffiliations,
+                        isOwnerOrAdmin = hasModerationAccess,
+                        onGrantOwnership = onGrantOwnership,
+                        onGrantAdmin = onGrantAdmin,
+                        onGrantMembership = onGrantMembership,
+                        onBanUser = onBanUser,
+                        onRevokeAffiliation = onRevokeAffiliation
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Lock, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.height(12.dp))
+                            Text("Akses Terbatas", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text("fitur ini hanya untuk Owner room.", textAlign = androidx.compose.ui.text.style.TextAlign.Center, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
         },
         confirmButton = {},
@@ -171,7 +201,10 @@ fun RoomConfigurationDialog(
 @Composable
 fun RoomConfigurationContent(
     initialInfo: RoomInfo?,
+    initialNotificationMode: Int = 0,
     isLoading: Boolean = false,
+    myRole: OccupantRole = OccupantRole.NONE,
+    myAffiliation: OccupantAffiliation = OccupantAffiliation.NONE,
     onSaveConfig: (
         roomName: String?,
         description: String?,
@@ -181,10 +214,20 @@ fun RoomConfigurationContent(
         isMembersOnly: Boolean,
         isModerated: Boolean,
         allowSubjectChange: Boolean,
-        password: String?
+        password: String?,
+        notificationMode: Int,
+        maxUsers: Int?,
+        enableLogging: Boolean,
+        allowInvites: Boolean,
+        whois: String?
     ) -> Unit,
-    onUpdateNickname: (String) -> Unit = {}
+    onUpdateNickname: (String) -> Unit = {},
+    onUpdateTopic: (String) -> Unit = {},
+    onUpdateRoomAvatar: (android.net.Uri) -> Unit = {}
 ) {
+    val isOwner = myRole == OccupantRole.OWNER || myAffiliation == OccupantAffiliation.OWNER
+    val canChangeSubject = isOwner || myRole == OccupantRole.ADMIN || myRole == OccupantRole.PARTICIPANT || myAffiliation == OccupantAffiliation.ADMIN
+
     var roomName by remember(initialInfo) { mutableStateOf(initialInfo?.name ?: "") }
     var description by remember(initialInfo) { mutableStateOf(initialInfo?.description ?: "") }
     var subject by remember(initialInfo) { mutableStateOf(initialInfo?.subject ?: initialInfo?.description ?: "") }
@@ -195,11 +238,33 @@ fun RoomConfigurationContent(
     var allowSubjectChange by remember(initialInfo) { mutableStateOf(true) }
     var password by remember(initialInfo) { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
-
-    // Use current nickname from some source if initialInfo doesn't have it, but we need a way to get it.
-    // In MUC, the nickname is part of the occupant info. For now, let's assume we pass it or it's in initialInfo (not standard for RoomInfo though).
-    // Actually, we can just let it be blank initially and user can type.
+    var notificationMode by remember(initialNotificationMode) { mutableIntStateOf(initialNotificationMode) }
     var myNickname by remember { mutableStateOf("") }
+
+    val avatarLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let { onUpdateRoomAvatar(it) }
+    }
+
+    // New MUC Server configuration fields
+    var maxUsers by remember(initialInfo) { mutableStateOf("0") }
+    var enableLogging by remember(initialInfo) { mutableStateOf(true) }
+    var allowInvites by remember(initialInfo) { mutableStateOf(true) }
+    var whois by remember(initialInfo) { mutableStateOf("anyone") }
+    var maxUsersExpanded by remember { mutableStateOf(false) }
+
+    val maxUsersOptions = listOf(
+        "0" to "Tanpa Batas (Server Default)",
+        "10" to "Maksimal 10 Peserta",
+        "20" to "Maksimal 20 Peserta",
+        "30" to "Maksimal 30 Peserta",
+        "50" to "Maksimal 50 Peserta",
+        "100" to "Maksimal 100 Peserta",
+        "200" to "Maksimal 200 Peserta",
+        "500" to "Maksimal 500 Peserta",
+        "1000" to "Maksimal 1000 Peserta"
+    )
 
     Column(
         modifier = Modifier
@@ -207,6 +272,27 @@ fun RoomConfigurationContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Section: Avatar
+        if (isOwner) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Avatar Ruangan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { avatarLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Text("Ganti Avatar")
+                    }
+                }
+            }
+        }
+
         // Section: Personal Identity (Nickname)
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -341,7 +427,7 @@ fun RoomConfigurationContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Manajemen Subjek / Topik (XEP-0045)",
+                        text = "Subjek / Topik Ruangan (XEP-0045)",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )
@@ -353,35 +439,446 @@ fun RoomConfigurationContent(
                     label = { Text("Subjek / Pengumuman Ruangan") },
                     placeholder = { Text("Topik obrolan aktif...") },
                     singleLine = true,
+                    enabled = canChangeSubject,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("room_subject_input"),
                     leadingIcon = { Icon(Icons.Default.Campaign, contentDescription = null) }
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Izinkan Partisipan Mengubah Subjek", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = if (allowSubjectChange) "Semua anggota dapat mengganti topik" else "Hanya moderator & admin yang dapat mengganti topik",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                if (canChangeSubject) {
+                    Button(
+                        onClick = {
+                            if (subject.isNotBlank()) {
+                                onUpdateTopic(subject)
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Ganti Subjek")
+                    }
+                } else {
+                    Text(
+                        text = "Topik dikunci oleh Owner room.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                if (isOwner) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Izinkan Partisipan Mengubah Subjek", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = if (allowSubjectChange) "Semua anggota dapat mengganti topik" else "Hanya owner & moderator yang dapat mengganti topik",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = allowSubjectChange,
+                            onCheckedChange = { allowSubjectChange = it },
+                            modifier = Modifier.testTag("switch_allow_subject_change")
                         )
                     }
-                    Switch(
-                        checked = allowSubjectChange,
-                        onCheckedChange = { allowSubjectChange = it },
-                        modifier = Modifier.testTag("switch_allow_subject_change")
-                    )
                 }
             }
         }
 
-        // Section 3: Privacy, Access & Security Settings
+        if (isOwner) {
+            // Section 1: Room Identity & Description
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Identitas & Deskripsi Ruangan MUC",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = roomName,
+                        onValueChange = { roomName = it },
+                        label = { Text("Nama Ruangan MUC") },
+                        placeholder = { Text("Contoh: Komunitas InChat Indonesia") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_name_input"),
+                        leadingIcon = { Icon(Icons.Default.Group, contentDescription = null) }
+                    )
+
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Deskripsi / Tentang Ruangan") },
+                        placeholder = { Text("Deskripsikan topik dan pedoman komunitas...") },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_desc_input"),
+                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
+                    )
+                }
+            }
+
+            // Section 3: Server MUC Rules - Batas Jumlah Peserta & Visibilitas
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Groups,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Aturan Server & Batas Peserta (XEP-0045)",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    // Batas Jumlah Peserta (muc#roomconfig_maxusers)
+                    Column {
+                        Text("Batas Maksimum Jumlah Peserta", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Membatasi jumlah partisipan simultan di server MUC", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(4.dp))
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { maxUsersExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                val currentLabel = maxUsersOptions.find { it.first == maxUsers }?.second ?: "Tanpa Batas (0)"
+                                Text(currentLabel, modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                            DropdownMenu(
+                                expanded = maxUsersExpanded,
+                                onDismissRequest = { maxUsersExpanded = false }
+                            ) {
+                                maxUsersOptions.forEach { (valStr, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            maxUsers = valStr
+                                            maxUsersExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Visibilitas Real JID (muc#roomconfig_whois)
+                    Column {
+                        Text("Siapa yang Dapat Melihat Real Bare JID", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { whois = "anyone" }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            RadioButton(selected = whois == "anyone", onClick = { whois = "anyone" })
+                            Spacer(Modifier.width(8.dp))
+                            Text("Semua Partisipan (Non-Anonymous)", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { whois = "moderators" }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            RadioButton(selected = whois == "moderators", onClick = { whois = "moderators" })
+                            Spacer(Modifier.width(8.dp))
+                            Text("Hanya Moderator & Owner (Semi-Anonymous)", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Izinkan Undangan (muc#roomconfig_allowinvites)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Izinkan Peserta Mengundang Orang Lain", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Partisipan biasa dapat mengundang pengguna baru ke ruangan", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = allowInvites, onCheckedChange = { allowInvites = it })
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Catat Log Percakapan (muc#roomconfig_enablelogging)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Catat Log Percakapan di Server MUC", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Menyimpan arsip log riwayat obrolan di server MUC", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = enableLogging, onCheckedChange = { enableLogging = it })
+                    }
+                }
+            }
+
+            // Section 4: Privacy, Access & Security Settings
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Pengaturan Privasi & Keamanan",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+
+                    // Directory Public Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Tampilkan di Direktori Publik", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = "Ruangan dapat dicari di Service Discovery (XEP-0030)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isPublic,
+                            onCheckedChange = { isPublic = it },
+                            modifier = Modifier.testTag("switch_public_room")
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Members Only Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Khusus Anggota (Members-Only)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = "Hanya akun terdaftar di roster/whitelist yang dapat bergabung",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isMembersOnly,
+                            onCheckedChange = { isMembersOnly = it },
+                            modifier = Modifier.testTag("switch_members_only")
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Moderated Room Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Ruangan Moderasi (Moderated)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = "Hanya partisipan dengan hak 'voice' yang dapat mengirim pesan",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isModerated,
+                            onCheckedChange = { isModerated = it },
+                            modifier = Modifier.testTag("switch_moderated_room")
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Persistent Room Switch
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Ruangan Persisten (Persistent)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(
+                                text = "Ruangan tetap disimpan di server meskipun seluruh partisipan keluar",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = isPersistent,
+                            onCheckedChange = { isPersistent = it },
+                            modifier = Modifier.testTag("switch_persistent_room")
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // Password Protected Field
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Kata Sandi Ruangan (Opsional)") },
+                        placeholder = { Text("Biarkan kosong untuk ruangan tanpa kata sandi") },
+                        singleLine = true,
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_password_input"),
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle Password"
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+
+            // Save Button Action
+            Button(
+                onClick = {
+                    val parsedMaxUsers = maxUsers.toIntOrNull()
+                    onSaveConfig(
+                        roomName.ifBlank { null },
+                        description.ifBlank { null },
+                        subject.ifBlank { null },
+                        isPersistent,
+                        isPublic,
+                        isMembersOnly,
+                        isModerated,
+                        allowSubjectChange,
+                        password.ifBlank { null },
+                        notificationMode,
+                        parsedMaxUsers,
+                        enableLogging,
+                        allowInvites,
+                        whois
+                    )
+                },
+                enabled = !isLoading,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("save_room_config_button")
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Menyimpan...")
+                } else {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Simpan Konfigurasi Ruangan (XEP-0045)", fontWeight = FontWeight.Bold)
+                }
+            }
+        } else {
+            // Non-Owner Banner: "fitur ini hanya untuk Owner room."
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "fitur ini hanya untuk Owner room.",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = "Pengaturan MUC server (nama ruangan, deskripsi, batas peserta, privasi, dan kata sandi) hanya dapat diubah oleh Owner room.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section: Notification Preferences (Local - Available to all)
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
@@ -393,168 +890,38 @@ fun RoomConfigurationContent(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Security,
+                        imageVector = Icons.Default.Notifications,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Pengaturan Privasi & Keamanan",
+                        text = "Preferensi Notifikasi Ruangan (Lokal)",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )
                 }
 
-                // Directory Public Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Tampilkan di Direktori Publik", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = "Ruangan dapat dicari di Service Discovery (XEP-0030)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = isPublic,
-                        onCheckedChange = { isPublic = it },
-                        modifier = Modifier.testTag("switch_public_room")
-                    )
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                // Members Only Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Khusus Anggota (Members-Only)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = "Hanya akun terdaftar di roster/whitelist yang dapat bergabung",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = isMembersOnly,
-                        onCheckedChange = { isMembersOnly = it },
-                        modifier = Modifier.testTag("switch_members_only")
-                    )
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                // Moderated Room Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Ruangan Moderasi (Moderated)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = "Hanya partisipan dengan hak 'voice' yang dapat mengirim pesan",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = isModerated,
-                        onCheckedChange = { isModerated = it },
-                        modifier = Modifier.testTag("switch_moderated_room")
-                    )
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                // Persistent Room Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Ruangan Persisten (Persistent)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text(
-                            text = "Ruangan tetap disimpan di server meskipun seluruh partisipan keluar",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = isPersistent,
-                        onCheckedChange = { isPersistent = it },
-                        modifier = Modifier.testTag("switch_persistent_room")
-                    )
-                }
-
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-
-                // Password Protected Field
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Kata Sandi Ruangan (Opsional)") },
-                    placeholder = { Text("Biarkan kosong untuk ruangan tanpa kata sandi") },
-                    singleLine = true,
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("room_password_input"),
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                    trailingIcon = {
-                        IconButton(onClick = { showPassword = !showPassword }) {
-                            Icon(
-                                imageVector = if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = "Toggle Password"
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val modes = listOf("Semua Pesan", "Hanya Mention", "Senyap (Muted)")
+                    modes.forEachIndexed { index, label ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { notificationMode = index }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = notificationMode == index,
+                                onClick = { notificationMode = index }
                             )
+                            Spacer(Modifier.width(8.dp))
+                            Text(label, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                )
-            }
-        }
-
-        // Save Button Action
-        Button(
-            onClick = {
-                onSaveConfig(
-                    roomName.ifBlank { null },
-                    description.ifBlank { null },
-                    subject.ifBlank { null },
-                    isPersistent,
-                    isPublic,
-                    isMembersOnly,
-                    isModerated,
-                    allowSubjectChange,
-                    password.ifBlank { null }
-                )
-            },
-            enabled = !isLoading,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .testTag("save_room_config_button")
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Menyimpan...")
-            } else {
-                Icon(Icons.Default.Save, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Simpan Konfigurasi Ruangan (XEP-0045)", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -567,6 +934,7 @@ fun ModerationTabContent(
     members: List<MucAffiliate>,
     outcasts: List<MucAffiliate>,
     isLoading: Boolean = false,
+    isOwnerOrAdmin: Boolean = true,
     onGrantOwnership: (String) -> Unit,
     onGrantAdmin: (String) -> Unit,
     onGrantMembership: (String) -> Unit,
@@ -583,12 +951,13 @@ fun ModerationTabContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Section: Add Affiliate
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
+        if (isOwnerOrAdmin) {
+            // Section: Add Affiliate
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
             Column(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -659,6 +1028,22 @@ fun ModerationTabContent(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Tambah")
                     }
+                }
+            }
+        }
+    } else {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("fitur ini hanya untuk Owner room.", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 }
             }
         }

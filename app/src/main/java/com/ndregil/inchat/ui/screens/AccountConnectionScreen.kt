@@ -143,6 +143,7 @@ fun AccountConnectionScreen(
     onClearBackupStatus: () -> Unit = {},
     onUpdateAvatar: (android.net.Uri) -> Unit = {},
     myAvatar: ByteArray? = null,
+    lastErrorMessage: String? = null,
     modifier: Modifier = Modifier
 ) {
     var activeTabMode by remember(currentAccount, connectionStatus) {
@@ -385,10 +386,16 @@ fun AccountConnectionScreen(
                         }
                     )
                     Text(
-                        text = if (connectionStatus == ConnectionStatus.CONNECTED) "JID Aktif: ${currentAccount.jid}" else "Siap untuk menyambungkan ke server",
+                        text = if (connectionStatus == ConnectionStatus.CONNECTED) {
+                            "JID Aktif: ${currentAccount.jid}"
+                        } else if (connectionStatus == ConnectionStatus.ERROR && !lastErrorMessage.isNullOrBlank()) {
+                            lastErrorMessage
+                        } else {
+                            "Siap untuk menyambungkan ke server"
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        color = if (connectionStatus == ConnectionStatus.ERROR) DndRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

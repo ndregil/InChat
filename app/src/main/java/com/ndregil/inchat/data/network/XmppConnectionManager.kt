@@ -267,9 +267,10 @@ class XmppConnectionManager(
             // Attach connection listener
             connection.addConnectionListener(smackConnectionListener)
 
-            // Configure automatic reconnection
+            // Do not enable Smack automatic reconnect blindly (it triggers rapid loops on auth failure).
+            // Reconnection is managed safely at the application layer with backoff and credential validation.
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
-            reconnectionManager.enableAutomaticReconnection()
+            reconnectionManager.disableAutomaticReconnection()
 
             // Establish TCP connection
             connection.connect()
@@ -306,9 +307,9 @@ class XmppConnectionManager(
                 Log.w(TAG, "Failed to enable Message Carbons: ${e.message}")
             }
             
-            // Enable XEP-0199: XMPP Ping to keep connection alive
+            // Enable XEP-0199: XMPP Ping to prevent idle connection timeout from server
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
-            pingManager.pingInterval = 30 // Send ping every 30 seconds
+            pingManager.pingInterval = 20 // Send ping every 20 seconds to prevent idle timeout
             
             // Enable XEP-0030 & XEP-0115: Service Discovery and Entity Capabilities
             org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
@@ -328,7 +329,17 @@ class XmppConnectionManager(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect and login with Smack: ${e.message}", e)
             _connectionStatus.value = ConnectionStatus.ERROR
-            _lastError.value = e.localizedMessage ?: "XMPP connection failure"
+            val rawMsg = e.localizedMessage ?: "XMPP connection failure"
+            val friendlyMsg = when {
+                e is org.jivesoftware.smack.sasl.SASLErrorException || rawMsg.contains("not-authorized", ignoreCase = true) ->
+                    "Autentikasi gagal: Username atau password salah (not-authorized). Silakan periksa kembali kata sandi akun Anda."
+                rawMsg.contains("connection refused", ignoreCase = true) ->
+                    "Koneksi ditolak oleh server. Periksa host dan port XMPP."
+                rawMsg.contains("timeout", ignoreCase = true) ->
+                    "Batas waktu koneksi habis (timeout). Periksa koneksi internet atau server XMPP."
+                else -> rawMsg
+            }
+            _lastError.value = friendlyMsg
             safeDisconnectInternal()
             Result.failure(e)
         }
@@ -815,11 +826,21 @@ class XmppConnectionManager(
         try {
             val jid = JidCreate.from(targetJid.trim())
             val versionManager = VersionManager.getInstanceFor(conn)
-            val verPacket = versionManager.getVersion(jid)
+            
+            var softwareName = "Unknown Client"
+            var versionStr = "1.0"
+            var osStr = "Unknown OS"
 
-            val softwareName = verPacket?.name?.ifBlank { null } ?: "Unknown Client"
-            val versionStr = verPacket?.version?.ifBlank { null } ?: "1.0"
-            val osStr = verPacket?.os?.ifBlank { null } ?: "Unknown OS"
+            try {
+                val verPacket = versionManager.getVersion(jid)
+                if (verPacket != null) {
+                    softwareName = verPacket.name?.ifBlank { null } ?: "Unknown Client"
+                    versionStr = verPacket.version?.ifBlank { null } ?: "1.0"
+                    osStr = verPacket.os?.ifBlank { null } ?: "Unknown OS"
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Version packet query timed out or not supported for $targetJid: ${e.message}")
+            }
 
             val platform = when {
                 softwareName.contains("Android", ignoreCase = true) || osStr.contains("Android", ignoreCase = true) || softwareName.contains("Conversations", ignoreCase = true) -> com.ndregil.inchat.data.model.ClientPlatform.ANDROID
@@ -836,6 +857,9 @@ class XmppConnectionManager(
                 info.features.forEach { f ->
                     featuresList.add(f.`var`)
                 }
+                if (softwareName == "Unknown Client" && info.node != null) {
+                    softwareName = info.node
+                }
             } catch (e: Exception) {
                 Log.d(TAG, "Disco info query failed for $targetJid: ${e.message}")
             }
@@ -843,7 +867,7 @@ class XmppConnectionManager(
             val base = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = softwareName,
                 jid = targetJid,
-                node = verPacket?.name ?: softwareName
+                node = softwareName
             )
 
             val caps = base.copy(
@@ -857,8 +881,9 @@ class XmppConnectionManager(
             Log.i(TAG, "Successfully queried software version for $targetJid: ${caps.clientName} v${caps.version} on ${caps.os}")
             Result.success(caps)
         } catch (e: Exception) {
-            Log.w(TAG, "Version query failed for $targetJid: ${e.message}")
-            Result.failure(e)
+            Log.w(TAG, "Version query failed for $targetJid: ${e.message}, returning fallback client caps")
+            val fallbackCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(name = targetJid, jid = targetJid, node = targetJid)
+            Result.success(fallbackCaps)
         }
     }
 

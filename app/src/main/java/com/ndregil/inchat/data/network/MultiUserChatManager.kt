@@ -328,7 +328,11 @@ class MultiUserChatManager(
         isMembersOnly: Boolean = false,
         isModerated: Boolean = false,
         allowSubjectChange: Boolean = true,
-        password: String? = null
+        password: String? = null,
+        maxUsers: Int? = null,
+        enableLogging: Boolean = true,
+        allowInvites: Boolean = true,
+        whois: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
             IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
@@ -348,6 +352,32 @@ class MultiUserChatManager(
             try { answerForm.setAnswer("muc#roomconfig_membersonly", isMembersOnly) } catch (e: Exception) { Log.d(TAG, "membersonly field skipped: ${e.message}") }
             try { answerForm.setAnswer("muc#roomconfig_moderatedroom", isModerated) } catch (e: Exception) { Log.d(TAG, "moderatedroom field skipped: ${e.message}") }
             try { answerForm.setAnswer("muc#roomconfig_changesubject", allowSubjectChange) } catch (e: Exception) { Log.d(TAG, "changesubject field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_enablelogging", enableLogging) } catch (e: Exception) { Log.d(TAG, "enablelogging field skipped: ${e.message}") }
+            try { answerForm.setAnswer("muc#roomconfig_allowinvites", allowInvites) } catch (e: Exception) { Log.d(TAG, "allowinvites field skipped: ${e.message}") }
+
+            if (maxUsers != null) {
+                try {
+                    answerForm.setAnswer("muc#roomconfig_maxusers", maxUsers.toString())
+                } catch (e: Exception) {
+                    try {
+                        answerForm.setAnswer("muc#roomconfig_maxusers", listOf(maxUsers.toString()))
+                    } catch (e2: Exception) {
+                        Log.d(TAG, "maxusers field skipped: ${e2.message}")
+                    }
+                }
+            }
+
+            if (!whois.isNullOrBlank()) {
+                try {
+                    answerForm.setAnswer("muc#roomconfig_whois", listOf(whois))
+                } catch (e: Exception) {
+                    try {
+                        answerForm.setAnswer("muc#roomconfig_whois", whois)
+                    } catch (e2: Exception) {
+                        Log.d(TAG, "whois field skipped: ${e2.message}")
+                    }
+                }
+            }
 
             if (!password.isNullOrBlank()) {
                 try {
@@ -1096,7 +1126,7 @@ class MultiUserChatManager(
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "→ [$nick] bergabung ke ruangan sebagai $roleName$affName$statusMsg",
+                    body = "[$nick] bergabung ke ruangan sebagai $roleName$affName$statusMsg",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_JOIN
                 )
@@ -1114,7 +1144,7 @@ class MultiUserChatManager(
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "← [$nick] telah meninggalkan ruangan.",
+                    body = "[$nick] telah meninggalkan ruangan.",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE
                 )
@@ -1131,7 +1161,7 @@ class MultiUserChatManager(
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] dikeluarkan dari ruangan (Kicked) oleh $actorNick$reasonStr",
+                    body = "[$nick] dikeluarkan dari ruangan (Kicked) oleh $actorNick$reasonStr",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )

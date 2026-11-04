@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.MucAffiliate
 import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.RoomOccupant
+import com.ndregil.inchat.data.model.OccupantAffiliation
 import org.jivesoftware.smackx.muc.RoomInfo
 import java.util.Locale
 
@@ -50,8 +51,13 @@ fun RoomAdminPanel(
         isMembersOnly: Boolean,
         isModerated: Boolean,
         allowSubjectChange: Boolean,
-        password: String?
+        password: String?,
+        maxUsers: Int?,
+        enableLogging: Boolean,
+        allowInvites: Boolean,
+        whois: String?
     ) -> Unit,
+    onUpdateTopic: (String) -> Unit = {},
     onGrantModerator: (String) -> Unit,
     onRevokeModerator: (String) -> Unit,
     onGrantMembership: (String) -> Unit,
@@ -73,6 +79,12 @@ fun RoomAdminPanel(
     LaunchedEffect(Unit) {
         onLoadAffiliations()
     }
+
+    val myOccupant = occupants.find { it.isMe }
+    val isOwnerOrAdmin = myOccupant?.role == OccupantRole.OWNER ||
+            myOccupant?.role == OccupantRole.ADMIN ||
+            myOccupant?.affiliation == OccupantAffiliation.OWNER ||
+            myOccupant?.affiliation == OccupantAffiliation.ADMIN
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -117,10 +129,16 @@ fun RoomAdminPanel(
                     0 -> RoomConfigurationContent(
                         initialInfo = initialInfo,
                         isLoading = isLoadingConfig,
-                        onSaveConfig = onSaveConfig
+                        myRole = myOccupant?.role ?: OccupantRole.NONE,
+                        myAffiliation = myOccupant?.affiliation ?: OccupantAffiliation.NONE,
+                        onUpdateTopic = onUpdateTopic,
+                        onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pwd, notifMode, maxUsers, enableLogging, allowInvites, whois ->
+                            onSaveConfig(name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pwd, maxUsers, enableLogging, allowInvites, whois)
+                        }
                     )
                     1 -> ParticipantsTab(
                         occupants = occupants,
+                        isOwnerOrAdmin = isOwnerOrAdmin,
                         onGrantModerator = onGrantModerator,
                         onRevokeModerator = onRevokeModerator,
                         onGrantMembership = onGrantMembership,
@@ -141,6 +159,7 @@ fun RoomAdminPanel(
                         membersList = membersList,
                         outcastsList = outcastsList,
                         isLoading = isLoadingAffiliations,
+                        isOwnerOrAdmin = isOwnerOrAdmin,
                         onRefresh = onLoadAffiliations,
                         onGrantOwnership = onGrantOwnership,
                         onRevokeOwnership = onRevokeOwnership,
@@ -152,7 +171,24 @@ fun RoomAdminPanel(
                         onBanUser = onBanUser,
                         onUnbanUser = onUnbanUser
                     )
-                    3 -> ModerationHistoryContent(messages = moderationMessages)
+                    3 -> if (isOwnerOrAdmin) {
+                        ModerationHistoryContent(messages = moderationMessages)
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("fitur ini hanya untuk Owner room.", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -167,6 +203,7 @@ fun RoomAdminPanel(
 @Composable
 fun ParticipantsTab(
     occupants: List<RoomOccupant>,
+    isOwnerOrAdmin: Boolean = true,
     onGrantModerator: (String) -> Unit,
     onRevokeModerator: (String) -> Unit,
     onGrantMembership: (String) -> Unit,
@@ -229,6 +266,7 @@ fun ParticipantsTab(
         items(occupants) { occupant ->
             AdminOccupantItem(
                 occupant = occupant,
+                isOwnerOrAdmin = isOwnerOrAdmin,
                 onGrantModerator = { onGrantModerator(occupant.nickname) },
                 onRevokeModerator = { onRevokeModerator(occupant.nickname) },
                 onGrantMembership = { onGrantMembership(occupant.jid) },
@@ -250,6 +288,7 @@ fun ParticipantsTab(
 @Composable
 fun AdminOccupantItem(
     occupant: RoomOccupant,
+    isOwnerOrAdmin: Boolean = true,
     onGrantModerator: () -> Unit,
     onRevokeModerator: () -> Unit,
     onGrantMembership: () -> Unit,
@@ -283,7 +322,7 @@ fun AdminOccupantItem(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(occupant.nickname, fontWeight = FontWeight.Bold)
-                    if (occupant.jid.isNotBlank()) {
+                    if (isOwnerOrAdmin && occupant.jid.isNotBlank()) {
                         Text("Real JID: ${occupant.jid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
                     }
                     Text("Role: ${occupant.role} | Affiliation: ${occupant.affiliation}", style = MaterialTheme.typography.bodySmall)
@@ -295,50 +334,54 @@ fun AdminOccupantItem(
 
             if (expanded) {
                 Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (occupant.role != OccupantRole.OWNER && !occupant.isMe) {
-                        // Kick / Ban
-                        AssistChip(
-                            onClick = onKickUser,
-                            label = { Text("Kick") },
-                            leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        )
-                        AssistChip(
-                            onClick = onBanUser,
-                            label = { Text("Ban") },
-                            leadingIcon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
-                        )
-
-                        // Voice control for Visitor / Participant
-                        if (occupant.role == OccupantRole.VISITOR) {
-                            AssistChip(onClick = onGrantVoice, label = { Text("+Voice") })
-                        } else if (occupant.role == OccupantRole.PARTICIPANT) {
-                            AssistChip(onClick = onRevokeVoice, label = { Text("-Voice (Visitor)") })
-                        }
-
-                        // Moderator control
-                        if (occupant.role != OccupantRole.ADMIN && occupant.role != OccupantRole.OWNER) {
+                if (isOwnerOrAdmin) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (occupant.role != OccupantRole.OWNER && !occupant.isMe) {
+                            // Kick / Ban
                             AssistChip(
-                                onClick = onGrantModerator,
-                                label = { Text("+Moderator") }
+                                onClick = onKickUser,
+                                label = { Text("Kick") },
+                                leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
-                        } else {
                             AssistChip(
-                                onClick = onRevokeModerator,
-                                label = { Text("-Moderator") }
+                                onClick = onBanUser,
+                                label = { Text("Ban") },
+                                leadingIcon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                                colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
                             )
-                        }
 
-                        // Affiliations (Member, Admin, Owner)
-                        AssistChip(onClick = onGrantMembership, label = { Text("+Member") })
-                        AssistChip(onClick = onGrantAdmin, label = { Text("+Admin") })
-                        AssistChip(onClick = onGrantOwnership, label = { Text("+Owner") })
+                            // Voice control for Visitor / Participant
+                            if (occupant.role == OccupantRole.VISITOR) {
+                                AssistChip(onClick = onGrantVoice, label = { Text("+Voice") })
+                            } else if (occupant.role == OccupantRole.PARTICIPANT) {
+                                AssistChip(onClick = onRevokeVoice, label = { Text("-Voice (Visitor)") })
+                            }
+
+                            // Moderator control
+                            if (occupant.role != OccupantRole.ADMIN && occupant.role != OccupantRole.OWNER) {
+                                AssistChip(
+                                    onClick = onGrantModerator,
+                                    label = { Text("+Moderator") }
+                                )
+                            } else {
+                                AssistChip(
+                                    onClick = onRevokeModerator,
+                                    label = { Text("-Moderator") }
+                                )
+                            }
+
+                            // Affiliations (Member, Admin, Owner)
+                            AssistChip(onClick = onGrantMembership, label = { Text("+Member") })
+                            AssistChip(onClick = onGrantAdmin, label = { Text("+Admin") })
+                            AssistChip(onClick = onGrantOwnership, label = { Text("+Owner") })
+                        }
                     }
+                } else {
+                    Text("fitur ini hanya untuk Owner room.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -354,6 +397,7 @@ fun AffiliationsManagementTab(
     membersList: List<MucAffiliate>,
     outcastsList: List<MucAffiliate>,
     isLoading: Boolean,
+    isOwnerOrAdmin: Boolean = true,
     onRefresh: () -> Unit,
     onGrantOwnership: (String) -> Unit,
     onRevokeOwnership: (String) -> Unit,
@@ -456,6 +500,23 @@ fun AffiliationsManagementTab(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        if (!isOwnerOrAdmin) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("fitur ini hanya untuk Owner room.", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
         TabRow(selectedTabIndex = affiliationSubTab, containerColor = Color.Transparent) {
             Tab(selected = affiliationSubTab == 0, onClick = { affiliationSubTab = 0 }) {
                 Text("Owner (${ownersList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
@@ -487,24 +548,26 @@ fun AffiliationsManagementTab(
                 IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Refresh, contentDescription = "Refresh Afiliasi", modifier = Modifier.size(18.dp))
                 }
-                Spacer(modifier = Modifier.width(4.dp))
-                Button(
-                    onClick = {
-                        selectedAffiliation = when (affiliationSubTab) {
-                            0 -> "owner"
-                            1 -> "admin"
-                            2 -> "member"
-                            3 -> "outcast"
-                            else -> "member"
-                        }
-                        showAddDialog = true
-                    },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                if (isOwnerOrAdmin) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Tambah Manual", fontSize = 12.sp)
+                    Button(
+                        onClick = {
+                            selectedAffiliation = when (affiliationSubTab) {
+                                0 -> "owner"
+                                1 -> "admin"
+                                2 -> "member"
+                                3 -> "outcast"
+                                else -> "member"
+                            }
+                            showAddDialog = true
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Tambah Manual", fontSize = 12.sp)
+                    }
                 }
             }
         }

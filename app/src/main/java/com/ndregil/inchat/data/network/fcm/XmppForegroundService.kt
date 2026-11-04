@@ -72,6 +72,8 @@ class XmppForegroundService : Service() {
                 repo.connectionStatus.collectLatest { status ->
                     updateNotification(status)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Expected when service is stopped or scope is cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Error monitoring connection status", e)
             }

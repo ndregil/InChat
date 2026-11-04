@@ -597,7 +597,7 @@ fun RoomDirectoryScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 120.dp, top = 4.dp)
+                        contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp)
                     ) {
                         items(directoryRooms, key = { it.jid }) { roomItem ->
                             val isAlreadyJoined = joinedRooms.any { it.jid == roomItem.jid && it.isJoined }
@@ -677,7 +677,7 @@ fun RoomDirectoryScreen(
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 120.dp, top = 4.dp)
+                        contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp)
                     ) {
                         items(discoveredServices, key = { it.jid + (it.node ?: "") }) { serviceItem ->
                             ServiceItemCard(

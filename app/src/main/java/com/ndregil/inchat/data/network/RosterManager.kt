@@ -99,6 +99,14 @@ class RosterManager(
     private val _autoApproveSubscription = MutableStateFlow(true)
     val autoApproveSubscription: StateFlow<Boolean> = _autoApproveSubscription.asStateFlow()
 
+    fun setInitialContacts(persistedContacts: List<RosterContact>) {
+        if (persistedContacts.isNotEmpty()) {
+            _contacts.value = persistedContacts
+            _presenceMap.value = persistedContacts.associate { it.jid to it.presence }
+            _isLoaded.value = true
+        }
+    }
+
     fun setAutoApproveSubscription(enabled: Boolean) {
         _autoApproveSubscription.value = enabled
         activeRoster?.let { roster ->
@@ -669,6 +677,67 @@ class RosterManager(
             Result.failure(e)
         }
     }
+
+    /**
+     * Accepts an incoming subscription request and requests mutual subscription back.
+     */
+    suspend fun acceptSubscriptionRequest(jidString: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val connection = connectionManager.getRawConnection()
+            ?: return@withContext Result.failure(IllegalStateException("Connection not available"))
+
+        try {
+            val bareJid = JidCreate.bareFrom(jidString.trim())
+            
+            // 1. Send subscribed response
+            val response = PresenceBuilder.buildPresence()
+                .ofType(Presence.Type.subscribed)
+                .to(bareJid)
+                .build()
+            connection.sendStanza(response)
+
+            // 2. Send subscribe back for mutual presence
+            val subscribeBack = PresenceBuilder.buildPresence()
+                .ofType(Presence.Type.subscribe)
+                .to(bareJid)
+                .build()
+            connection.sendStanza(subscribeBack)
+
+            val roster = activeRoster ?: Roster.getInstanceFor(connection)
+            if (!roster.contains(bareJid)) {
+                roster.createItem(bareJid, bareJid.localpartOrNull?.asUnescapedString() ?: bareJid.toString(), null)
+            }
+            refreshContactsFromRoster()
+            Log.i(TAG, "Accepted subscription request from $bareJid")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed accepting subscription request: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Rejects an incoming subscription request or revokes subscription.
+     */
+    suspend fun rejectSubscriptionRequest(jidString: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val connection = connectionManager.getRawConnection()
+            ?: return@withContext Result.failure(IllegalStateException("Connection not available"))
+
+        try {
+            val bareJid = JidCreate.bareFrom(jidString.trim())
+            val response = PresenceBuilder.buildPresence()
+                .ofType(Presence.Type.unsubscribed)
+                .to(bareJid)
+                .build()
+            connection.sendStanza(response)
+            refreshContactsFromRoster()
+            Log.i(TAG, "Rejected subscription request from $bareJid")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed rejecting subscription request: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
 
     /**
      * Internal helper to convert Smack Roster entries to [RosterContact] list

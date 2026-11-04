@@ -8,10 +8,12 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import com.ndregil.inchat.data.local.dao.AccountDao
 import com.ndregil.inchat.data.local.dao.ChatMessageDao
+import com.ndregil.inchat.data.local.dao.ContactDao
 import com.ndregil.inchat.data.local.dao.MessageDao
 import com.ndregil.inchat.data.local.dao.RoomConfigDao
 import com.ndregil.inchat.data.local.dao.RoomDao
 import com.ndregil.inchat.data.local.entity.AccountEntity
+import com.ndregil.inchat.data.local.entity.ContactEntity
 import com.ndregil.inchat.data.local.entity.MessageEntity
 import com.ndregil.inchat.data.local.entity.RoomConfigEntity
 import com.ndregil.inchat.data.local.entity.RoomEntity
@@ -19,6 +21,7 @@ import com.ndregil.inchat.data.model.DeliveryStatus
 import com.ndregil.inchat.data.model.MessageType
 import com.ndregil.inchat.data.model.OccupantAffiliation
 import com.ndregil.inchat.data.model.OccupantRole
+import com.ndregil.inchat.data.model.UserPresence
 
 class Converters {
     @TypeConverter
@@ -60,6 +63,16 @@ class Converters {
     } catch (e: Exception) {
         OccupantAffiliation.MEMBER
     }
+
+    @TypeConverter
+    fun fromUserPresence(value: UserPresence): String = value.name
+
+    @TypeConverter
+    fun toUserPresence(value: String): UserPresence = try {
+        UserPresence.valueOf(value)
+    } catch (e: Exception) {
+        UserPresence.OFFLINE
+    }
 }
 
 @Database(
@@ -67,9 +80,10 @@ class Converters {
         AccountEntity::class,
         RoomEntity::class,
         MessageEntity::class,
-        RoomConfigEntity::class
+        RoomConfigEntity::class,
+        ContactEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -79,6 +93,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     fun chatMessageDao(): ChatMessageDao = messageDao()
     abstract fun roomConfigDao(): RoomConfigDao
+    abstract fun contactDao(): ContactDao
 
     companion object {
         @Volatile

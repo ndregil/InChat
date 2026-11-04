@@ -101,10 +101,20 @@ class MucMessageListener(
                 return
             }
 
-            // Extract message body; ignore empty stanzas
-            val body = message.body
+            // Check for encrypted message extensions (OMEMO XEP-0384, OpenPGP XEP-0373)
+            val hasOmemo = message.hasExtension("encrypted", "urn:xmpp:omemo:2") ||
+                    message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
+            val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
+
+            var body = message.body
             if (body.isNullOrBlank()) {
-                return
+                if (hasOmemo) {
+                    body = "🔒 [Pesan Terenkripsi OMEMO]"
+                } else if (hasOpenPgp) {
+                    body = "🔒 [Pesan Terenkripsi OpenPGP]"
+                } else {
+                    return
+                }
             }
 
             // In MUC, the 'from' JID is typically 'room@conference.example.org/senderNickname'

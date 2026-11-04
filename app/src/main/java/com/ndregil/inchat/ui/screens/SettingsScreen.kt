@@ -194,7 +194,7 @@ fun MainSubSettingsMenu(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp)
+            contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
         ) {
             // Profile & Connection Quick Header
             item {
@@ -586,7 +586,7 @@ fun AccountSubSettings(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {

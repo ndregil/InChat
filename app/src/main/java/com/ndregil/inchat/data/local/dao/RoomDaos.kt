@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.ndregil.inchat.data.local.entity.AccountEntity
+import com.ndregil.inchat.data.local.entity.ContactEntity
 import com.ndregil.inchat.data.local.entity.MessageEntity
 import com.ndregil.inchat.data.local.entity.RoomConfigEntity
 import com.ndregil.inchat.data.local.entity.RoomEntity
@@ -198,5 +199,29 @@ interface RoomConfigDao {
 
     @Query("DELETE FROM room_configs")
     suspend fun clearAllConfigs()
+}
+
+@Dao
+interface ContactDao {
+    @Query("SELECT * FROM contacts ORDER BY name ASC")
+    fun getAllContacts(): Flow<List<ContactEntity>>
+
+    @Query("SELECT * FROM contacts ORDER BY name ASC")
+    suspend fun getAllContactsList(): List<ContactEntity>
+
+    @Query("SELECT * FROM contacts WHERE jid = :jid")
+    suspend fun getContactByJid(jid: String): ContactEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateContact(contact: ContactEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateContacts(contacts: List<ContactEntity>)
+
+    @Query("DELETE FROM contacts WHERE jid = :jid")
+    suspend fun deleteContact(jid: String)
+
+    @Query("DELETE FROM contacts")
+    suspend fun clearAllContacts()
 }
 

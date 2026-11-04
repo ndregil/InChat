@@ -152,7 +152,6 @@ import com.ndregil.inchat.ui.components.MessageBubble
 import com.ndregil.inchat.ui.components.OccupantRosterSheet
 import com.ndregil.inchat.ui.components.RoomConfigurationDialog
 import com.ndregil.inchat.ui.components.RoomItemCard
-import com.ndregil.inchat.ui.components.RoomTopicBanner
 import com.ndregil.inchat.ui.components.StanzaConsoleSheet
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
@@ -175,6 +174,7 @@ fun MultiRoomMainScreen(
     var showBookmarksScreen by remember { mutableStateOf(false) }
 
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
+    val connectionError by viewModel.connectionError.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
     val registrationState by viewModel.registrationState.collectAsStateWithLifecycle()
     val allRooms by viewModel.allRooms.collectAsStateWithLifecycle()
@@ -294,6 +294,7 @@ fun MultiRoomMainScreen(
     val membersList by viewModel.membersList.collectAsStateWithLifecycle()
     val outcastsList by viewModel.outcastsList.collectAsStateWithLifecycle()
     val isLoadingAffiliations by viewModel.isLoadingAffiliations.collectAsStateWithLifecycle()
+    val roomConfigs by viewModel.roomConfigs.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -429,63 +430,13 @@ fun MultiRoomMainScreen(
                                         Text("Hubungkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
-
-                                Column(modifier = Modifier.weight(1f, fill = false)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        val activeRoomAvatarBytes = activeRoom?.jid?.let { viewModel.repository.getRoomAvatar(it) }
-                                        val activeRoomBitmap = remember(activeRoomAvatarBytes) {
-                                            if (activeRoomAvatarBytes != null && activeRoomAvatarBytes.isNotEmpty()) {
-                                                android.graphics.BitmapFactory.decodeByteArray(activeRoomAvatarBytes, 0, activeRoomAvatarBytes.size)
-                                            } else null
-                                        }
-                                        if (activeRoomBitmap != null) {
-                                            Image(
-                                                bitmap = activeRoomBitmap.asImageBitmap(),
-                                                contentDescription = "Avatar Room",
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .clip(CircleShape),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                        }
-
-                                        Text(
-                                            text = activeRoom?.name ?: "InChat",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Badge(
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                        ) {
-                                            Text("${occupants.size}", fontSize = 10.sp)
-                                        }
-                                        if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Info,
-                                                contentDescription = "Topik Ruang",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                        }
-                                    }
-                                    Text(
-                                        text = if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) {
-                                            activeRoom?.topic ?: ""
-                                        } else {
-                                            activeRoom?.jid ?: currentAccount.domain
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (activeRoom != null && activeRoom?.topic?.isNotBlank() == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                Text(
+                                    text = activeRoom?.name ?: "InChat",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     },
@@ -1087,7 +1038,8 @@ fun MultiRoomMainScreen(
                                 onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
                                 onClearBackupStatus = { viewModel.clearBackupStatus() },
                                 onUpdateAvatar = { viewModel.updateAvatar(it) },
-                                myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value
+                                myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value,
+                                lastErrorMessage = connectionError
                             )
                         }
                     }
@@ -1154,6 +1106,7 @@ fun MultiRoomMainScreen(
 
     if (isRoomConfigOpen) {
         activeRoom?.let { room ->
+            val config = roomConfigs.find { it.roomJid == room.jid }
             RoomConfigurationDialog(
                 roomJid = room.jid,
                 initialInfo = roomConfigInfo,
@@ -1171,9 +1124,13 @@ fun MultiRoomMainScreen(
                 onBanUser = { jid, reason -> viewModel.banUser(room.jid, jid, reason) },
                 onRevokeAffiliation = { jid -> viewModel.grantNone(room.jid, jid) },
                 myRole = room.myRole,
+                myAffiliation = room.myAffiliation,
+                initialNotificationMode = config?.notificationMode ?: 0,
                 onDismiss = { viewModel.isRoomConfigOpen.value = false },
                 onUpdateNickname = { newNick -> viewModel.updateRoomNickname(room.jid, newNick) },
-                onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
+                onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
+                onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(room.jid, room.name, uri) },
+                onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, notifMode, maxUsers, enableLogging, allowInvites, whois ->
                     viewModel.configureRoom(
                         roomJid = room.jid,
                         roomName = name,
@@ -1184,7 +1141,12 @@ fun MultiRoomMainScreen(
                         isMembersOnly = membersOnly,
                         isModerated = moderated,
                         allowSubjectChange = allowSubjChange,
-                        password = pass
+                        password = pass,
+                        notificationMode = notifMode,
+                        maxUsers = maxUsers,
+                        enableLogging = enableLogging,
+                        allowInvites = allowInvites,
+                        whois = whois
                     )
                 }
             )
@@ -1223,7 +1185,8 @@ fun MultiRoomMainScreen(
             isLoadingAffiliations = isLoadingAffiliations,
             onDismiss = { viewModel.isAdminPanelOpen.value = false },
             onLoadAffiliations = { viewModel.loadRoomAffiliations(activeRoom!!.jid) },
-            onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass ->
+            onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
+            onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, maxUsers, enableLogging, allowInvites, whois ->
                 viewModel.configureRoom(
                     roomJid = activeRoom!!.jid,
                     roomName = name,
@@ -1234,7 +1197,11 @@ fun MultiRoomMainScreen(
                     isMembersOnly = membersOnly,
                     isModerated = moderated,
                     allowSubjectChange = allowSubjChange,
-                    password = pass
+                    password = pass,
+                    maxUsers = maxUsers,
+                    enableLogging = enableLogging,
+                    allowInvites = allowInvites,
+                    whois = whois
                 )
             },
             onGrantModerator = { nick -> viewModel.grantModerator(activeRoom!!.jid, nick) },

@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         FcmPushManager.isAppInForeground = true
+        viewModel.checkAndReconnectIfNeeded()
     }
 
     override fun onPause() {

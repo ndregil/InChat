@@ -72,14 +72,20 @@ class XmppKeepAliveWorker(context: Context, params: WorkerParameters) : Coroutin
         
         // Start monitoring connection status to update notification
         val monitorJob = GlobalScope.launch {
-            repo.connectionStatus.collectLatest { status ->
-                try {
-                    // Update notification text based on status
-                    // Note: setForeground is meant for long-running workers
-                    this@XmppKeepAliveWorker.setForeground(createForegroundInfo(status))
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating foreground info", e)
+            try {
+                repo.connectionStatus.collectLatest { status ->
+                    try {
+                        this@XmppKeepAliveWorker.setForeground(createForegroundInfo(status))
+                    } catch (e: Exception) {
+                        if (e !is kotlinx.coroutines.CancellationException) {
+                            Log.w(TAG, "Error updating foreground info: ${e.message}")
+                        }
+                    }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Expected when worker finishes or is cancelled
+            } catch (e: Exception) {
+                Log.w(TAG, "Keep-alive monitor ended: ${e.message}")
             }
         }
 

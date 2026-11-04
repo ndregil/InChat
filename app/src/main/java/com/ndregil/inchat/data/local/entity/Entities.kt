@@ -7,6 +7,8 @@ import com.ndregil.inchat.data.model.DeliveryStatus
 import com.ndregil.inchat.data.model.MessageType
 import com.ndregil.inchat.data.model.OccupantAffiliation
 import com.ndregil.inchat.data.model.OccupantRole
+import com.ndregil.inchat.data.model.RosterContact
+import com.ndregil.inchat.data.model.UserPresence
 
 @Entity(tableName = "accounts")
 data class AccountEntity(
@@ -97,6 +99,7 @@ data class RoomConfigEntity(
     val password: String? = null,
     val isAutoJoin: Boolean = true,
     val notificationsEnabled: Boolean = true,
+    val notificationMode: Int = 0, // 0: All, 1: Mentions, 2: Muted
     val subject: String = "",
     val isBookmarked: Boolean = true,
     val colorHex: String = "#0284C7",
@@ -105,4 +108,80 @@ data class RoomConfigEntity(
     val bubbleTheme: String = "dregil-theme",
     val wallpaperStyle: String = "default"
 )
+
+@Entity(
+    tableName = "contacts",
+    indices = [
+        Index(value = ["subscriptionType"]),
+        Index(value = ["isPendingApproval"])
+    ]
+)
+data class ContactEntity(
+    @PrimaryKey val jid: String,
+    val name: String,
+    val nickname: String? = null,
+    val presence: UserPresence = UserPresence.OFFLINE,
+    val statusMessage: String = "",
+    val groups: String = "",
+    val subscriptionType: String = "none",
+    val isPendingApproval: Boolean = false,
+    val avatar: ByteArray? = null,
+    val clientCapsNode: String = "",
+    val clientCapsVer: String = "",
+    val clientCapsName: String = "",
+    val pepActivity: String? = null,
+    val pepMood: String? = null,
+    val pepTune: String? = null,
+    val pepStatus: String? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+) {
+    fun toModel(): RosterContact {
+        val groupList = if (groups.isNotBlank()) groups.split(",").map { it.trim() }.filter { it.isNotBlank() } else emptyList()
+        val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+            name = nickname ?: name.ifBlank { jid.substringBefore("@") },
+            jid = jid,
+            node = clientCapsNode,
+            ver = clientCapsVer
+        )
+        return RosterContact(
+            jid = jid,
+            name = name,
+            nickname = nickname,
+            presence = presence,
+            statusMessage = statusMessage,
+            groups = groupList,
+            subscriptionType = subscriptionType,
+            isPendingApproval = isPendingApproval,
+            avatar = avatar,
+            clientCaps = caps,
+            pepActivity = pepActivity,
+            pepMood = pepMood,
+            pepTune = pepTune,
+            pepStatus = pepStatus
+        )
+    }
+
+    companion object {
+        fun fromModel(contact: RosterContact): ContactEntity {
+            return ContactEntity(
+                jid = contact.jid,
+                name = contact.name,
+                nickname = contact.nickname,
+                presence = contact.presence,
+                statusMessage = contact.statusMessage,
+                groups = contact.groups.joinToString(","),
+                subscriptionType = contact.subscriptionType,
+                isPendingApproval = contact.isPendingApproval,
+                avatar = contact.avatar,
+                clientCapsNode = contact.clientCaps.rawNode,
+                clientCapsVer = contact.clientCaps.ver,
+                clientCapsName = contact.clientCaps.clientName,
+                pepActivity = contact.pepActivity,
+                pepMood = contact.pepMood,
+                pepTune = contact.pepTune,
+                pepStatus = contact.pepStatus
+            )
+        }
+    }
+}
 

@@ -3,6 +3,7 @@ package com.ndregil.inchat.data.repository
 import com.ndregil.inchat.data.local.AppDatabase
 import android.util.Log
 import com.ndregil.inchat.data.local.entity.AccountEntity
+import com.ndregil.inchat.data.local.entity.ContactEntity
 import com.ndregil.inchat.data.local.entity.MessageEntity
 import com.ndregil.inchat.data.local.entity.RoomConfigEntity
 import com.ndregil.inchat.data.local.entity.RoomEntity
@@ -86,6 +87,7 @@ class XmppRepository(
     val backupManager = com.ndregil.inchat.data.local.backup.ChatBackupManager(context, database)
 
     val connectionStatus: StateFlow<ConnectionStatus> = smackConnectionManager.connectionStatus
+    val connectionError: StateFlow<String?> = smackConnectionManager.lastError
     private val _currentAccount = MutableStateFlow(XmppAccount())
     val currentAccount: StateFlow<XmppAccount> = _currentAccount.asStateFlow()
     val stanzaLogs: StateFlow<List<StanzaLog>> = engine.stanzaLogs
@@ -170,6 +172,33 @@ class XmppRepository(
             }
         }
 
+        // Restore contacts from Room Database on launch for offline availability across restarts
+        scope.launch {
+            try {
+                val storedContacts = database.contactDao().getAllContactsList()
+                if (storedContacts.isNotEmpty()) {
+                    Log.i("XmppRepository", "Restored ${storedContacts.size} contacts from local database.")
+                    smackRosterManager.setInitialContacts(storedContacts.map { it.toModel() })
+                }
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Error restoring contacts from database: ${e.message}")
+            }
+        }
+
+        // Persist roster contact updates to local Room Database
+        scope.launch {
+            try {
+                smackRosterManager.contacts.collect { contactsList ->
+                    if (contactsList.isNotEmpty()) {
+                        val entities = contactsList.map { ContactEntity.fromModel(it) }
+                        database.contactDao().insertOrUpdateContacts(entities)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Error syncing contacts to database: ${e.message}")
+            }
+        }
+
         // Auto-login on app launch if active account exists in database
         scope.launch {
             try {
@@ -192,6 +221,13 @@ class XmppRepository(
     fun checkAndReconnectIfNeeded() {
         scope.launch {
             try {
+                // Do not auto-reconnect if last failure was an authentication error (wrong password/not-authorized)
+                val currentError = smackConnectionManager.lastError.value
+                if (currentError != null && currentError.contains("Autentikasi gagal", ignoreCase = true)) {
+                    Log.w("XmppRepository", "Skipping background reconnect because authentication credentials failed: $currentError")
+                    return@launch
+                }
+
                 if (!smackConnectionManager.isConnected() || !smackConnectionManager.isAuthenticated()) {
                     val savedAccountEntity = database.accountDao().getActiveAccountSync()
                     if (savedAccountEntity != null && savedAccountEntity.jid.isNotBlank()) {
@@ -230,6 +266,13 @@ class XmppRepository(
     }
 
     suspend fun connect(account: XmppAccount, password: String = "") = connectionMutex.withLock {
+        // If there is an active authentication error and no NEW password was provided in this call, abort to prevent infinite loop
+        val lastErr = smackConnectionManager.lastError.value
+        if (lastErr != null && lastErr.contains("Autentikasi gagal", ignoreCase = true) && password.isBlank()) {
+            Log.w("XmppRepository", "Aborting connection attempt: authentication previously failed and no new password provided.")
+            return@withLock
+        }
+
         val existing = database.accountDao().getActiveAccountSync()
         val pwdToSave = if (password.isNotBlank()) password else (existing?.password ?: "")
         database.accountDao().saveAccount(account.toEntity(pwdToSave))
@@ -249,12 +292,22 @@ class XmppRepository(
         val smackResult = smackConnectionManager.connectAndLogin(
             com.ndregil.inchat.data.network.XmppCredentials.fromAccount(account, pwdToSave)
         )
+
+        if (smackResult.isFailure) {
+            val err = smackResult.exceptionOrNull()
+            if (err is org.jivesoftware.smack.sasl.SASLErrorException || (err?.localizedMessage?.contains("not-authorized", ignoreCase = true) == true)) {
+                // Clear invalid saved password in database so background checks won't auto-retry with bad password
+                database.accountDao().saveAccount(account.toEntity(""))
+            }
+        }
         
-        // 2. Connect via Engine (Logs & raw stream) safely
-        try {
-            engine.connect(account, pwdToSave)
-        } catch (e: Exception) {
-            // Handled safely
+        // 2. Do not open a conflicting parallel raw socket connection if Smack is handling the real XMPP session
+        if (smackResult.isFailure && account.isDemoMode) {
+            try {
+                engine.connect(account, pwdToSave)
+            } catch (e: Exception) {
+                // Handled safely
+            }
         }
 
         if (smackResult.isSuccess) {
@@ -472,8 +525,20 @@ class XmppRepository(
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
         conn.addAsyncStanzaListener({ stanza ->
             val message = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
-            val bodyText = message.body
-            if (bodyText.isNullOrBlank()) return@addAsyncStanzaListener
+            val hasOmemo = message.hasExtension("encrypted", "urn:xmpp:omemo:2") ||
+                    message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
+            val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
+
+            var bodyText = message.body
+            if (bodyText.isNullOrBlank()) {
+                if (hasOmemo) {
+                    bodyText = "🔒 [Pesan Terenkripsi OMEMO]"
+                } else if (hasOpenPgp) {
+                    bodyText = "🔒 [Pesan Terenkripsi OpenPGP]"
+                } else {
+                    return@addAsyncStanzaListener
+                }
+            }
 
             val stanzaId = message.stanzaId
             if (!stanzaId.isNullOrBlank()) {
@@ -644,9 +709,20 @@ class XmppRepository(
                 val isRecent = (System.currentTimeMillis() - msg.timestamp) < 30_000L
                 if (isRecent) {
                     val roomConfig = database.roomConfigDao().getRoomConfigSync(msg.roomJid)
-                    val notificationsEnabledForRoom = roomConfig?.notificationsEnabled ?: true
+                    val globalEnabled = FcmPushManager.isPushEnabled.value
+                    val notificationMode = roomConfig?.notificationMode ?: 0 // 0: All, 1: Mentions, 2: Muted
 
-                    if (notificationsEnabledForRoom) {
+                    val isMention = msg.body.contains(currentAccount.value.nickname, ignoreCase = true) ||
+                                  msg.body.contains(currentAccount.value.username, ignoreCase = true)
+
+                    val shouldNotify = globalEnabled && when (notificationMode) {
+                        0 -> true // All messages
+                        1 -> isMention // Mentions only
+                        2 -> false // Muted
+                        else -> true
+                    }
+
+                    if (shouldNotify) {
                         val isDirect = msg.messageType == MessageType.CHAT ||
                                 (!msg.roomJid.contains("conference.", ignoreCase = true) && !msg.roomJid.contains("muc.", ignoreCase = true))
                         val roomName = existing?.name ?: msg.roomJid.substringBefore("@")
@@ -669,7 +745,7 @@ class XmppRepository(
                             isDirect = isDirect,
                             roomTitle = roomName,
                             timestamp = msg.timestamp,
-                            isMention = msg.body.contains(currentAccount.value.nickname, ignoreCase = true)
+                            isMention = isMention
                         )
                         FcmPushManager.showSystemNotification(context, payload)
                     }
@@ -987,7 +1063,11 @@ class XmppRepository(
         isMembersOnly: Boolean = false,
         isModerated: Boolean = false,
         allowSubjectChange: Boolean = true,
-        password: String? = null
+        password: String? = null,
+        maxUsers: Int? = null,
+        enableLogging: Boolean = true,
+        allowInvites: Boolean = true,
+        whois: String? = null
     ): Result<Unit> {
         val result = smackMucManager.configureRoom(
             roomJid = roomJid,
@@ -999,7 +1079,11 @@ class XmppRepository(
             isMembersOnly = isMembersOnly,
             isModerated = isModerated,
             allowSubjectChange = allowSubjectChange,
-            password = password
+            password = password,
+            maxUsers = maxUsers,
+            enableLogging = enableLogging,
+            allowInvites = allowInvites,
+            whois = whois
         )
         if (result.isSuccess) {
             val existing = database.roomDao().getRoomByJid(roomJid)
@@ -1379,7 +1463,13 @@ class XmppRepository(
     }
 
     suspend fun removeRosterContact(jid: String): Result<Unit> {
-        return smackRosterManager.removeContact(jid)
+        val result = smackRosterManager.removeContact(jid)
+        try {
+            database.contactDao().deleteContact(jid.trim())
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Error deleting contact from database: ${e.message}")
+        }
+        return result
     }
 
     suspend fun renameRosterContact(jid: String, newName: String): Result<Unit> {
@@ -1388,6 +1478,14 @@ class XmppRepository(
 
     suspend fun addRosterContactToGroup(jid: String, group: String): Result<Unit> {
         return smackRosterManager.addContactToGroup(jid, group)
+    }
+
+    suspend fun acceptSubscriptionRequest(jid: String): Result<Unit> {
+        return smackRosterManager.acceptSubscriptionRequest(jid)
+    }
+
+    suspend fun rejectSubscriptionRequest(jid: String): Result<Unit> {
+        return smackRosterManager.rejectSubscriptionRequest(jid)
     }
 
     fun getContactPresence(jid: String): UserPresence {

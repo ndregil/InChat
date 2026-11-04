@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Block
@@ -114,6 +115,7 @@ fun OccupantRosterSheet(
 
     val myOccupant = occupants.find { it.isMe }
     val isMyUserAdmin = myOccupant?.role == OccupantRole.OWNER || myOccupant?.role == OccupantRole.ADMIN || myOccupant?.affiliation == OccupantAffiliation.OWNER || myOccupant?.affiliation == OccupantAffiliation.ADMIN
+    val isOwnerOrAdmin = isMyUserAdmin
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedRoleFilter by remember { mutableStateOf<String?>(null) } // null = All, "admin" = Owner/Admin, "member" = Member/Participant, "visitor" = Visitor
@@ -279,6 +281,7 @@ fun OccupantRosterSheet(
                 items(filteredOccupants, key = { it.nickname }) { occupant ->
                     OccupantItemRow(
                         occupant = occupant,
+                        isOwnerOrAdmin = isOwnerOrAdmin,
                         onWhisper = { onWhisperClick(occupant) },
                         onMention = { onMentionClick(occupant) },
                         onViewCaps = { selectedCapsOccupant = occupant },
@@ -352,6 +355,7 @@ fun OccupantRosterSheet(
 @Composable
 fun OccupantItemRow(
     occupant: RoomOccupant,
+    isOwnerOrAdmin: Boolean = false,
     onWhisper: () -> Unit,
     onMention: () -> Unit,
     onViewCaps: () -> Unit = {},
@@ -467,7 +471,7 @@ fun OccupantItemRow(
             }
 
             // Real JID display
-            if (occupant.jid.isNotBlank()) {
+            if (isOwnerOrAdmin && occupant.jid.isNotBlank()) {
                 Text(
                     text = occupant.jid,
                     style = MaterialTheme.typography.bodySmall,
@@ -666,36 +670,53 @@ fun OccupantActionDialog(
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                // Real JID section
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                if (canModerate) {
+                    // Real JID section
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Real JID", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = occupant.jid.ifBlank { "Anonim (Resource JID)" },
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        if (occupant.jid.isNotBlank()) {
-                            IconButton(
-                                onClick = {
-                                    clipboardManager.setText(AnnotatedString(occupant.jid))
-                                    Toast.makeText(context, "Real JID disalin!", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Salin JID", modifier = Modifier.size(16.dp))
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Real JID", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = occupant.jid.ifBlank { "Anonim (Resource JID)" },
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
+                            if (occupant.jid.isNotBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(occupant.jid))
+                                        Toast.makeText(context, "Real JID disalin!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Salin JID", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("fitur ini hanya untuk Owner room.", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }

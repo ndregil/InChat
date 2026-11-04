@@ -52,6 +52,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val repository = XmppRepository.getInstance(application)
 
     val connectionStatus: StateFlow<ConnectionStatus> = repository.connectionStatus
+    val connectionError: StateFlow<String?> = repository.connectionError
     val currentAccount: StateFlow<XmppAccount> = repository.currentAccount
     val stanzaLogs: StateFlow<List<StanzaLog>> = repository.stanzaLogs
     val allRoomOccupants: StateFlow<Map<String, List<RoomOccupant>>> = repository.roomOccupants
@@ -323,22 +324,33 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun clearRoomConfigStatus() {
         roomConfigStatus.value = null
     }
-
     fun configureRoom(
         roomJid: String,
-        roomName: String? = null,
-        description: String? = null,
-        subject: String? = null,
-        isPersistent: Boolean = true,
-        isPublic: Boolean = true,
-        isMembersOnly: Boolean = false,
+        roomName: String?,
+        description: String?,
+        subject: String?,
+        isPersistent: Boolean,
+        isPublic: Boolean,
+        isMembersOnly: Boolean,
         isModerated: Boolean = false,
         allowSubjectChange: Boolean = true,
-        password: String? = null
+        password: String? = null,
+        notificationMode: Int = 0,
+        maxUsers: Int? = null,
+        enableLogging: Boolean = true,
+        allowInvites: Boolean = true,
+        whois: String? = null
     ) {
         viewModelScope.launch {
             isRoomConfigLoading.value = true
             roomConfigStatus.value = "Menyimpan konfigurasi ruangan MUC..."
+            
+            // Persist notification preference locally
+            val config = repository.getRoomConfigSync(roomJid)
+            if (config != null) {
+                repository.saveRoomConfig(config.copy(notificationMode = notificationMode))
+            }
+
             val result = repository.configureRoom(
                 roomJid = roomJid,
                 roomName = roomName,
@@ -349,7 +361,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                 isMembersOnly = isMembersOnly,
                 isModerated = isModerated,
                 allowSubjectChange = allowSubjectChange,
-                password = password
+                password = password,
+                maxUsers = maxUsers,
+                enableLogging = enableLogging,
+                allowInvites = allowInvites,
+                whois = whois
             )
             result.fold(
                 onSuccess = {
@@ -400,7 +416,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun quoteMessage(msg: XmppMessage) {
         replyingToMessage.value = msg
         val fullBody = msg.body.trim()
-        val quotePrefix = ">@${msg.senderNickname} $fullBody\n\n"
+        val cleanNick = msg.senderNickname.replace("@System", "").trim()
+        val quotePrefix = if (cleanNick.isBlank()) {
+            ">$fullBody\n\n"
+        } else {
+            "> [$cleanNick] $fullBody\n\n"
+        }
         val current = currentInputText.value.trimStart()
         currentInputText.value = if (current.isNotBlank()) "$quotePrefix$current" else quotePrefix
     }
@@ -1006,6 +1027,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun checkAndReconnectIfNeeded() {
+        reconnect()
+    }
+
     fun disconnect() {
         viewModelScope.launch {
             repository.disconnect()
@@ -1085,6 +1110,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun addRosterContactToGroup(jid: String, group: String) {
         viewModelScope.launch {
             repository.addRosterContactToGroup(jid, group)
+        }
+    }
+
+    fun acceptSubscriptionRequest(jid: String) {
+        viewModelScope.launch {
+            repository.acceptSubscriptionRequest(jid)
+        }
+    }
+
+    fun rejectSubscriptionRequest(jid: String) {
+        viewModelScope.launch {
+            repository.rejectSubscriptionRequest(jid)
         }
     }
 
