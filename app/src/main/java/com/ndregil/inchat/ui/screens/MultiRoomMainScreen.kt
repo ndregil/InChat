@@ -603,7 +603,7 @@ fun MultiRoomMainScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Nickname & Pengaturan Room") },
+                                    text = { Text("Ganti nickname") },
                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                     onClick = {
                                         showRoomMenu = false
@@ -618,7 +618,7 @@ fun MultiRoomMainScreen(
                                 )
                                 if (activeRoom?.myRole == OccupantRole.ADMIN || activeRoom?.myRole == OccupantRole.OWNER) {
                                     DropdownMenuItem(
-                                        text = { Text("Administrasi Ruang") },
+                                        text = { Text("Administrasi room") },
                                         leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                         onClick = {
                                             showRoomMenu = false
@@ -1112,6 +1112,7 @@ fun MultiRoomMainScreen(
                 initialInfo = roomConfigInfo,
                 moderationMessages = moderationHistory,
                 isLoading = isRoomConfigLoading,
+                isPersonalOnly = true,
                 ownersList = ownersList,
                 adminsList = adminsList,
                 membersList = membersList,

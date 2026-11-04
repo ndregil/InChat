@@ -346,13 +346,25 @@ class XmppRepository(
 
             // Sync server-side bookmarks and auto-join
             scope.launch {
-                try {
-                    // Small delay to ensure server feature discovery and connection stability
-                    kotlinx.coroutines.delay(2000) 
-                    syncServerBookmarks()
+                // 1. Join local rooms immediately for best responsiveness
+                launch {
+                    kotlinx.coroutines.delay(200) 
                     autoJoinConfiguredRooms()
-                } catch (e: Exception) {
-                    Log.e("XmppRepository", "Error during bookmark sync/autojoin: ${e.message}")
+                }
+                
+                // 2. Sync bookmarks from server in parallel (may discover new rooms)
+                launch {
+                    try {
+                        // Increase delay slightly to allow disco and other startup stanzas to clear
+                        kotlinx.coroutines.delay(2500) 
+                        val newRoomsFound = syncServerBookmarks()
+                        if (newRoomsFound) {
+                            Log.i("XmppRepository", "New auto-join rooms discovered from server, triggering second join pass...")
+                            autoJoinConfiguredRooms()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("XmppRepository", "Error syncing bookmarks: ${e.message}")
+                    }
                 }
             }
         }
@@ -360,13 +372,15 @@ class XmppRepository(
 
     /**
      * Synchronizes server-side bookmarks (XEP-0048) with the local database.
+     * Returns true if any rooms were newly added or updated to auto-join.
      */
-    suspend fun syncServerBookmarks() {
+    suspend fun syncServerBookmarks(): Boolean {
         if (!smackConnectionManager.isConnected()) {
             Log.w("XmppRepository", "Cannot sync bookmarks: Not connected")
-            return
+            return false
         }
         
+        var addedNew = false
         Log.i("XmppRepository", "Syncing server-side bookmarks (XEP-0048)...")
         val result = smackMucManager.fetchBookmarks()
         result.onSuccess { bookmarks ->
@@ -378,6 +392,12 @@ class XmppRepository(
                 val nick = bm.nickname?.toString() ?: currentAccount.value.nickname
                 val autoJoin = bm.isAutoJoin
                 
+                // Check if this is a new room or auto-join changed
+                val existing = database.roomDao().getRoomByJid(roomJid)
+                if (existing == null || (!existing.isAutoJoin && autoJoin)) {
+                    addedNew = true
+                }
+
                 // Save to local database if not exists or update
                 saveRoomLocally(
                     roomJid = roomJid,
@@ -389,6 +409,7 @@ class XmppRepository(
                 )
             }
         }
+        return addedNew
     }
 
     private suspend fun saveRoomLocally(
@@ -865,44 +886,57 @@ class XmppRepository(
     /**
      * Automatically rejoins rooms configured with isAutoJoin = true or saved in Room database using persisted credentials.
      */
-    suspend fun autoJoinConfiguredRooms() {
+    suspend fun autoJoinConfiguredRooms() = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        Log.i("XmppRepository", "Starting concurrent auto-join for configured rooms...")
         val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
         val savedRooms = database.roomDao().getAllRoomsList()
-        val joinedJids = mutableSetOf<String>()
-        val joinedNames = mutableListOf<String>()
-
+        
+        val roomsToJoin = mutableMapOf<String, Triple<String, String, String?>>() // jid -> (name, nick, pass)
+        
         for (cfg in autoJoinConfigs) {
-            joinedJids.add(cfg.roomJid)
-            val res = joinRoom(
-                roomJid = cfg.roomJid,
-                name = cfg.roomName,
-                nickname = cfg.nickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } },
-                topic = cfg.subject,
-                password = cfg.password.orEmpty()
-            )
-            if (res.isSuccess) {
-                joinedNames.add(cfg.roomName.ifBlank { cfg.roomJid.substringBefore("@") })
+            val nick = cfg.nickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
+            roomsToJoin[cfg.roomJid] = Triple(cfg.roomName, nick, cfg.password)
+        }
+        
+        for (room in savedRooms) {
+            if (!roomsToJoin.containsKey(room.jid) && (room.isAutoJoin || room.isJoined)) {
+                val nick = room.myNickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
+                roomsToJoin[room.jid] = Triple(room.name, nick, room.password)
             }
         }
 
-        for (room in savedRooms) {
-            if (!joinedJids.contains(room.jid) && (room.isAutoJoin || room.isJoined)) {
-                val res = joinRoom(
-                    roomJid = room.jid,
-                    name = room.name,
-                    nickname = room.myNickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } },
-                    topic = room.topic,
-                    password = room.password.orEmpty()
-                )
-                if (res.isSuccess) {
-                    joinedNames.add(room.name.ifBlank { room.jid.substringBefore("@") })
+        if (roomsToJoin.isEmpty()) {
+            Log.d("XmppRepository", "No rooms configured for auto-join.")
+            return@withContext
+        }
+
+        val joinedNames = java.util.Collections.synchronizedList(mutableListOf<String>())
+        
+        kotlinx.coroutines.coroutineScope {
+            roomsToJoin.forEach { (jid, data) ->
+                val (name, nick, pass) = data
+                launch {
+                    try {
+                        val res = joinRoom(
+                            roomJid = jid,
+                            name = name,
+                            nickname = nick,
+                            password = pass.orEmpty()
+                        )
+                        if (res.isSuccess) {
+                            joinedNames.add(name.ifBlank { jid.substringBefore("@") })
+                        }
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Auto-join failed for $jid: ${e.message}")
+                    }
                 }
             }
         }
 
         if (joinedNames.isNotEmpty()) {
             val namesStr = joinedNames.distinct().joinToString(", ")
-            _autoJoinEvents.emit("Berhasil bergabung otomatis ke room favorit: $namesStr")
+            _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")
+            Log.i("XmppRepository", "Concurrent auto-join completed for: $namesStr")
         }
     }
 

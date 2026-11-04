@@ -129,6 +129,7 @@ fun RoomAdminPanel(
                     0 -> RoomConfigurationContent(
                         initialInfo = initialInfo,
                         isLoading = isLoadingConfig,
+                        isPersonalOnly = false,
                         myRole = myOccupant?.role ?: OccupantRole.NONE,
                         myAffiliation = myOccupant?.affiliation ?: OccupantAffiliation.NONE,
                         onUpdateTopic = onUpdateTopic,
