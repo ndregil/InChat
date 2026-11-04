@@ -1226,6 +1226,8 @@ fun MultiRoomMainScreen(
         ClientCapsDialog(
             clientCaps = occ.clientCaps,
             userName = "${occ.nickname} (${occ.jid.ifBlank { "MUC Occupant" }})",
+            targetJid = occ.fullJid,
+            onQuerySoftwareVersion = { jid, onResult -> viewModel.querySoftwareVersion(jid, onResult) },
             onDismiss = { selectedCapsOccupant = null }
         )
     }

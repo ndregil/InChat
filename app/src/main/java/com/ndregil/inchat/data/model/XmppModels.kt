@@ -586,6 +586,7 @@ data class XmppMessage(
 data class RoomOccupant(
     val nickname: String,
     val jid: String = "",
+    val fullJid: String = "",
     val role: OccupantRole = OccupantRole.MEMBER,
     val affiliation: OccupantAffiliation = OccupantAffiliation.MEMBER,
     val presence: UserPresence = UserPresence.ONLINE,

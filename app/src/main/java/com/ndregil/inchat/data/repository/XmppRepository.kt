@@ -159,6 +159,22 @@ class XmppRepository(
             }
         }
 
+        // Collect MUC occupant changes to update user's role/affiliation
+        scope.launch {
+            try {
+                smackMucManager.roomOccupants.collect { occupantsMap ->
+                    occupantsMap.forEach { (roomJid, occupants) ->
+                        val me = occupants.find { it.isMe }
+                        if (me != null) {
+                            database.roomDao().updateOccupantRoleAndAffiliation(roomJid, me.role, me.affiliation)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Error syncing occupant role/affiliation: ${e.message}")
+            }
+        }
+
         // Collect connection status to register direct 1-on-1 chat & whisper stanza listener
         scope.launch {
             try {

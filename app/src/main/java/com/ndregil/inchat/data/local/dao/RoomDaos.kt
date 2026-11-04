@@ -90,6 +90,9 @@ interface RoomDao {
     @Query("UPDATE rooms SET colorHex = :colorHex WHERE jid = :roomJid")
     suspend fun updateColor(roomJid: String, colorHex: String)
 
+    @Query("UPDATE rooms SET myRole = :role, myAffiliation = :affiliation WHERE jid = :roomJid")
+    suspend fun updateOccupantRoleAndAffiliation(roomJid: String, role: com.ndregil.inchat.data.model.OccupantRole, affiliation: com.ndregil.inchat.data.model.OccupantAffiliation)
+
     @Query("DELETE FROM rooms WHERE jid = :roomJid")
     suspend fun deleteRoom(roomJid: String)
 

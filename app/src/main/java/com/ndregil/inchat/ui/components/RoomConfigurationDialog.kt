@@ -226,8 +226,7 @@ fun RoomConfigurationContent(
     onUpdateRoomAvatar: (android.net.Uri) -> Unit = {}
 ) {
     val isOwner = myRole == OccupantRole.OWNER || myAffiliation == OccupantAffiliation.OWNER
-    val canChangeSubject = isOwner || myRole == OccupantRole.ADMIN || myRole == OccupantRole.PARTICIPANT || myAffiliation == OccupantAffiliation.ADMIN
-
+    
     var roomName by remember(initialInfo) { mutableStateOf(initialInfo?.name ?: "") }
     var description by remember(initialInfo) { mutableStateOf(initialInfo?.description ?: "") }
     var subject by remember(initialInfo) { mutableStateOf(initialInfo?.subject ?: initialInfo?.description ?: "") }
@@ -236,6 +235,11 @@ fun RoomConfigurationContent(
     var isMembersOnly by remember(initialInfo) { mutableStateOf(initialInfo?.isMembersOnly ?: false) }
     var isModerated by remember(initialInfo) { mutableStateOf(initialInfo?.isModerated ?: false) }
     var allowSubjectChange by remember(initialInfo) { mutableStateOf(true) }
+    
+    val canChangeSubject by remember(isOwner, myRole, myAffiliation, allowSubjectChange) {
+        derivedStateOf { isOwner || myRole == OccupantRole.ADMIN || myAffiliation == OccupantAffiliation.ADMIN || allowSubjectChange }
+    }
+
     var password by remember(initialInfo) { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
     var notificationMode by remember(initialNotificationMode) { mutableIntStateOf(initialNotificationMode) }
@@ -272,27 +276,6 @@ fun RoomConfigurationContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Section: Avatar
-        if (isOwner) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(12.dp))
-                    Text("Avatar Ruangan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    OutlinedButton(onClick = { avatarLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                        Text("Ganti Avatar")
-                    }
-                }
-            }
-        }
-
         // Section: Personal Identity (Nickname)
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -356,6 +339,28 @@ fun RoomConfigurationContent(
                 )
             }
         }
+
+        if (isOwner) {
+            // Section: Avatar
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(12.dp))
+                    Text("Avatar Ruangan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { avatarLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+                        Text("Ganti Avatar")
+                    }
+                }
+            }
+
+
         // Section 1: Room Identity & Description
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -375,38 +380,44 @@ fun RoomConfigurationContent(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Identitas & Deskripsi Ruangan",
+                        text = "Identitas & Deskripsi Ruangan MUC",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )
                 }
 
-                OutlinedTextField(
-                    value = roomName,
-                    onValueChange = { roomName = it },
-                    label = { Text("Nama Ruangan MUC") },
-                    placeholder = { Text("Contoh: Komunitas InChat Indonesia") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("room_name_input"),
-                    leadingIcon = { Icon(Icons.Default.Group, contentDescription = null) }
-                )
+                if (isOwner) {
+                    OutlinedTextField(
+                        value = roomName,
+                        onValueChange = { roomName = it },
+                        label = { Text("Nama Ruangan MUC") },
+                        placeholder = { Text("Contoh: Komunitas InChat Indonesia") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_name_input"),
+                        leadingIcon = { Icon(Icons.Default.Group, contentDescription = null) }
+                    )
 
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Deskripsi / Tentang Ruangan") },
-                    placeholder = { Text("Deskripsikan topik dan pedoman komunitas...") },
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("room_desc_input"),
-                    leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
-                )
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Deskripsi / Tentang Ruangan") },
+                        placeholder = { Text("Deskripsikan topik dan pedoman komunitas...") },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("room_desc_input"),
+                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
+                    )
+                } else {
+                    Text(text = roomName.ifBlank { "Tidak ada nama" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(text = description.ifBlank { "Tidak ada deskripsi" }, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
+
 
         // Section 2: Subject Management (XEP-0045)
         Card(
@@ -493,58 +504,6 @@ fun RoomConfigurationContent(
             }
         }
 
-        if (isOwner) {
-            // Section 1: Room Identity & Description
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Identitas & Deskripsi Ruangan MUC",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = roomName,
-                        onValueChange = { roomName = it },
-                        label = { Text("Nama Ruangan MUC") },
-                        placeholder = { Text("Contoh: Komunitas InChat Indonesia") },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("room_name_input"),
-                        leadingIcon = { Icon(Icons.Default.Group, contentDescription = null) }
-                    )
-
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = { description = it },
-                        label = { Text("Deskripsi / Tentang Ruangan") },
-                        placeholder = { Text("Deskripsikan topik dan pedoman komunitas...") },
-                        minLines = 2,
-                        maxLines = 4,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("room_desc_input"),
-                        leadingIcon = { Icon(Icons.Default.Description, contentDescription = null) }
-                    )
-                }
-            }
 
             // Section 3: Server MUC Rules - Batas Jumlah Peserta & Visibilitas
             Card(

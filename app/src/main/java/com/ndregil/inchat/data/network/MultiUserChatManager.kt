@@ -473,6 +473,11 @@ class MultiUserChatManager(
             muc.changeSubject(newTopic)
             _topicUpdates.tryEmit(Pair(roomJid, newTopic))
             Result.success(Unit)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.w(TAG, "Timeout waiting for subject change confirmation for $roomJid, assuming it might have succeeded: ${e.message}")
+            // Even on timeout, we can assume the request was sent; subject updates will be received via listeners if it succeeds
+            _topicUpdates.tryEmit(Pair(roomJid, newTopic))
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to change room subject for $roomJid: ${e.message}", e)
             Result.failure(e)
@@ -1523,6 +1528,7 @@ class MultiUserChatManager(
                     RoomOccupant(
                         nickname = nickname,
                         jid = realJid,
+                        fullJid = occupantJid.toString(),
                         role = role,
                         affiliation = affiliation,
                         presence = userPresence,
