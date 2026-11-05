@@ -185,22 +185,35 @@ fun MainSubSettingsMenu(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = { Text("Pengaturan", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            )
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth().statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Pengaturan",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
+                .padding(horizontal = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
         ) {
             // Profile & Connection Quick Header
             item {
@@ -216,10 +229,10 @@ fun MainSubSettingsMenu(
             item {
                 Text(
                     text = "Sub Pengaturan",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp)
                 )
             }
 
@@ -234,10 +247,9 @@ fun MainSubSettingsMenu(
 
             // Session & Application Management
             item {
-                Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "Sesi & Aplikasi",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 4.dp, top = 4.dp)
@@ -247,18 +259,18 @@ fun MainSubSettingsMenu(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         // Sign Out Card
                         Surface(
                             onClick = { showSignOutDialog = true },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
                             modifier = Modifier.testTag("setting_action_signout")
@@ -266,12 +278,12 @@ fun MainSubSettingsMenu(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
-                                    modifier = Modifier.size(42.dp),
-                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.size(34.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     color = AwayAmber.copy(alpha = 0.15f)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -279,32 +291,33 @@ fun MainSubSettingsMenu(
                                             imageVector = Icons.AutoMirrored.Filled.Logout,
                                             contentDescription = "Sign Out",
                                             tint = AwayAmber,
-                                            modifier = Modifier.size(22.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(14.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "Keluar Akun (Sign Out)",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Keluar dari akun XMPP, hapus sesi login di perangkat, dan hentikan aplikasi.",
+                                        text = "Hapus sesi login di perangkat dan hentikan koneksi.",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
                             }
                         }
 
                         // Exit App Card
                         Surface(
                             onClick = { showExitDialog = true },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = DndRed.copy(alpha = 0.08f),
                             border = BorderStroke(1.dp, DndRed.copy(alpha = 0.25f)),
                             modifier = Modifier.testTag("setting_action_exit")
@@ -312,12 +325,12 @@ fun MainSubSettingsMenu(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Surface(
-                                    modifier = Modifier.size(42.dp),
-                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.size(34.dp),
+                                    shape = RoundedCornerShape(8.dp),
                                     color = DndRed.copy(alpha = 0.2f)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -325,11 +338,11 @@ fun MainSubSettingsMenu(
                                             imageVector = Icons.Default.PowerSettingsNew,
                                             contentDescription = "Exit App",
                                             tint = DndRed,
-                                            modifier = Modifier.size(22.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(14.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "Keluar Aplikasi (Exit)",
@@ -337,14 +350,15 @@ fun MainSubSettingsMenu(
                                         fontWeight = FontWeight.Bold,
                                         color = DndRed
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Tutup aplikasi dan hentikan semua proses latar belakang (foreground service & koneksi).",
+                                        text = "Tutup aplikasi dan hentikan semua proses latar belakang.",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                Icon(Icons.Default.ChevronRight, null, tint = DndRed)
+                                Icon(Icons.Default.ChevronRight, null, tint = DndRed, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -436,19 +450,19 @@ fun SubSettingTileCard(
             .fillMaxWidth()
             .clickable { onClick() }
             .testTag("setting_tile_${category.name.lowercase()}"),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
         border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                modifier = Modifier.size(44.dp),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(36.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -456,25 +470,24 @@ fun SubSettingTileCard(
                         imageVector = category.icon,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = category.title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = category.subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -482,7 +495,8 @@ fun SubSettingTileCard(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp)
             )
         }
     }
@@ -512,21 +526,37 @@ fun SubSettingDetailScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = { Text(category.title, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth().statusBarsPadding()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.size(38.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Kembali ke Pengaturan"
+                            contentDescription = "Kembali ke Pengaturan",
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = category.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     ) { paddingValues ->
         Box(
@@ -594,9 +624,9 @@ fun AccountSubSettings(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item {
             AccountConnectionCard(
@@ -611,11 +641,11 @@ fun AccountSubSettings(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Informasi Detail Akun", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Informasi Detail Akun", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
@@ -634,7 +664,7 @@ fun AccountSubSettings(
                         Text(if (currentAccount.domain.isNotBlank()) currentAccount.domain else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -678,21 +708,21 @@ fun AccountSubSettings(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Tindakan Sesi & Aplikasi", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Tindakan Sesi & Aplikasi", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
                             onClick = { showSignOutDialog = true },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = AwayAmber)
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(18.dp))
@@ -702,8 +732,8 @@ fun AccountSubSettings(
 
                         Button(
                             onClick = { showExitDialog = true },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = DndRed)
                         ) {
                             Icon(Icons.Default.PowerSettingsNew, null, modifier = Modifier.size(18.dp))
@@ -800,17 +830,17 @@ fun DisplaySubSettings(
     onNavigateToCustomTheme: () -> Unit
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -822,9 +852,9 @@ fun DisplaySubSettings(
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Mode Gelap (Dark Mode)", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Mode Gelap (Dark Mode)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Text(
                                     if (isDarkMode) "Tema gelap aktif untuk kenyamanan mata" else "Tema terang aktif",
                                     style = MaterialTheme.typography.bodySmall,
@@ -839,7 +869,7 @@ fun DisplaySubSettings(
                         )
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable { onNavigateToBookmarks() },
@@ -848,16 +878,16 @@ fun DisplaySubSettings(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Kelola Ruangan Favorit & Bookmarks", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Kelola Ruangan Favorit & Bookmarks", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Text("Atur auto-join dan daftar favorit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
-                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                    Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable { onNavigateToCustomTheme() },
@@ -866,9 +896,9 @@ fun DisplaySubSettings(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Tema Kustom & Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Tema Kustom & Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Text("Ganti warna aksen, chat, dan latar belakang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -895,18 +925,18 @@ fun ConnectionSubSettings(
     var showXepInfoDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Konfigurasi Server & TLS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Konfigurasi Server & TLS", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
@@ -940,16 +970,16 @@ fun ConnectionSubSettings(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Approve Subscription Requests", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text("Auto-Approve Subscription Requests", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                         Text("Otomatis menyetujui permintaan kontak masuk (privacy control)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
@@ -966,11 +996,11 @@ fun ConnectionSubSettings(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { showXepInfoDialog = true },
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -1016,27 +1046,27 @@ fun AboutSubSettings() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         // App Logo
         Card(
-            modifier = Modifier.size(100.dp),
-            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.size(76.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_client_inchat),
                     contentDescription = "InChat Logo",
-                    modifier = Modifier.size(70.dp)
+                    modifier = Modifier.size(54.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = "InChat",
@@ -1047,25 +1077,25 @@ fun AboutSubSettings() {
 
         Text(
             text = "XMPP Client for Android",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Surface(
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
             Text(
                 text = "Version: ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                 fontWeight = FontWeight.SemiBold
             )
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text(
             text = "Copyright © 2026 Ndregil",
@@ -1115,19 +1145,19 @@ fun NotificationSubSettings() {
     val mucSoundOptions = listOf("Default", "Group Beep", "Chime", "Bubble", "Silent")
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // Master Notification Toggle Card (All Messages)
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().testTag("card_notification_all_messages"),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1329,11 +1359,11 @@ fun NotificationSubSettings() {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.NotificationsActive,
@@ -1455,11 +1485,11 @@ fun NotificationSubSettings() {
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                 border = if (!isIgnoringBatteryOptimizations) BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)) else null
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.VerifiedUser,
@@ -1627,19 +1657,19 @@ fun AccountConnectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onManageAccountClick() },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Avatar with edit badge
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(48.dp)
                     .clickable { onUpdateAvatarClick() }
             ) {
                 val decodedBitmap = remember(myAvatar) {
@@ -1657,7 +1687,7 @@ fun AccountConnectionCard(
                         .fillMaxSize()
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer)
-                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     if (decodedBitmap != null) {
@@ -1672,7 +1702,7 @@ fun AccountConnectionCard(
                             imageVector = Icons.Default.Person,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -1680,36 +1710,36 @@ fun AccountConnectionCard(
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .size(22.dp),
+                        .size(18.dp),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary,
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Ganti Foto",
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.size(10.dp),
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (currentAccount.jid.isNotBlank()) currentAccount.jid else "Belum ada akun aktif",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
-                        modifier = Modifier.size(10.dp),
+                        modifier = Modifier.size(8.dp),
                         shape = CircleShape,
                         color = when (connectionStatus) {
                             ConnectionStatus.CONNECTED -> OnlineGreen
@@ -1718,7 +1748,7 @@ fun AccountConnectionCard(
                             ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     ) {}
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = when (connectionStatus) {
                             ConnectionStatus.CONNECTED -> "Terhubung"
@@ -1727,7 +1757,7 @@ fun AccountConnectionCard(
                             ConnectionStatus.ERROR -> "Koneksi Error"
                             ConnectionStatus.DISCONNECTED -> "Terputus"
                         },
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -1736,7 +1766,8 @@ fun AccountConnectionCard(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.size(18.dp)
             )
         }
     }

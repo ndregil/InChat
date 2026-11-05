@@ -218,30 +218,34 @@ class XmppAvatarManager(
      */
     suspend fun updateRoomAvatar(roomJid: String, bytes: ByteArray): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val key = resolveAvatarKey(roomJid)
-            avatarCache[key] = bytes
-            noAvatarSet.remove(key)
-            _avatarUpdates.emit(key)
+            val bareKey = roomJid.substringBefore("/").trim().lowercase()
+            val rawKey = roomJid.trim().lowercase()
+            avatarCache[bareKey] = bytes
+            avatarCache[rawKey] = bytes
+            noAvatarSet.remove(bareKey)
+            noAvatarSet.remove(rawKey)
+            _avatarUpdates.emit(bareKey)
+            _avatarUpdates.emit(rawKey)
             _avatarUpdates.emit(roomJid)
 
             val connection = currentConnection
             if (connection != null && connection.isConnected) {
                 // 1. Try updating room vCard (XEP-0153 / vCard-temp for rooms)
                 try {
-                    val roomJidObj = JidCreate.from(roomJid.trim())
+                    val roomJidObj = JidCreate.from(bareKey)
                     val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
                     vcardIq.to = roomJidObj
                     vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.set
-                    vcardIq.avatar = bytes
+                    vcardIq.setAvatar(bytes, "image/png")
                     connection.sendIqRequestAndWaitForResponse<org.jivesoftware.smack.packet.IQ>(vcardIq)
-                    Log.i(TAG, "Successfully updated room vCard avatar for $roomJid")
+                    Log.i(TAG, "Successfully updated room vCard avatar for $bareKey")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Room vCard avatar update for $roomJid failed: ${e.message}")
+                    Log.w(TAG, "Room vCard avatar update for $bareKey failed: ${e.message}")
                 }
 
                 // 2. Try PubSub (XEP-0084) on room JID if supported
                 try {
-                    val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(roomJid.trim()))
+                    val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(bareKey))
                     val hash = sha1Hash(bytes)
                     val base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
 
@@ -263,15 +267,18 @@ class XmppAvatarManager(
                         "</metadata>"
                     )
                     metadataNode.publish(PayloadItem(hash, metadataPayload))
-                    Log.i(TAG, "Successfully published room avatar XEP-0084 for $roomJid")
+                    Log.i(TAG, "Successfully published room avatar XEP-0084 for $bareKey")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Room PubSub/XEP-0084 avatar publish note for $roomJid: ${e.message}")
+                    Log.w(TAG, "Room PubSub/XEP-0084 avatar publish note for $bareKey: ${e.message}")
                 }
             }
 
             // Save to database
             scope.launch {
-                avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+                avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(bareKey, bytes))
+                if (bareKey != rawKey) {
+                    avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(rawKey, bytes))
+                }
             }
 
             Result.success(Unit)

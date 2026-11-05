@@ -72,7 +72,10 @@ fun RoomAdminPanel(
     onBanUser: (String, String?) -> Unit,
     onUnbanUser: (String) -> Unit = {},
     onKickUser: (String, String?) -> Unit,
-    moderationMessages: List<com.ndregil.inchat.data.model.XmppMessage> = emptyList()
+    moderationMessages: List<com.ndregil.inchat.data.model.XmppMessage> = emptyList(),
+    onUpdateNickname: (String) -> Unit = {},
+    onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
+    roomAvatar: ByteArray? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Config, 1 = Partisipan, 2 = Daftar Afiliasi, 3 = Moderasi
 
@@ -132,6 +135,9 @@ fun RoomAdminPanel(
                         isPersonalOnly = false,
                         myRole = myOccupant?.role ?: OccupantRole.NONE,
                         myAffiliation = myOccupant?.affiliation ?: OccupantAffiliation.NONE,
+                        roomAvatar = roomAvatar,
+                        onUpdateRoomAvatar = onUpdateRoomAvatar,
+                        onUpdateNickname = onUpdateNickname,
                         onUpdateTopic = onUpdateTopic,
                         onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pwd, notifMode, maxUsers, enableLogging, allowInvites, whois ->
                             onSaveConfig(name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pwd, maxUsers, enableLogging, allowInvites, whois)

@@ -32,6 +32,10 @@ import java.util.Locale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,6 +63,7 @@ fun RoomConfigurationDialog(
     onUpdateNickname: (String) -> Unit = {},
     onUpdateTopic: (String) -> Unit = {},
     onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
+    roomAvatar: ByteArray? = null,
     isNicknameOnly: Boolean = false,
     onSaveConfig: (
         roomName: String?,
@@ -162,7 +167,8 @@ fun RoomConfigurationDialog(
                     onSaveConfig = onSaveConfig,
                     onUpdateNickname = onUpdateNickname,
                     onUpdateTopic = onUpdateTopic,
-                    onUpdateRoomAvatar = onUpdateRoomAvatar
+                    onUpdateRoomAvatar = onUpdateRoomAvatar,
+                    roomAvatar = roomAvatar
                 )
             } else {
                 val hasModerationAccess = myRole == OccupantRole.OWNER || myRole == OccupantRole.ADMIN ||
@@ -232,6 +238,7 @@ fun RoomConfigurationContent(
     onUpdateNickname: (String) -> Unit = {},
     onUpdateTopic: (String) -> Unit = {},
     onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
+    roomAvatar: ByteArray? = null,
     isNicknameOnly: Boolean = false
 ) {
     val isOwner = myRole == OccupantRole.OWNER || myAffiliation == OccupantAffiliation.OWNER
@@ -255,7 +262,7 @@ fun RoomConfigurationContent(
     var myNickname by remember { mutableStateOf("") }
 
     val avatarLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
+        contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let { onUpdateRoomAvatar(it) }
     }
@@ -354,17 +361,64 @@ fun RoomConfigurationContent(
                 // Section: Avatar
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        val avatarBitmap = remember(roomAvatar) {
+                            roomAvatar?.let {
+                                try {
+                                    BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (avatarBitmap != null) {
+                                Image(
+                                    bitmap = avatarBitmap,
+                                    contentDescription = "Avatar Ruangan",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Groups,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+
                         Spacer(Modifier.width(12.dp))
-                        Text("Avatar Ruangan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        OutlinedButton(onClick = { avatarLauncher.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Avatar Ruangan", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = if (roomAvatar != null) "Avatar kustom aktif" else "Gunakan avatar khusus ruangan",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            onClick = { avatarLauncher.launch("image/*") },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text("Ganti Avatar")
                         }
                     }

@@ -1406,17 +1406,35 @@ fun MultiRoomMainScreen(
                         )
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
-                            TopAppBar(
-                                title = { Text("Konfigurasi Akun & Server", fontWeight = FontWeight.Bold) },
-                                navigationIcon = {
-                                    IconButton(onClick = { showAccountSettingsDirectly = false }) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth().statusBarsPadding()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .padding(horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = { showAccountSettingsDirectly = false },
+                                        modifier = Modifier.size(38.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Kembali",
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
-                                },
-                                colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                )
-                            )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Konfigurasi Akun & Server",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                             AccountConnectionScreen(
                                 currentAccount = currentAccount,
                                 connectionStatus = connectionStatus,
@@ -1544,6 +1562,7 @@ fun MultiRoomMainScreen(
                 onUpdateNickname = { newNick -> viewModel.updateRoomNickname(room.jid, newNick) },
                 onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
                 onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(room.jid, room.name, uri) },
+                roomAvatar = viewModel.repository.getRoomAvatar(room.jid),
                 onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, notifMode, maxUsers, enableLogging, allowInvites, whois ->
                     viewModel.configureRoom(
                         roomJid = room.jid,
@@ -1601,6 +1620,9 @@ fun MultiRoomMainScreen(
             onDismiss = { viewModel.isAdminPanelOpen.value = false },
             onLoadAffiliations = { viewModel.loadRoomAffiliations(activeRoom!!.jid) },
             onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
+            onUpdateNickname = { newNick -> viewModel.updateRoomNickname(activeRoom!!.jid, newNick) },
+            onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(activeRoom!!.jid, activeRoom!!.name, uri) },
+            roomAvatar = viewModel.repository.getRoomAvatar(activeRoom!!.jid),
             onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, maxUsers, enableLogging, allowInvites, whois ->
                 viewModel.configureRoom(
                     roomJid = activeRoom!!.jid,

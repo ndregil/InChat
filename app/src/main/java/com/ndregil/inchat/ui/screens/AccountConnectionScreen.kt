@@ -235,10 +235,10 @@ fun AccountConnectionScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 8.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Profile Card (When connected)
         if (connectionStatus == ConnectionStatus.CONNECTED) {
