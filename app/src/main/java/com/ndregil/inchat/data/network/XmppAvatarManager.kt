@@ -226,8 +226,22 @@ class XmppAvatarManager(
 
             val connection = currentConnection
             if (connection != null && connection.isConnected) {
+                // 1. Try updating room vCard (XEP-0153 / vCard-temp for rooms)
                 try {
-                    val pubSubManager = PubSubManager.getInstanceFor(connection)
+                    val roomJidObj = JidCreate.from(roomJid.trim())
+                    val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
+                    vcardIq.to = roomJidObj
+                    vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.set
+                    vcardIq.avatar = bytes
+                    connection.sendIqRequestAndWaitForResponse<org.jivesoftware.smack.packet.IQ>(vcardIq)
+                    Log.i(TAG, "Successfully updated room vCard avatar for $roomJid")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Room vCard avatar update for $roomJid failed: ${e.message}")
+                }
+
+                // 2. Try PubSub (XEP-0084) on room JID if supported
+                try {
+                    val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(roomJid.trim()))
                     val hash = sha1Hash(bytes)
                     val base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
 
@@ -249,17 +263,17 @@ class XmppAvatarManager(
                         "</metadata>"
                     )
                     metadataNode.publish(PayloadItem(hash, metadataPayload))
-                    
-                    // Save to database
-                    scope.launch {
-                        avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
-                    }
-
                     Log.i(TAG, "Successfully published room avatar XEP-0084 for $roomJid")
                 } catch (e: Exception) {
                     Log.w(TAG, "Room PubSub/XEP-0084 avatar publish note for $roomJid: ${e.message}")
                 }
             }
+
+            // Save to database
+            scope.launch {
+                avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+            }
+
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to update room avatar for $roomJid: ${e.message}", e)
@@ -368,23 +382,24 @@ class XmppAvatarManager(
             val isMuc = isMucDomain(bareJidStr)
             val hasResource = fullJid.hasResource()
 
-            // 1. If this is a MUC occupant JID (e.g. room@conference.example.org/nickname),
-            // fetch XEP-0054 (vCard-temp) directly from the occupant's full JID.
-            // DO NOT fallback to bare JID (room@conference.example.org) to prevent fetching MUC room avatar.
-            if (isMuc && hasResource) {
+            // 1. If this is a MUC occupant JID (e.g. room@conference.example.org/nickname) or MUC room bare JID (room@conference.example.org),
+            // fetch XEP-0054 (vCard-temp) directly from the room or occupant JID.
+            if (isMuc) {
                 try {
                     val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
                     vcardIq.to = fullJid
                     vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.get
                     val resultVCard = connection.sendIqRequestAndWaitForResponse<org.jivesoftware.smackx.vcardtemp.packet.VCard>(vcardIq)
                     if (resultVCard != null && resultVCard.avatar != null && resultVCard.avatar.isNotEmpty()) {
-                        Log.i(TAG, "Successfully fetched XEP-0054 (vCard-temp) avatar for MUC occupant $targetJid (${resultVCard.avatar.size} bytes)")
+                        Log.i(TAG, "Successfully fetched XEP-0054 (vCard-temp) avatar for MUC JID $targetJid (${resultVCard.avatar.size} bytes)")
                         return@withContext resultVCard.avatar
                     }
                 } catch (e: Exception) {
-                    Log.d(TAG, "XEP-0054 vCard-temp fetch for MUC occupant $targetJid failed: ${e.message}")
+                    Log.d(TAG, "XEP-0054 vCard-temp fetch for MUC JID $targetJid failed: ${e.message}")
                 }
-                return@withContext null
+                if (hasResource) {
+                    return@withContext null
+                }
             }
 
             // 2. For standard user JIDs or bare room JIDs:

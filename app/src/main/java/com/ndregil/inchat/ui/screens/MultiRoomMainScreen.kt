@@ -2286,51 +2286,52 @@ fun ChatInputBar(
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Google Search Bar Style Form Box Capsule
+                    // Google / WhatsApp Style Form Box Capsule with unified, solid background
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(),
-                        shape = RoundedCornerShape(26.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
                         border = androidx.compose.foundation.BorderStroke(
                             width = 1.dp,
-                            color = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                                   else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-                        ),
-                        shadowElevation = 1.dp
+                            color = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                   else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        )
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                                .padding(horizontal = 4.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 1. Emoji button inside form box
+                            // 1. Emoji button (Compact 32.dp)
                             IconButton(
                                 onClick = { showEmojiKeyboard = !showEmojiKeyboard },
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(32.dp)
                                     .testTag("btn_toggle_emoji")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.SentimentSatisfied,
                                     contentDescription = "Pilih Emoji",
                                     tint = if (showEmojiKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
 
-                            // 2. Text Input inside form box
+                            // 2. Text Input seamlessly integrated with uniform transparent background
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(horizontal = 4.dp, vertical = 8.dp)
+                                    .background(Color.Transparent)
+                                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.CenterStart
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
                                         text = "Tulis pesan...",
-                                        fontSize = 14.5.sp,
+                                        fontSize = 15.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -2342,10 +2343,11 @@ fun ChatInputBar(
                                     onValueChange = onInputChange,
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .background(Color.Transparent)
                                         .testTag("chat_input_field"),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 14.5.sp,
+                                        fontSize = 15.sp,
                                         lineHeight = 20.sp
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -2354,106 +2356,109 @@ fun ChatInputBar(
                                 )
                             }
 
-                            // 3. Direct Send Location button (WhatsApp style)
-                            IconButton(
-                                onClick = {
-                                    showLocationDialog = true
-                                },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_share_location_direct")
+                            // 3. Compact Action Row: Lokasi, Lampiran, Suara / Kirim
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = "Kirim Lokasi",
-                                    tint = Color(0xFFEF4444),
-                                    modifier = Modifier.size(21.dp)
-                                )
-                            }
-
-                            // 4. Attachment (Lampiran) button inside form box
-                            Box {
+                                // Tombol Lokasi (Compact 32.dp)
                                 IconButton(
-                                    onClick = { showAttachMenu = true },
+                                    onClick = { showLocationDialog = true },
                                     modifier = Modifier
-                                        .size(36.dp)
-                                        .testTag("btn_attach_file")
+                                        .size(32.dp)
+                                        .testTag("btn_share_location_direct")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.AttachFile,
-                                        contentDescription = "Lampirkan",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(21.dp)
+                                        imageVector = Icons.Default.LocationOn,
+                                        contentDescription = "Kirim Lokasi",
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(19.dp)
                                     )
                                 }
 
-                                DropdownMenu(
-                                    expanded = showAttachMenu,
-                                    onDismissRequest = { showAttachMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Ambil Foto (Kamera)") },
-                                        leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                        onClick = {
-                                            showAttachMenu = false
-                                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Lampirkan File / Dokumen") },
-                                        leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                        onClick = {
-                                            showAttachMenu = false
-                                            onAttachClick()
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Bagikan Lokasi (ShareLoc)") },
-                                        leadingIcon = { Icon(Icons.Default.Explore, contentDescription = null, tint = Color(0xFFEF4444)) },
-                                        onClick = {
-                                            showAttachMenu = false
-                                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                                        }
-                                    )
+                                // Tombol Lampiran (Compact 32.dp with Dropdown)
+                                Box {
+                                    IconButton(
+                                        onClick = { showAttachMenu = true },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("btn_attach_file")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = "Lampirkan",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showAttachMenu,
+                                        onDismissRequest = { showAttachMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Ambil Foto (Kamera)") },
+                                            leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                            onClick = {
+                                                showAttachMenu = false
+                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Lampirkan File / Dokumen") },
+                                            leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                            onClick = {
+                                                showAttachMenu = false
+                                                onAttachClick()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Bagikan Lokasi (ShareLoc)") },
+                                            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFFEF4444)) },
+                                            onClick = {
+                                                showAttachMenu = false
+                                                showLocationDialog = true
+                                            }
+                                        )
+                                    }
                                 }
-                            }
 
-                            // 4. Voice (Mic) button inside form box
-                            IconButton(
-                                onClick = {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_voice_record")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Mic,
-                                    contentDescription = "Kirim Pesan Suara",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-
-                            // 5. Send button inside form box when text is entered
-                            AnimatedVisibility(visible = inputText.isNotBlank()) {
-                                IconButton(
-                                    onClick = {
-                                        onSendMessage(inputText)
-                                        showEmojiKeyboard = false
-                                    },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
-                                        .testTag("btn_send_message")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Send,
-                                        contentDescription = "Kirim Pesan",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(17.dp)
-                                    )
+                                // Tombol Suara (Mic) saat teks kosong ATAU Tombol Kirim (Send) saat ada teks
+                                if (inputText.isBlank()) {
+                                    IconButton(
+                                        onClick = {
+                                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("btn_voice_record")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Mic,
+                                            contentDescription = "Kirim Pesan Suara",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else {
+                                    IconButton(
+                                        onClick = {
+                                            onSendMessage(inputText)
+                                            showEmojiKeyboard = false
+                                        },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
+                                            .testTag("btn_send_message")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Send,
+                                            contentDescription = "Kirim Pesan",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

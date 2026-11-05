@@ -444,12 +444,14 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setReplyMessage(msg: XmppMessage) {
         replyingToMessage.value = msg
-        val mention = "@${msg.senderNickname} "
-        val current = currentInputText.value
-        if (current.isBlank()) {
-            currentInputText.value = mention
-        } else if (!current.startsWith(mention.trim())) {
-            currentInputText.value = "$mention$current"
+        val cleanNick = msg.senderNickname.replace("@System", "").trim()
+        val mention = if (cleanNick.isBlank()) "@user " else "@$cleanNick "
+        val current = currentInputText.value.trimStart()
+        val cleanCurrent = current.replace(Regex("^@[^ ]+\\s*"), "").trimStart()
+        currentInputText.value = if (cleanCurrent.isBlank()) {
+            mention
+        } else {
+            "$mention$cleanCurrent"
         }
     }
 
@@ -461,13 +463,17 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         replyingToMessage.value = msg
         val fullBody = msg.body.trim()
         val cleanNick = msg.senderNickname.replace("@System", "").trim()
-        val quotePrefix = if (cleanNick.isBlank()) {
-            ">$fullBody\n\n"
-        } else {
-            "> [$cleanNick] $fullBody\n\n"
-        }
+        val dateStr = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(msg.timestamp))
+        val mention = if (cleanNick.isBlank()) "" else "@$cleanNick "
+        val quoteText = "${mention}($dateStr) \"$fullBody\" "
+        
         val current = currentInputText.value.trimStart()
-        currentInputText.value = if (current.isNotBlank()) "$quotePrefix$current" else quotePrefix
+        val cleanCurrent = current.replace(Regex("^@[^ ]+\\s*\\([^)]+\\)\\s*\"[^\"]*\"\\s*"), "").trimStart()
+        currentInputText.value = if (cleanCurrent.isNotBlank()) {
+            "$quoteText$cleanCurrent"
+        } else {
+            quoteText
+        }
     }
 
     fun insertMention(nickname: String) {
