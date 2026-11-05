@@ -91,7 +91,8 @@ data class XmppRoom(
     val colorHex: String = "#0284C7",
     val isAutoJoin: Boolean = true,
     val bubbleTheme: String = "dregil-theme",
-    val wallpaperStyle: String = "default"
+    val wallpaperStyle: String = "default",
+    val isGroupChat: Boolean = true
 )
 
 enum class ClientPlatform {
@@ -580,7 +581,8 @@ data class XmppMessage(
     val replyToMessageId: String? = null,
     val replyToSender: String? = null,
     val replyToText: String? = null,
-    val voiceDurationSeconds: Int? = null
+    val voiceDurationSeconds: Int? = null,
+    val isHistory: Boolean = false
 )
 
 data class RoomOccupant(
@@ -700,3 +702,14 @@ data class RosterContact(
         get() = !pepActivity.isNullOrBlank() || !pepMood.isNullOrBlank() || !pepTune.isNullOrBlank() || !pepStatus.isNullOrBlank()
 }
 
+data class ThemePreferences(
+    val accentColorHex: String = "#0284C7",
+    val nicknameColorHex: String = "#0284C7",
+    val contactColorHex: String = "#1E293B",
+    val presenceOnlineColorHex: String = "#10B981",
+    val incomingBubbleColorHex: String = "#F1F5F9",
+    val outgoingBubbleColorHex: String = "#0284C7",
+    val customWallpaperUri: String? = null,
+    val wallpaperOpacity: Float = 0.5f,
+    val isCustomThemeEnabled: Boolean = false
+)

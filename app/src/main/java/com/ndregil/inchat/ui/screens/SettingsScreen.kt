@@ -58,6 +58,9 @@ import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.graphics.drawable.toBitmap
+import com.ndregil.inchat.BuildConfig
+import com.ndregil.inchat.R
+import androidx.compose.ui.res.painterResource
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -72,7 +75,8 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
     DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
-    NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications)
+    NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
+    ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,6 +100,7 @@ fun SettingsScreen(
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
     onNavigateToBookmarks: () -> Unit,
+    onNavigateToCustomTheme: () -> Unit,
     onSwitchToAccountTab: () -> Unit,
     autoApproveSubscription: Boolean,
     onToggleAutoApproveSubscription: (Boolean) -> Unit,
@@ -138,6 +143,7 @@ fun SettingsScreen(
                 isDarkMode = isDarkMode,
                 onToggleDarkMode = onToggleDarkMode,
                 onNavigateToBookmarks = onNavigateToBookmarks,
+                onNavigateToCustomTheme = onNavigateToCustomTheme,
                 onSwitchToAccountTab = onSwitchToAccountTab,
                 onUpdateAvatar = onUpdateAvatar,
                 onConnect = onConnect,
@@ -492,6 +498,7 @@ fun SubSettingDetailScreen(
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
     onNavigateToBookmarks: () -> Unit,
+    onNavigateToCustomTheme: () -> Unit,
     onSwitchToAccountTab: () -> Unit,
     onUpdateAvatar: (Uri) -> Unit,
     onConnect: (XmppAccount, String) -> Unit,
@@ -542,7 +549,8 @@ fun SubSettingDetailScreen(
                 SubSettingCategory.DISPLAY -> DisplaySubSettings(
                     isDarkMode = isDarkMode,
                     onToggleDarkMode = onToggleDarkMode,
-                    onNavigateToBookmarks = onNavigateToBookmarks
+                    onNavigateToBookmarks = onNavigateToBookmarks,
+                    onNavigateToCustomTheme = onNavigateToCustomTheme
                 )
                 SubSettingCategory.CONNECTION -> ConnectionSubSettings(
                     currentAccount = currentAccount,
@@ -553,6 +561,7 @@ fun SubSettingDetailScreen(
                     onDisconnect = onDisconnect
                 )
                 SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
+                SubSettingCategory.ABOUT -> AboutSubSettings()
             }
         }
     }
@@ -787,7 +796,8 @@ fun AccountSubSettings(
 fun DisplaySubSettings(
     isDarkMode: Boolean,
     onToggleDarkMode: () -> Unit,
-    onNavigateToBookmarks: () -> Unit
+    onNavigateToBookmarks: () -> Unit,
+    onNavigateToCustomTheme: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -842,6 +852,24 @@ fun DisplaySubSettings(
                             Column {
                                 Text("Kelola Ruangan Favorit & Bookmarks", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                                 Text("Atur auto-join dan daftar favorit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onNavigateToCustomTheme() },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Tema Kustom & Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text("Ganti warna aksen, chat, dan latar belakang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -976,6 +1004,73 @@ fun ConnectionSubSettings(
                     Text("Tutup")
                 }
             }
+        )
+    }
+}
+
+// ==========================================
+// 5. TENTANG APLIKASI (ABOUT) SUB-SETTING
+// ==========================================
+@Composable
+fun AboutSubSettings() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        // App Logo
+        Card(
+            modifier = Modifier.size(100.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_client_inchat),
+                    contentDescription = "InChat Logo",
+                    modifier = Modifier.size(70.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "InChat",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Text(
+            text = "XMPP Client for Android",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Text(
+                text = "Version: ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+
+        Text(
+            text = "Copyright © 2026 Ndregil",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }

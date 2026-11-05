@@ -55,10 +55,11 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
@@ -92,7 +93,7 @@ import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Badge
+import androidx.compose.material3.Badge as M3Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -164,14 +165,20 @@ import java.util.Locale
 @Composable
 fun MultiRoomMainScreen(
     viewModel: XmppViewModel,
+    initialNavIndex: Int = 0,
+    initialAccountTab: Int = 1,
     modifier: Modifier = Modifier
 ) {
-    var activeNavIndex by remember { mutableIntStateOf(0) } // 0 = Rooms Chat, 1 = Roster Contacts, 2 = Directory, 3 = Account Settings
+    var activeNavIndex by remember { mutableIntStateOf(initialNavIndex) } // 0 = Rooms Chat, 1 = Direct Chat, 2 = Contacts, 3 = Directory, 4 = Settings
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showRoomMenu by remember { mutableStateOf(false) }
     var selectedCapsOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
-    var showAccountSettingsDirectly by remember { mutableStateOf(false) }
+    var showAccountSettingsDirectly by remember { mutableStateOf(initialNavIndex == 4) }
+    var initialAccountTabSet by remember { mutableIntStateOf(initialAccountTab) }
     var showBookmarksScreen by remember { mutableStateOf(false) }
+    var showCustomThemeScreen by remember { mutableStateOf(false) }
+    var isConfigNicknameOnly by remember { mutableStateOf(false) }
+    var roomConfigInfo by remember { mutableStateOf<org.jivesoftware.smackx.muc.RoomInfo?>(null) }
 
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
     val connectionError by viewModel.connectionError.collectAsStateWithLifecycle()
@@ -184,6 +191,7 @@ fun MultiRoomMainScreen(
     val isDarkMode = isDarkModeOverride ?: systemDark
 
     val savedRooms by viewModel.savedRooms.collectAsStateWithLifecycle()
+    val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
     var showOnlySavedRooms by remember { mutableStateOf(false) }
     val activeRoom by viewModel.activeRoom.collectAsStateWithLifecycle()
     val messages by viewModel.activeRoomMessages.collectAsStateWithLifecycle()
@@ -210,7 +218,6 @@ fun MultiRoomMainScreen(
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
 
-    var roomConfigInfo by remember { mutableStateOf<org.jivesoftware.smackx.muc.RoomInfo?>(null) }
 
     val rosterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val stanzaSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -316,22 +323,25 @@ fun MultiRoomMainScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val totalUnread = allRooms.sumOf { it.unreadCount }
+                    val roomUnread = viewModel.groupRooms.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
+                    val directUnread = viewModel.directChats.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
+
                     CompactNavItem(
                         selected = activeNavIndex == 0,
                         onClick = { activeNavIndex = 0 },
                         icon = Icons.Default.Forum,
-                        label = "Multi-Room",
-                        badgeCount = totalUnread,
+                        label = "Room",
+                        badgeCount = roomUnread,
                         testTag = "nav_tab_rooms"
                     )
 
                     CompactNavItem(
                         selected = activeNavIndex == 1,
                         onClick = { activeNavIndex = 1 },
-                        icon = Icons.Default.Bookmark,
-                        label = "Favorit",
-                        testTag = "nav_tab_saved"
+                        icon = Icons.Default.Person,
+                        label = "Chat",
+                        badgeCount = directUnread,
+                        testTag = "nav_tab_direct"
                     )
 
                     CompactNavItem(
@@ -363,7 +373,7 @@ fun MultiRoomMainScreen(
                             showAccountSettingsDirectly = false
                         },
                         icon = Icons.Default.Settings,
-                        label = "Pengaturan",
+                        label = "Setelan",
                         testTag = "nav_tab_settings"
                     )
                 }
@@ -489,7 +499,7 @@ fun MultiRoomMainScreen(
                                     .testTag("btn_open_roster")
                             ) {
                                 BadgedBox(badge = {
-                                    Badge(
+                                    M3Badge(
                                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     ) {
@@ -604,9 +614,10 @@ fun MultiRoomMainScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Ganti nickname") },
-                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                                     onClick = {
                                         showRoomMenu = false
+                                        isConfigNicknameOnly = true
                                         activeRoom?.let { room ->
                                             coroutineScope.launch {
                                                 val info = viewModel.repository.getRoomInfo(room.jid)
@@ -622,6 +633,7 @@ fun MultiRoomMainScreen(
                                         leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                         onClick = {
                                             showRoomMenu = false
+                                            isConfigNicknameOnly = false
                                             activeRoom?.let { room ->
                                                 coroutineScope.launch {
                                                     val info = viewModel.repository.getRoomInfo(room.jid)
@@ -683,7 +695,7 @@ fun MultiRoomMainScreen(
                     Column(modifier = Modifier.fillMaxSize()) {
                         // Multi-Room Channel Switcher Tabs with integrated Bookmark Filter Toggle
                         MultiRoomTabHeader(
-                            rooms = if (showOnlySavedRooms) savedRooms else filteredRooms,
+                            rooms = if (showOnlySavedRooms) viewModel.savedRooms.collectAsStateWithLifecycle().value else viewModel.filteredRooms.collectAsStateWithLifecycle().value,
                             selectedRoomJid = activeRoom?.jid,
                             showOnlySavedRooms = showOnlySavedRooms,
                             onToggleSavedOnly = { showOnlySavedRooms = !showOnlySavedRooms },
@@ -708,7 +720,9 @@ fun MultiRoomMainScreen(
                                 .fillMaxWidth()
                         ) {
                             com.ndregil.inchat.ui.components.WallpaperBackground(
-                                wallpaperStyle = activeRoom?.wallpaperStyle ?: "default"
+                                wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
+                                customWallpaperUri = themePrefs.customWallpaperUri,
+                                opacity = themePrefs.wallpaperOpacity
                             )
 
                             if (messages.isEmpty()) {
@@ -756,7 +770,8 @@ fun MultiRoomMainScreen(
                                             onMentionClick = { nick -> viewModel.insertMention(nick) },
                                             onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
                                             bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
-                                            isDark = isDarkMode
+                                            isDark = isDarkMode,
+                                            themePrefs = themePrefs
                                         )
                                     }
                                 }
@@ -834,31 +849,124 @@ fun MultiRoomMainScreen(
                 }
 
                 1 -> {
-                    // Dedicated Saved Rooms / Bookmarks Screen
-                    if (showBookmarksScreen) {
-                        ManageBookmarksScreen(
-                            savedRooms = savedRooms,
-                            onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
-                            onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
-                            onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
-                            onBack = { showBookmarksScreen = false }
+                    // Direct Chats (1-on-1) View - Full Messaging Interface
+                    val directChats by viewModel.filteredDirectChats.collectAsStateWithLifecycle()
+                    val savedDirects by viewModel.savedDirectChats.collectAsStateWithLifecycle()
+                    var showOnlySavedDirects by remember { mutableStateOf(false) }
+
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        MultiRoomTabHeader(
+                            rooms = if (showOnlySavedDirects) savedDirects else directChats,
+                            selectedRoomJid = activeRoom?.jid,
+                            showOnlySavedRooms = showOnlySavedDirects,
+                            onToggleSavedOnly = { showOnlySavedDirects = !showOnlySavedDirects },
+                            onSelectRoom = { jid -> viewModel.selectRoom(jid) },
+                            onAddRoomClick = { activeNavIndex = 2 }
                         )
-                    } else {
-                        val isSyncingBookmarks by viewModel.isSyncingBookmarks.collectAsStateWithLifecycle()
-                        SavedRoomsScreen(
-                            savedRooms = savedRooms,
-                            onSelectRoom = { jid ->
-                                viewModel.selectRoom(jid)
-                                activeNavIndex = 0
-                            },
-                            onRemoveBookmark = { jid -> viewModel.toggleSaveRoom(jid) },
-                            onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
-                            onOpenManageBookmarks = { showBookmarksScreen = true },
-                            onSyncBookmarks = { viewModel.syncBookmarks() },
-                            isSyncing = isSyncingBookmarks,
-                            getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) },
-                            onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
-                            onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) }
+
+                        // For 1-on-1, we show a contact profile/status bar instead of room occupants
+                        val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
+                        if (activeRoom != null && !activeRoom!!.isGroupChat) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                                tonalElevation = 1.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(contentAlignment = Alignment.BottomEnd) {
+                                        val avatar = viewModel.repository.getRoomAvatar(activeRoom!!.jid)
+                                        if (avatar != null) {
+                                            coil.compose.AsyncImage(
+                                                model = avatar,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(32.dp).clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                                                Text(activeRoom!!.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                            }
+                                        }
+                                        if (activeContact != null) {
+                                            Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface).padding(1.dp)) {
+                                                Box(Modifier.fillMaxSize().clip(CircleShape).background(
+                                                    when(activeContact!!.presence) {
+                                                        UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+                                                        UserPresence.AWAY, UserPresence.XA -> AwayAmber
+                                                        UserPresence.DND -> DndRed
+                                                        else -> OfflineGray
+                                                    }
+                                                ))
+                                            }
+                                        }
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column {
+                                        Text(activeRoom!!.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                        if (activeContact != null) {
+                                            Text(activeContact!!.statusMessage.ifBlank { activeContact!!.presence.name.lowercase().capitalize() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        } else {
+                                            Text("Obrolan Langsung (1-on-1)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Message Feed (Direct)
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            com.ndregil.inchat.ui.components.WallpaperBackground(
+                                wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
+                                customWallpaperUri = themePrefs.customWallpaperUri,
+                                opacity = themePrefs.wallpaperOpacity
+                            )
+
+                            if (messages.isEmpty()) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                }
+                            } else {
+                                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    items(messages, key = { it.id }) { msg ->
+                                        MessageBubble(
+                                            message = msg,
+                                            myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
+                                            onSenderClick = { },
+                                            onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
+                                            onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
+                                            onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                            onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
+                                            bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
+                                            isDark = isDarkMode,
+                                            themePrefs = themePrefs
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        ChatInputBar(
+                            inputText = currentInput,
+                            onInputChange = { viewModel.currentInputText.value = it },
+                            onSendMessage = { viewModel.sendMessage(it) },
+                            onAttachClick = { filePicker.launch("*/*") },
+                            onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
+                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                            onCallClick = { viewModel.initiateCall(it) },
+                            whisperTarget = null,
+                            replyingToMessage = replyingToMessage,
+                            onCancelReply = { viewModel.clearReplyMessage() },
+                            onSendVoice = { audioFile, durationSeconds ->
+                                viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                            }
                         )
                     }
                 }
@@ -872,8 +980,13 @@ fun MultiRoomMainScreen(
                         viewModel = viewModel,
                         onStartDirectChat = { jid, name ->
                             viewModel.startDirectChat(jid, name)
+                            activeNavIndex = 1
+                        },
+                        onRoomClick = { jid ->
+                            viewModel.selectRoom(jid)
                             activeNavIndex = 0
-                        }
+                        },
+                        themePrefs = themePrefs
                     )
                 }
 
@@ -912,7 +1025,7 @@ fun MultiRoomMainScreen(
                                 nickname = currentAccount.nickname,
                                 topic = dirRoom.description
                             )
-                            activeNavIndex = 0
+                            activeNavIndex = if (isMucJid(dirRoom.jid)) 0 else 1
                         },
                         onSaveRoom = { dirRoom ->
                             viewModel.saveRoom(
@@ -924,7 +1037,7 @@ fun MultiRoomMainScreen(
                         },
                         onSelectJoinedRoom = { jid ->
                             viewModel.selectRoom(jid)
-                            activeNavIndex = 0
+                            activeNavIndex = if (isMucJid(jid)) 0 else 1
                         },
                         onOpenCreateRoom = {
                             viewModel.isJoinCreateDialogOpen.value = true
@@ -939,7 +1052,7 @@ fun MultiRoomMainScreen(
                                 nickname = currentAccount.nickname,
                                 topic = discRoom.description.ifBlank { discRoom.subject }
                             )
-                            activeNavIndex = 0
+                            activeNavIndex = if (isMucJid(discRoom.jid)) 0 else 1
                         }
                     )
                 }
@@ -952,6 +1065,12 @@ fun MultiRoomMainScreen(
                             onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
                             onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
                             onBack = { showBookmarksScreen = false }
+                        )
+                    } else if (showCustomThemeScreen) {
+                        CustomThemeScreen(
+                            currentPrefs = themePrefs,
+                            onPrefsChange = { viewModel.updateThemePreferences(it) },
+                            onBack = { showCustomThemeScreen = false }
                         )
                     } else if (!showAccountSettingsDirectly) {
                         SettingsScreen(
@@ -987,6 +1106,7 @@ fun MultiRoomMainScreen(
                             isDarkMode = isDarkMode,
                             onToggleDarkMode = { viewModel.toggleDarkMode(systemDark) },
                             onNavigateToBookmarks = { showBookmarksScreen = true },
+                            onNavigateToCustomTheme = { showCustomThemeScreen = true },
                             onSwitchToAccountTab = { showAccountSettingsDirectly = true },
                             autoApproveSubscription = viewModel.autoApproveSubscription.collectAsStateWithLifecycle().value,
                             onToggleAutoApproveSubscription = { viewModel.setAutoApproveSubscription(it) },
@@ -1010,6 +1130,7 @@ fun MultiRoomMainScreen(
                                 currentAccount = currentAccount,
                                 connectionStatus = connectionStatus,
                                 registrationState = registrationState,
+                                initialTab = initialAccountTabSet,
                                 onConnect = { acc, pwd -> viewModel.connectAccount(acc, pwd) },
                                 onDisconnect = { viewModel.disconnect() },
                                 onRegisterAccount = { user, pass, dom, host, port, nick, email, tls ->
@@ -1112,7 +1233,8 @@ fun MultiRoomMainScreen(
                 initialInfo = roomConfigInfo,
                 moderationMessages = moderationHistory,
                 isLoading = isRoomConfigLoading,
-                isPersonalOnly = true,
+                isPersonalOnly = !isConfigNicknameOnly,
+                isNicknameOnly = isConfigNicknameOnly,
                 ownersList = ownersList,
                 adminsList = adminsList,
                 membersList = membersList,
@@ -1155,6 +1277,7 @@ fun MultiRoomMainScreen(
     }
 
     if (isThemeWallpaperOpen) {
+
         val activeRoomAvatar = activeRoom?.jid?.let { viewModel.repository.getRoomAvatar(it) }
         com.ndregil.inchat.ui.components.ChatThemeSettingsDialog(
             currentTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
@@ -1163,7 +1286,7 @@ fun MultiRoomMainScreen(
             roomName = activeRoom?.name,
             roomAvatar = activeRoomAvatar,
             onSelectRoomAvatar = { roomAvatarPicker.launch("image/*") },
-            onSave = { theme, wallpaper ->
+            onSave = { theme: String, wallpaper: String ->
                 activeRoom?.let { room ->
                     viewModel.updateRoomThemeAndWallpaper(room.jid, theme, wallpaper)
                 }
@@ -1556,7 +1679,7 @@ fun MultiRoomTabHeader(
 
                                 if (room.unreadCount > 0) {
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Badge(
+                                    M3Badge(
                                         containerColor = MaterialTheme.colorScheme.primary,
                                         contentColor = MaterialTheme.colorScheme.onPrimary
                                     ) {
@@ -1620,7 +1743,7 @@ private fun CompactNavItem(
         if (badgeCount > 0) {
             BadgedBox(
                 badge = {
-                    Badge(
+                    M3Badge(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
                     ) {
@@ -2138,4 +2261,12 @@ private fun VoiceRecordingActiveBar(
             )
         }
     }
+}
+
+private fun isMucJid(jid: String): Boolean {
+    val domain = jid.substringAfter("@", "")
+    return domain.contains("conference", true) || 
+           domain.contains("muc.", true) || 
+           domain.contains("chat.", true) ||
+           domain.contains("rooms.", true)
 }

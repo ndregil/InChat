@@ -101,6 +101,8 @@ class MultiUserChatManager(
     // Cache of occupant presence states per room: roomJid -> (nickname -> Pair(UserPresence, statusText))
     private val roomOccupantPresenceCache = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Pair<com.ndregil.inchat.data.model.UserPresence, String>>>()
 
+    private val updateJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+
     init {
         // Listen for avatar updates to refresh UI automatically
         scope.launch {
@@ -1445,106 +1447,117 @@ class MultiUserChatManager(
     }
 
     /**
-     * Refreshes the cached list of occupants for a specific room.
+     * Refreshes the cached list of occupants for a specific room with debouncing.
      */
     private fun updateOccupantsForRoom(roomJid: String, muc: MultiUserChat) {
-        try {
-            val myNickname = roomNicknames[roomJid] ?: ""
-            val occupantsList = mutableListOf<RoomOccupant>()
+        // Cancel previous pending update for this room
+        updateJobs[roomJid]?.cancel()
+        
+        updateJobs[roomJid] = scope.launch(Dispatchers.Default) {
+            // Small debounce to batch multiple rapid presence stanzas (e.g. on join)
+            kotlinx.coroutines.delay(150)
+            
+            try {
+                val myNickname = roomNicknames[roomJid] ?: ""
+                val occupantsList = mutableListOf<RoomOccupant>()
 
-            for (occupantJid in muc.occupants) {
-                val occupant: Occupant? = muc.getOccupant(occupantJid)
-                val nickname = occupant?.nick?.toString()
-                    ?: occupantJid.resourceOrNull?.toString()
-                    ?: occupantJid.toString().substringAfterLast("/")
+                for (occupantJid in muc.occupants) {
+                    val occupant: Occupant? = muc.getOccupant(occupantJid)
+                    val nickname = occupant?.nick?.toString()
+                        ?: occupantJid.resourceOrNull?.toString()
+                        ?: occupantJid.toString().substringAfterLast("/")
 
-                val isMe = nickname.equals(myNickname, ignoreCase = true)
+                    val isMe = nickname.equals(myNickname, ignoreCase = true)
 
-                val role = when {
-                    occupant?.affiliation == MUCAffiliation.owner -> OccupantRole.OWNER
-                    occupant?.affiliation == MUCAffiliation.admin -> OccupantRole.ADMIN
-                    occupant?.role == MUCRole.moderator -> OccupantRole.ADMIN
-                    occupant?.role == MUCRole.participant -> OccupantRole.PARTICIPANT
-                    occupant?.role == MUCRole.visitor -> OccupantRole.VISITOR
-                    else -> OccupantRole.MEMBER
-                }
-
-                val affiliation = when (occupant?.affiliation) {
-                    MUCAffiliation.owner -> OccupantAffiliation.OWNER
-                    MUCAffiliation.admin -> OccupantAffiliation.ADMIN
-                    MUCAffiliation.member -> OccupantAffiliation.MEMBER
-                    MUCAffiliation.outcast -> OccupantAffiliation.OUTCAST
-                    else -> OccupantAffiliation.NONE
-                }
-
-                val smackPresence = muc.getOccupantPresence(occupantJid)
-                val userPresence = smackPresence?.toUserPresence() ?: UserPresence.ONLINE
-                val statusMessage = smackPresence?.status ?: ""
-                val defaultStatus = when (userPresence) {
-                    UserPresence.ONLINE -> "Online"
-                    UserPresence.CHAT -> "Bebas Chat"
-                    UserPresence.AWAY -> "Away"
-                    UserPresence.XA -> "Extended Away"
-                    UserPresence.DND -> "Jangan Ganggu"
-                    UserPresence.OFFLINE -> "Offline"
-                }
-                val myJid = connectionManager.credentials.value.jid
-                val realJid = if (isMe && myJid.isNotBlank()) {
-                    myJid
-                } else {
-                    occupant?.jid?.asBareJid()?.toString() ?: occupantJid.toString()
-                }
-
-                val capsExtension = try {
-                    smackPresence?.let { p ->
-                        org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
-                            ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                    val role = when {
+                        occupant?.affiliation == MUCAffiliation.owner -> OccupantRole.OWNER
+                        occupant?.affiliation == MUCAffiliation.admin -> OccupantRole.ADMIN
+                        occupant?.role == MUCRole.moderator -> OccupantRole.ADMIN
+                        occupant?.role == MUCRole.participant -> OccupantRole.PARTICIPANT
+                        occupant?.role == MUCRole.visitor -> OccupantRole.VISITOR
+                        else -> OccupantRole.MEMBER
                     }
-                } catch (e: Exception) {
-                    null
+
+                    val affiliation = when (occupant?.affiliation) {
+                        MUCAffiliation.owner -> OccupantAffiliation.OWNER
+                        MUCAffiliation.admin -> OccupantAffiliation.ADMIN
+                        MUCAffiliation.member -> OccupantAffiliation.MEMBER
+                        MUCAffiliation.outcast -> OccupantAffiliation.OUTCAST
+                        else -> OccupantAffiliation.NONE
+                    }
+
+                    val smackPresence = muc.getOccupantPresence(occupantJid)
+                    val userPresence = smackPresence?.toUserPresence() ?: UserPresence.ONLINE
+                    val statusMessage = smackPresence?.status ?: ""
+                    val defaultStatus = when (userPresence) {
+                        UserPresence.ONLINE -> "Online"
+                        UserPresence.CHAT -> "Bebas Chat"
+                        UserPresence.AWAY -> "Away"
+                        UserPresence.XA -> "Extended Away"
+                        UserPresence.DND -> "Jangan Ganggu"
+                        UserPresence.OFFLINE -> "Offline"
+                    }
+                    val myJid = connectionManager.credentials.value.jid
+                    val realJid = if (isMe && myJid.isNotBlank()) {
+                        myJid
+                    } else {
+                        occupant?.jid?.asBareJid()?.toString() ?: occupantJid.toString()
+                    }
+
+                    val capsExtension = try {
+                        smackPresence?.let { p ->
+                            org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
+                                ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                        }
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    val occupantCaps = if (isMe) {
+                        com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                            name = "InChat",
+                            jid = realJid,
+                            node = "http://ndregil.inchat"
+                        )
+                    } else {
+                        com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                            name = nickname,
+                            jid = realJid,
+                            node = capsExtension?.node ?: "",
+                            ver = capsExtension?.ver ?: "",
+                            hash = capsExtension?.hash ?: "sha-1"
+                        )
+                    }
+
+                    // Fetch avatar (will trigger fetch if missing, with fallback for current user)
+                    // Memory cache check is fast, DB/Network fetch is async in Manager
+                    val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)
+                        ?: (if (isMe && myJid.isNotBlank()) avatarManager.getAvatar(myJid) else null)
+
+                    occupantsList.add(
+                        RoomOccupant(
+                            nickname = nickname,
+                            jid = realJid,
+                            fullJid = occupantJid.toString(),
+                            role = role,
+                            affiliation = affiliation,
+                            presence = userPresence,
+                            statusText = statusMessage.ifBlank { if (isMe) "Kamu" else defaultStatus },
+                            isMe = isMe,
+                            avatar = avatar,
+                            clientCaps = occupantCaps
+                        )
+                    )
                 }
 
-                val occupantCaps = if (isMe) {
-                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                        name = "InChat",
-                        jid = realJid,
-                        node = "http://ndregil.inchat"
-                    )
-                } else {
-                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                        name = nickname,
-                        jid = realJid,
-                        node = capsExtension?.node ?: "",
-                        ver = capsExtension?.ver ?: "",
-                        hash = capsExtension?.hash ?: "sha-1"
-                    )
+                val currentMap = _roomOccupants.value.toMutableMap()
+                currentMap[roomJid] = occupantsList
+                _roomOccupants.value = currentMap
+            } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Log.w(TAG, "Error updating occupants for $roomJid: ${e.message}")
                 }
-
-                // Fetch avatar (will trigger fetch if missing, with fallback for current user)
-                val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)
-                    ?: (if (isMe && myJid.isNotBlank()) avatarManager.getAvatar(myJid) else null)
-
-                occupantsList.add(
-                    RoomOccupant(
-                        nickname = nickname,
-                        jid = realJid,
-                        fullJid = occupantJid.toString(),
-                        role = role,
-                        affiliation = affiliation,
-                        presence = userPresence,
-                        statusText = statusMessage.ifBlank { if (isMe) "Kamu" else defaultStatus },
-                        isMe = isMe,
-                        avatar = avatar,
-                        clientCaps = occupantCaps
-                    )
-                )
             }
-
-            val currentMap = _roomOccupants.value.toMutableMap()
-            currentMap[roomJid] = occupantsList
-            _roomOccupants.value = currentMap
-        } catch (e: Exception) {
-            Log.w(TAG, "Error updating occupants for $roomJid: ${e.message}")
         }
     }
 }

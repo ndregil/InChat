@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.DeliveryStatus
 import com.ndregil.inchat.data.model.MessageType
 import com.ndregil.inchat.data.model.XmppMessage
+import com.ndregil.inchat.data.model.ThemePreferences
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
 import com.ndregil.inchat.ui.theme.OfflineGray
@@ -147,6 +148,7 @@ fun MessageBubble(
     onQuerySoftwareVersion: ((targetJid: String, onResult: (Result<com.ndregil.inchat.data.model.ClientCaps>) -> Unit) -> Unit)? = null,
     bubbleTheme: String = "dregil-theme",
     isDark: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
+    themePrefs: ThemePreferences = ThemePreferences(),
     modifier: Modifier = Modifier
 ) {
     var showCapsDialog by remember { mutableStateOf(false) }
@@ -164,20 +166,47 @@ fun MessageBubble(
 
     val isMine = message.isMine
     val isWhisper = message.messageType == MessageType.WHISPER
-    val senderColor = getSenderColor(message.senderNickname)
     val palette = remember(bubbleTheme, isDark) { getBubblePalette(bubbleTheme, isDark) }
 
-    val bubbleBg = when {
-        isWhisper && isMine -> Color(0xFF4C1D95)
-        isWhisper && !isMine -> Color(0xFF581C87)
-        isMine -> palette.mineBg
-        else -> palette.otherBg
+    val senderColor = if (themePrefs.isCustomThemeEnabled) {
+        try { Color(android.graphics.Color.parseColor(themePrefs.nicknameColorHex)) } catch (e: Exception) { getSenderColor(message.senderNickname) }
+    } else {
+        getSenderColor(message.senderNickname)
     }
 
-    val textColor = when {
-        isWhisper -> Color(0xFFF3E8FF)
-        isMine -> palette.mineText
-        else -> palette.otherText
+    val bubbleBg = if (themePrefs.isCustomThemeEnabled) {
+        try {
+            when {
+                isWhisper && isMine -> Color(0xFF4C1D95)
+                isWhisper && !isMine -> Color(0xFF581C87)
+                isMine -> Color(android.graphics.Color.parseColor(themePrefs.outgoingBubbleColorHex))
+                else -> Color(android.graphics.Color.parseColor(themePrefs.incomingBubbleColorHex))
+            }
+        } catch (e: Exception) {
+            when {
+                isWhisper && isMine -> Color(0xFF4C1D95)
+                isWhisper && !isMine -> Color(0xFF581C87)
+                isMine -> palette.mineBg
+                else -> palette.otherBg
+            }
+        }
+    } else {
+        when {
+            isWhisper && isMine -> Color(0xFF4C1D95)
+            isWhisper && !isMine -> Color(0xFF581C87)
+            isMine -> palette.mineBg
+            else -> palette.otherBg
+        }
+    }
+
+    val textColor = if (themePrefs.isCustomThemeEnabled && !isWhisper) {
+        if (bubbleBg.luminance() > 0.5f) Color(0xFF1E293B) else Color.White
+    } else {
+        when {
+            isWhisper -> Color(0xFFF3E8FF)
+            isMine -> palette.mineText
+            else -> palette.otherText
+        }
     }
 
     val bubbleShape = if (isMine) {

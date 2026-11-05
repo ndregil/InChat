@@ -144,11 +144,14 @@ fun AccountConnectionScreen(
     onUpdateAvatar: (android.net.Uri) -> Unit = {},
     myAvatar: ByteArray? = null,
     lastErrorMessage: String? = null,
+    initialTab: Int = -1,
     modifier: Modifier = Modifier
 ) {
-    var activeTabMode by remember(currentAccount, connectionStatus) {
+    var activeTabMode by remember(initialTab) {
         mutableIntStateOf(
-            if (connectionStatus != ConnectionStatus.CONNECTED && currentAccount.jid.isBlank()) 0 else 1
+            if (initialTab >= 0) initialTab 
+            else if (connectionStatus != ConnectionStatus.CONNECTED && currentAccount.jid.isBlank()) 0 
+            else 1
         )
     }
 

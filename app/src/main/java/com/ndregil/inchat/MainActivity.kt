@@ -11,11 +11,17 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ndregil.inchat.data.network.fcm.FcmPushManager
 import com.ndregil.inchat.ui.XmppViewModel
 import com.ndregil.inchat.ui.screens.MultiRoomMainScreen
 import com.ndregil.inchat.ui.theme.MyApplicationTheme
+import com.ndregil.inchat.ui.screens.WelcomeScreen
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 
 class MainActivity : ComponentActivity() {
 
@@ -44,9 +50,42 @@ class MainActivity : ComponentActivity() {
             val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
             val useDarkMode = isDarkModeOverride ?: systemDark
 
-            MyApplicationTheme(darkTheme = useDarkMode) {
+            val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
+            val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
+            var onboardingTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+
+            val customAccent = if (themePrefs.isCustomThemeEnabled) {
+                try { Color(android.graphics.Color.parseColor(themePrefs.accentColorHex)) } catch (e: Exception) { null }
+            } else null
+
+            MyApplicationTheme(
+                darkTheme = useDarkMode,
+                dynamicColor = !themePrefs.isCustomThemeEnabled,
+                customAccentColor = customAccent
+            ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MultiRoomMainScreen(viewModel = viewModel)
+                    if (currentAccount.jid.isBlank() && onboardingTarget == null) {
+                        WelcomeScreen(
+                            onLoginClick = { onboardingTarget = Pair(4, 1) },
+                            onRegisterClick = { onboardingTarget = Pair(4, 2) }
+                        )
+                    } else {
+                        val initialNav = onboardingTarget?.first ?: 0
+                        val initialTab = onboardingTarget?.second ?: 1
+                        
+                        MultiRoomMainScreen(
+                            viewModel = viewModel,
+                            initialNavIndex = initialNav,
+                            initialAccountTab = initialTab
+                        )
+
+                        // Clear onboarding state once successfully logged in
+                        LaunchedEffect(currentAccount.jid) {
+                            if (currentAccount.jid.isNotBlank()) {
+                                onboardingTarget = null
+                            }
+                        }
+                    }
                 }
             }
         }

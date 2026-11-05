@@ -50,7 +50,8 @@ data class RoomEntity(
     val password: String? = null,
     val isAutoJoin: Boolean = true,
     val bubbleTheme: String = "dregil-theme",
-    val wallpaperStyle: String = "default"
+    val wallpaperStyle: String = "default",
+    val isGroupChat: Boolean = true
 )
 
 @Entity(
@@ -106,7 +107,8 @@ data class RoomConfigEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val lastJoinedAt: Long = 0L,
     val bubbleTheme: String = "dregil-theme",
-    val wallpaperStyle: String = "default"
+    val wallpaperStyle: String = "default",
+    val isGroupChat: Boolean = true
 )
 
 @Entity(

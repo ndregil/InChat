@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.XmppRoom
+import com.ndregil.inchat.data.model.ThemePreferences
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -54,6 +56,7 @@ fun RoomItemCard(
     isSelected: Boolean,
     onClick: () -> Unit,
     roomAvatar: ByteArray? = null,
+    themePrefs: ThemePreferences = ThemePreferences(),
     modifier: Modifier = Modifier
 ) {
     val roomColor = try {
@@ -136,7 +139,12 @@ fun RoomItemCard(
                         fontWeight = if (room.unreadCount > 0 || isSelected) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = if (themePrefs.isCustomThemeEnabled) {
+                            try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                        } else {
+                            Color.Unspecified
+                        }
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
@@ -174,25 +182,34 @@ fun RoomItemCard(
                         )
                     }
 
-                    // Occupants pill
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    if (room.isGroupChat) {
+                        // Occupants pill
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Group,
+                                contentDescription = "Anggota",
+                                modifier = Modifier.size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "${room.occupantCount}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
                         Icon(
-                            imageVector = Icons.Default.Group,
-                            contentDescription = "Anggota",
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Pesan Pribadi",
                             modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${room.occupantCount}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                         )
                     }
 

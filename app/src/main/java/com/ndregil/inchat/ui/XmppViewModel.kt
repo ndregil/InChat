@@ -100,6 +100,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val outcastsList = MutableStateFlow<List<com.ndregil.inchat.data.model.MucAffiliate>>(emptyList())
     val isLoadingAffiliations = MutableStateFlow(false)
 
+    val themePreferences: StateFlow<com.ndregil.inchat.data.model.ThemePreferences> = repository.themePreferences.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = com.ndregil.inchat.data.model.ThemePreferences()
+    )
+
+    fun updateThemePreferences(prefs: com.ndregil.inchat.data.model.ThemePreferences) {
+        viewModelScope.launch {
+            repository.updateThemePreferences(prefs)
+        }
+    }
+
     init {
         viewModelScope.launch {
             repository.autoJoinEvents.collect { msg ->
@@ -119,6 +131,14 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    val groupRooms: StateFlow<List<XmppRoom>> = allRooms.map { rooms ->
+        rooms.filter { it.isGroupChat }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val directChats: StateFlow<List<XmppRoom>> = allRooms.map { rooms ->
+        rooms.filter { !it.isGroupChat }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Room Configurations (persisted in Room DB)
     val roomConfigs: StateFlow<List<RoomConfigEntity>> = repository.roomConfigs.stateIn(
         scope = viewModelScope,
@@ -127,7 +147,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     // Filtered rooms
-    val filteredRooms: StateFlow<List<XmppRoom>> = combine(allRooms, _searchQuery) { rooms, query ->
+    val filteredRooms: StateFlow<List<XmppRoom>> = combine(groupRooms, _searchQuery) { rooms, query ->
         if (query.isBlank()) {
             rooms
         } else {
@@ -143,8 +163,32 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    val filteredDirectChats: StateFlow<List<XmppRoom>> = combine(directChats, _searchQuery) { rooms, query ->
+        if (query.isBlank()) {
+            rooms
+        } else {
+            rooms.filter {
+                it.name.contains(query, ignoreCase = true) ||
+                it.jid.contains(query, ignoreCase = true)
+            }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
     // Saved / Bookmarked rooms
-    val savedRooms: StateFlow<List<XmppRoom>> = combine(allRooms, roomConfigs) { rooms, configs ->
+    val savedRooms: StateFlow<List<XmppRoom>> = combine(groupRooms, roomConfigs) { rooms, configs ->
+        val bookmarkedConfigJids = configs.filter { it.isBookmarked }.map { it.roomJid }.toSet()
+        rooms.filter { it.isBookmarked || bookmarkedConfigJids.contains(it.jid) }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val savedDirectChats: StateFlow<List<XmppRoom>> = combine(directChats, roomConfigs) { rooms, configs ->
         val bookmarkedConfigJids = configs.filter { it.isBookmarked }.map { it.roomJid }.toSet()
         rooms.filter { it.isBookmarked || bookmarkedConfigJids.contains(it.jid) }
     }.stateIn(

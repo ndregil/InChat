@@ -81,9 +81,10 @@ class Converters {
         RoomEntity::class,
         MessageEntity::class,
         RoomConfigEntity::class,
-        ContactEntity::class
+        ContactEntity::class,
+        com.ndregil.inchat.data.local.entity.AvatarEntity::class
     ],
-    version = 8,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -94,6 +95,7 @@ abstract class AppDatabase : RoomDatabase() {
     fun chatMessageDao(): ChatMessageDao = messageDao()
     abstract fun roomConfigDao(): RoomConfigDao
     abstract fun contactDao(): ContactDao
+    abstract fun avatarDao(): com.ndregil.inchat.data.local.dao.AvatarDao
 
     companion object {
         @Volatile

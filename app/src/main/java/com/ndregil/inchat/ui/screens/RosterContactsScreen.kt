@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
@@ -82,7 +83,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ndregil.inchat.data.model.XmppRoom
 import com.ndregil.inchat.data.model.RosterContact
 import com.ndregil.inchat.data.model.UserPresence
 import com.ndregil.inchat.data.model.XmppAccount
@@ -94,6 +107,7 @@ import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
 import com.ndregil.inchat.ui.theme.OfflineGray
 import com.ndregil.inchat.ui.theme.OnlineGreen
+import com.ndregil.inchat.data.model.ThemePreferences
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,14 +115,19 @@ import java.util.Locale
 fun RosterContactsScreen(
     viewModel: XmppViewModel,
     onStartDirectChat: ((jid: String, name: String) -> Unit)? = null,
+    onRoomClick: ((String) -> Unit)? = null,
+    themePrefs: ThemePreferences = ThemePreferences(),
     modifier: Modifier = Modifier
 ) {
+    var selectedSubTab by remember { mutableIntStateOf(0) } // 0 = Kontak, 1 = Room Favorit
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
     val isRosterLoading by viewModel.isRosterLoading.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
     val myPresence by viewModel.myPresence.collectAsStateWithLifecycle()
     val myStatusMessage by viewModel.myStatusMessage.collectAsStateWithLifecycle()
     val allRooms by viewModel.allRooms.collectAsStateWithLifecycle()
+    val savedRooms by viewModel.savedRooms.collectAsStateWithLifecycle()
+    val isSyncingBookmarks by viewModel.isSyncingBookmarks.collectAsStateWithLifecycle()
 
     var selectedFileTargetJid by remember { mutableStateOf<String?>(null) }
     
@@ -151,214 +170,273 @@ fun RosterContactsScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
+            Column {
+                TopAppBar(
+                    title = {
                         Text(
-                            text = "XMPP Roster & Kontak",
+                            text = if (selectedSubTab == 0) "Kontak" else "Room Favorit",
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleLarge
                         )
-                        Text(
-                            text = "${contacts.count { it.presence != UserPresence.OFFLINE }} online dari ${contacts.size} kontak",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { viewModel.refreshRoster() },
-                        modifier = Modifier.testTag("refresh_roster_button")
-                    ) {
-                        if (isRosterLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                    },
+                    actions = {
+                        if (selectedSubTab == 0) {
+                            IconButton(
+                                onClick = { viewModel.refreshRoster() },
+                                modifier = Modifier.testTag("refresh_roster_button")
+                            ) {
+                                if (isRosterLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Muat Ulang Roster")
+                                }
+                            }
                         } else {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Muat Ulang Roster")
+                            IconButton(
+                                onClick = { viewModel.syncBookmarks() },
+                                enabled = !isSyncingBookmarks,
+                                modifier = Modifier.testTag("btn_sync_bookmarks_roster")
+                            ) {
+                                if (isSyncingBookmarks) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Sinkronkan Bookmark")
+                                }
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+                androidx.compose.material3.TabRow(
+                    selectedTabIndex = selectedSubTab,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    divider = {}
+                ) {
+                    androidx.compose.material3.Tab(
+                        selected = selectedSubTab == 0,
+                        onClick = { selectedSubTab = 0 },
+                        text = { Text("Kontak") }
+                    )
+                    androidx.compose.material3.Tab(
+                        selected = selectedSubTab == 1,
+                        onClick = { selectedSubTab = 1 },
+                        text = { Text("Room Favorit") }
+                    )
+                }
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.testTag("add_contact_fab")
-            ) {
-                Icon(imageVector = Icons.Default.PersonAdd, contentDescription = "Tambah Kontak")
+            if (selectedSubTab == 0) {
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.testTag("add_contact_fab")
+                ) {
+                    Icon(imageVector = Icons.Default.PersonAdd, contentDescription = "Tambah Kontak")
+                }
+            } else {
+                FloatingActionButton(
+                    onClick = { viewModel.isJoinCreateDialogOpen.value = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.testTag("add_room_fab_roster")
+                ) {
+                    Icon(imageVector = Icons.Default.GroupAdd, contentDescription = "Gabung/Buat Room")
+                }
             }
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp)
-        ) {
-            val myAvatar by viewModel.myAvatar.collectAsStateWithLifecycle()
-            val avatarPickerLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.GetContent()
-            ) { uri: android.net.Uri? ->
-                uri?.let { viewModel.updateAvatar(it) }
-            }
+        if (selectedSubTab == 0) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp)
+            ) {
+                val myAvatar by viewModel.myAvatar.collectAsStateWithLifecycle()
+                val avatarPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent()
+                ) { uri: android.net.Uri? ->
+                    uri?.let { viewModel.updateAvatar(it) }
+                }
 
-            // User Presence Status & Broadcast Card (Updates status & profile picture across all contacts & MUC rooms)
-            UserPresenceControlCard(
-                currentPresence = myPresence,
-                statusMessage = myStatusMessage,
-                currentAccount = currentAccount,
-                contactsCount = contacts.size,
-                roomsCount = allRooms.size,
-                myAvatar = myAvatar,
-                onUpdateAvatarClick = { avatarPickerLauncher.launch("image/*") },
-                onPresenceChange = { newPresence, newStatusMsg ->
-                    viewModel.updateMyPresence(newPresence, newStatusMsg)
-                },
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-            )
+                // User Presence Status & Broadcast Card
+                UserPresenceControlCard(
+                    currentPresence = myPresence,
+                    statusMessage = myStatusMessage,
+                    currentAccount = currentAccount,
+                    contactsCount = contacts.size,
+                    roomsCount = allRooms.size,
+                    myAvatar = myAvatar,
+                    onUpdateAvatarClick = { avatarPickerLauncher.launch("image/*") },
+                    onPresenceChange = { newPresence, newStatusMsg ->
+                        viewModel.updateMyPresence(newPresence, newStatusMsg)
+                    },
+                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                )
 
-            // Search Input
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari berdasarkan nama, JID, atau grup...") },
-                leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Hapus teks")
+                // Search Input
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cari berdasarkan nama, JID, atau grup...") },
+                    leadingIcon = {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(imageVector = Icons.Default.Clear, contentDescription = "Hapus teks")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .testTag("roster_search_input")
+                )
+
+                // Granular Presence Filter Chips
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        FilterChip(
+                            selected = selectedFilter == "ALL",
+                            onClick = { selectedFilter = "ALL" },
+                            label = { Text("Semua (${contacts.size})") },
+                            modifier = Modifier.testTag("filter_all_contacts")
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedFilter == "ONLINE",
+                            onClick = { selectedFilter = "ONLINE" },
+                            label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
+                            modifier = Modifier.testTag("filter_online_contacts")
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedFilter == "AWAY",
+                            onClick = { selectedFilter = "AWAY" },
+                            label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
+                            modifier = Modifier.testTag("filter_away_contacts")
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedFilter == "DND",
+                            onClick = { selectedFilter = "DND" },
+                            label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
+                            modifier = Modifier.testTag("filter_dnd_contacts")
+                        )
+                    }
+                    item {
+                        FilterChip(
+                            selected = selectedFilter == "OFFLINE",
+                            onClick = { selectedFilter = "OFFLINE" },
+                            label = { Text("Offline (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
+                            modifier = Modifier.testTag("filter_offline_contacts")
+                        )
+                    }
+                }
+
+                // Contact List or Empty State
+                if (filteredContacts.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "Kontak tidak ditemukan" else "Belum ada kontak di Roster",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
-                },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .testTag("roster_search_input")
-            )
-
-            // Granular Presence Filter Chips
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "ALL",
-                        onClick = { selectedFilter = "ALL" },
-                        label = { Text("Semua (${contacts.size})") },
-                        modifier = Modifier.testTag("filter_all_contacts")
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "ONLINE",
-                        onClick = { selectedFilter = "ONLINE" },
-                        label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
-                        modifier = Modifier.testTag("filter_online_contacts")
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "AWAY",
-                        onClick = { selectedFilter = "AWAY" },
-                        label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
-                        modifier = Modifier.testTag("filter_away_contacts")
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "DND",
-                        onClick = { selectedFilter = "DND" },
-                        label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
-                        modifier = Modifier.testTag("filter_dnd_contacts")
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = selectedFilter == "OFFLINE",
-                        onClick = { selectedFilter = "OFFLINE" },
-                        label = { Text("Offline (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
-                        modifier = Modifier.testTag("filter_offline_contacts")
-                    )
-                }
-            }
-
-            // Contact List or Empty State
-            if (filteredContacts.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                            .testTag("roster_contact_list")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "Kontak tidak ditemukan" else "Belum ada kontak di Roster",
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .testTag("roster_contact_list")
-                ) {
-                    items(filteredContacts, key = { it.jid }) { contact ->
-                        RosterContactListItem(
-                            contact = contact,
-                            onChatClick = {
-                                if (onStartDirectChat != null) {
-                                    onStartDirectChat(contact.jid, contact.displayName)
-                                } else {
-                                    viewModel.startDirectChat(contact.jid, contact.displayName)
-                                }
-                            },
-                            onRenameClick = { contactToRename = contact },
-                            onDeleteClick = { contactToDelete = contact },
-                            onCapsClick = { selectedCapsContact = contact },
-                            onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Voice") },
-                            onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
-                            onSendFileClick = {
-                                selectedFileTargetJid = contact.jid
-                                filePickerLauncher.launch("*/*")
-                            }
-                        )
+                        items(filteredContacts, key = { it.jid }) { contact ->
+                            RosterContactListItem(
+                                contact = contact,
+                                onChatClick = {
+                                    if (onStartDirectChat != null) {
+                                        onStartDirectChat(contact.jid, contact.displayName)
+                                    } else {
+                                        viewModel.startDirectChat(contact.jid, contact.displayName)
+                                    }
+                                },
+                                onRenameClick = { contactToRename = contact },
+                                onDeleteClick = { contactToDelete = contact },
+                                onCapsClick = { selectedCapsContact = contact },
+                                onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Voice") },
+                                onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
+                                onSendFileClick = {
+                                    selectedFileTargetJid = contact.jid
+                                    filePickerLauncher.launch("*/*")
+                                },
+                                themePrefs = themePrefs
+                            )
+                        }
                     }
                 }
             }
+        } else {
+            // Room Favorit Tab Content
+            SavedRoomsInternalContent(
+                savedRooms = savedRooms,
+                onSelectRoom = { jid -> onRoomClick?.invoke(jid) },
+                onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
+                onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
+                onSyncBookmarks = { viewModel.syncBookmarks() },
+                isSyncing = isSyncingBookmarks,
+                getRoomAvatar = { jid -> viewModel.repository.getRoomAvatar(jid) },
+                onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
+                onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
+                themePrefs = themePrefs,
+                paddingValues = paddingValues
+            )
         }
     }
 
@@ -431,17 +509,22 @@ fun RosterContactListItem(
     onCapsClick: () -> Unit = {},
     onCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
-    onSendFileClick: () -> Unit
+    onSendFileClick: () -> Unit,
+    themePrefs: ThemePreferences = ThemePreferences()
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val presenceColor = when (contact.presence) {
-        UserPresence.ONLINE -> OnlineGreen
-        UserPresence.CHAT -> Color(0xFF0D9488)
-        UserPresence.AWAY -> AwayAmber
-        UserPresence.XA -> Color(0xFFD97706)
-        UserPresence.DND -> DndRed
-        UserPresence.OFFLINE -> OfflineGray
+    val presenceColor = if (themePrefs.isCustomThemeEnabled && (contact.presence == UserPresence.ONLINE || contact.presence == UserPresence.CHAT)) {
+        try { Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex)) } catch (e: Exception) { OnlineGreen }
+    } else {
+        when (contact.presence) {
+            UserPresence.ONLINE -> OnlineGreen
+            UserPresence.CHAT -> Color(0xFF0D9488)
+            UserPresence.AWAY -> AwayAmber
+            UserPresence.XA -> Color(0xFFD97706)
+            UserPresence.DND -> DndRed
+            UserPresence.OFFLINE -> OfflineGray
+        }
     }
 
     Surface(
@@ -514,7 +597,12 @@ fun RosterContactListItem(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (themePrefs.isCustomThemeEnabled) {
+                                    try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                                } else {
+                                    Color.Unspecified
+                                }
                             )
                             if (!contact.nickname.isNullOrBlank() && contact.nickname != contact.name) {
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -1280,6 +1368,374 @@ fun UserPresenceControlCard(
                         color = OnlineGreen,
                         fontWeight = FontWeight.Medium
                     )
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun SavedRoomsInternalContent(
+    savedRooms: List<XmppRoom>,
+    onSelectRoom: (String) -> Unit,
+    onRemoveBookmark: (String) -> Unit,
+    onAddRoomClick: () -> Unit,
+    onSyncBookmarks: (() -> Unit)? = null,
+    isSyncing: Boolean = false,
+    getRoomAvatar: ((String) -> ByteArray?)? = null,
+    onUpdateRoomColor: ((String, String) -> Unit)? = null,
+    onToggleAutoJoin: ((String, Boolean) -> Unit)? = null,
+    themePrefs: ThemePreferences = ThemePreferences(),
+    paddingValues: PaddingValues = PaddingValues(0.dp)
+) {
+    var searchQuery by remember { mutableStateOf("") }
+    var roomToColorPick by remember { mutableStateOf<XmppRoom?>(null) }
+    var roomToDelete by remember { mutableStateOf<XmppRoom?>(null) }
+
+    val filteredRooms = remember(savedRooms, searchQuery) {
+        if (searchQuery.isBlank()) savedRooms
+        else savedRooms.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+            it.topic.contains(searchQuery, ignoreCase = true) ||
+            it.jid.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    // Color picker dialog
+    if (roomToColorPick != null && onUpdateRoomColor != null) {
+        val targetRoom = roomToColorPick!!
+        AlertDialog(
+            onDismissRequest = { roomToColorPick = null },
+            icon = {
+                Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            },
+            title = {
+                Text(
+                    text = "Pilih Warna Tema Room",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Atur warna aksen untuk ruangan \"${targetRoom.name.substringBefore("@")}\" agar mudah dikenali di daftar chat.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        items(ROOM_PRESET_COLORS) { (hex, name) ->
+                            val isSelected = targetRoom.colorHex.equals(hex, ignoreCase = true)
+                            val colorObj = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { Color.Gray }
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(colorObj)
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        onUpdateRoomColor(targetRoom.jid, hex)
+                                        roomToColorPick = null
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = name,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { roomToColorPick = null }) {
+                    Text("Tutup")
+                }
+            }
+        )
+    }
+
+    // Delete bookmark confirmation dialog
+    if (roomToDelete != null) {
+        val delRoom = roomToDelete!!
+        AlertDialog(
+            onDismissRequest = { roomToDelete = null },
+            icon = {
+                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+            },
+            title = { Text("Hapus dari Favorit?") },
+            text = {
+                Text("Ruangan \"${delRoom.name}\" (${delRoom.jid}) akan dihapus dari daftar favorit.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRemoveBookmark(delRoom.jid)
+                        roomToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Hapus")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { roomToDelete = null }) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+        // Search Bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .testTag("search_saved_rooms_roster"),
+            placeholder = { Text("Cari favorit...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            trailingIcon = if (searchQuery.isNotEmpty()) {
+                {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Bersihkan")
+                    }
+                }
+            } else null,
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp)
+        )
+
+        if (filteredRooms.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = if (searchQuery.isEmpty()) Icons.Default.Bookmark else Icons.Default.SearchOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (searchQuery.isEmpty()) "Belum ada bookmark" else "Tidak ditemukan",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (searchQuery.isEmpty())
+                            "Simpan ruangan dari Discovery atau Multi-Room untuk akses cepat di sini."
+                        else "Tidak ada ruangan yang cocok dengan kata kunci '$searchQuery'.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 16.dp, top = 8.dp)
+            ) {
+                items(filteredRooms, key = { it.jid }) { room ->
+                    val avatarBytes = getRoomAvatar?.invoke(room.jid)
+                    SavedRoomItem(
+                        room = room,
+                        roomAvatar = avatarBytes,
+                        onClick = { onSelectRoom(room.jid) },
+                        onRemove = { roomToDelete = room },
+                        onChangeColorClick = { roomToColorPick = room },
+                        onToggleAutoJoin = onToggleAutoJoin?.let { fn -> { fn(room.jid, !room.isAutoJoin) } },
+                        themePrefs = themePrefs
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SavedRoomItem(
+    room: XmppRoom,
+    roomAvatar: ByteArray? = null,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    onChangeColorClick: () -> Unit,
+    onToggleAutoJoin: (() -> Unit)? = null,
+    themePrefs: ThemePreferences = ThemePreferences()
+) {
+    val roomColor = try {
+        Color(android.graphics.Color.parseColor(room.colorHex))
+    } catch (e: Exception) {
+        MaterialTheme.colorScheme.primary
+    }
+
+    val cleanTitle = remember(room.name, room.jid) {
+        if (room.name.isNotBlank() && !room.name.contains("@")) {
+            room.name
+        } else {
+            val local = room.jid.substringBefore("@")
+            if (local.isNotBlank()) "# $local" else room.jid
+        }
+    }
+
+    val bitmap = remember(roomAvatar) {
+        if (roomAvatar != null && roomAvatar.isNotEmpty()) {
+            try {
+                BitmapFactory.decodeByteArray(roomAvatar, 0, roomAvatar.size)
+            } catch (e: Exception) {
+                null
+            }
+        } else null
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+            .testTag("saved_room_${room.jid}"),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.2.dp, roomColor.copy(alpha = 0.35f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(roomColor.copy(alpha = 0.15f))
+                        .border(1.8.dp, roomColor, CircleShape)
+                        .clickable { onChangeColorClick() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = "Avatar $cleanTitle",
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = cleanTitle.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = roomColor
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = cleanTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                            color = if (themePrefs.isCustomThemeEnabled) {
+                                try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                            } else {
+                                Color.Unspecified
+                            }
+                        )
+                    }
+
+                    Text(
+                        text = room.jid,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Hapus Bookmark",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (room.isAutoJoin) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                        .clickable { onToggleAutoJoin?.invoke() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (room.isAutoJoin) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = if (room.isAutoJoin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = if (room.isAutoJoin) "Auto-Join Aktif" else "Auto-Join Nonaktif",
+                        fontSize = 11.sp,
+                        fontWeight = if (room.isAutoJoin) FontWeight.Bold else FontWeight.Normal,
+                        color = if (room.isAutoJoin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = onChangeColorClick,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(14.dp), tint = roomColor)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Warna", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
         }

@@ -77,7 +77,7 @@ class XmppRepository(
 
     val engine = XmppProtocolEngine(scope)
     val smackConnectionManager = XmppConnectionManager()
-    val smackAvatarManager = XmppAvatarManager(smackConnectionManager, scope)
+    val smackAvatarManager = XmppAvatarManager(smackConnectionManager, database.avatarDao(), scope)
     val smackMucManager = MultiUserChatManager(smackConnectionManager, smackAvatarManager, scope)
     val smackDiscoManager = ServiceDiscoveryManager(smackConnectionManager)
     val smackRosterManager = RosterManager(smackConnectionManager, smackAvatarManager, scope)
@@ -85,6 +85,12 @@ class XmppRepository(
     val smackCallManager = JingleCallManager(smackConnectionManager, scope)
     val jabberSearchManager = com.ndregil.inchat.data.network.JabberNetworkSearchManager()
     val backupManager = com.ndregil.inchat.data.local.backup.ChatBackupManager(context, database)
+    val themePreferencesManager = com.ndregil.inchat.data.local.ThemePreferencesManager(context)
+
+    val themePreferences: Flow<com.ndregil.inchat.data.model.ThemePreferences> = themePreferencesManager.themePreferences
+    suspend fun updateThemePreferences(prefs: com.ndregil.inchat.data.model.ThemePreferences) {
+        themePreferencesManager.updateThemePreferences(prefs)
+    }
 
     val connectionStatus: StateFlow<ConnectionStatus> = smackConnectionManager.connectionStatus
     val connectionError: StateFlow<String?> = smackConnectionManager.lastError
@@ -267,8 +273,8 @@ class XmppRepository(
         return combine(
             database.messageDao().getMessagesForRoom(roomJid),
             smackAvatarManager.avatarUpdates.onStart { emit("") }
-        ) { list, _ ->
-            list.map { entity ->
+        ) { entities, _ ->
+            entities.map { entity ->
                 val model = entity.toModel()
                 val myJid = currentAccount.value.jid
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
@@ -447,7 +453,8 @@ class XmppRepository(
                 myAffiliation = OccupantAffiliation.MEMBER,
                 colorHex = randomColorForRoom(roomJid),
                 password = password,
-                isAutoJoin = isAutoJoin
+                isAutoJoin = isAutoJoin,
+                isGroupChat = isMucJid(roomJid)
             )
             database.roomDao().insertOrUpdateRoom(newRoom)
         }
@@ -459,7 +466,8 @@ class XmppRepository(
             nickname = nickname,
             isBookmarked = isBookmarked,
             isAutoJoin = isAutoJoin,
-            password = password
+            password = password,
+            isGroupChat = isMucJid(roomJid)
         )).copy(
             roomName = roomName,
             nickname = nickname,
@@ -689,60 +697,57 @@ class XmppRepository(
 
     private suspend fun processIncomingMessage(msg: XmppMessage) {
         try {
-            database.messageDao().insertMessage(msg.toEntity())
-
-            // Update room last message and unread count
-            val existing = database.roomDao().getRoomByJid(msg.roomJid)
-            if (existing != null) {
-                val updated = existing.copy(
-                    lastMessageText = when(msg.messageType) {
-                        MessageType.WHISPER -> "[Bisikan] ${msg.body}"
-                        MessageType.CHAT -> msg.body
-                        MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
-                        MessageType.VOICE -> "[Pesan Suara]"
-                        MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
-                        else -> msg.body
-                    },
-                    lastMessageTime = msg.timestamp,
-                    unreadCount = if (msg.isMine) existing.unreadCount else existing.unreadCount + 1
-                )
-                database.roomDao().insertOrUpdateRoom(updated)
-            } else {
-                // Auto-create 1-on-1 chat room for incoming direct message
-                val name = if (msg.senderNickname.isNotBlank() && msg.senderNickname != "System") msg.senderNickname else msg.roomJid.substringBefore("@")
+            // 0. Ensure room exists in database so it appears in Chat list
+            if (database.roomDao().getRoomByJid(msg.roomJid) == null) {
+                val isGroup = msg.messageType == MessageType.GROUPCHAT || isMucJid(msg.roomJid)
+                val defaultName = if (isGroup) "# " + msg.roomJid.substringBefore("@") else msg.senderNickname.ifBlank { msg.roomJid.substringBefore("@") }
                 val newRoom = RoomEntity(
                     jid = msg.roomJid,
-                    name = name,
-                    topic = "Obrolan Langsung (1-on-1)",
-                    myNickname = currentAccount.value.nickname.ifBlank { "User" },
-                    occupantCount = 2,
-                    unreadCount = if (msg.isMine) 0 else 1,
-                    lastMessageText = when(msg.messageType) {
-                        MessageType.WHISPER -> "[Bisikan] ${msg.body}"
-                        MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
-                        MessageType.VOICE -> "[Pesan Suara]"
-                        MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
-                        else -> msg.body
-                    },
+                    name = defaultName,
+                    topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
+                    myNickname = currentAccount.value.nickname,
+                    occupantCount = if (isGroup) 1 else 2,
+                    unreadCount = 0,
+                    lastMessageText = "",
                     lastMessageTime = msg.timestamp,
-                    isJoined = true,
-                    isBookmarked = true,
-                    myRole = OccupantRole.MEMBER,
-                    myAffiliation = OccupantAffiliation.MEMBER,
-                    colorHex = randomColorForRoom(msg.roomJid)
+                    isJoined = isGroup,
+                    isBookmarked = false,
+                    myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.NONE,
+                    myAffiliation = if (isGroup) OccupantAffiliation.MEMBER else OccupantAffiliation.NONE,
+                    colorHex = randomColorForRoom(msg.roomJid),
+                    isAutoJoin = isGroup,
+                    isGroupChat = isGroup
                 )
                 database.roomDao().insertOrUpdateRoom(newRoom)
             }
 
-            // Post notification for incoming messages (MUC, Whisper, 1-on-1 Direct Chat)
-            if (!msg.isMine &&
+            // 1. Efficient Insert
+            database.messageDao().insertMessage(msg.toEntity())
+
+            // 2. Optimized Room Update
+            val lastText = when(msg.messageType) {
+                MessageType.WHISPER -> "[Bisikan] ${msg.body}"
+                MessageType.CHAT -> msg.body
+                MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
+                MessageType.VOICE -> "[Pesan Suara]"
+                MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
+                else -> msg.body
+            }
+            
+            // Only increment unread if NOT mine AND NOT history
+            val unreadIncrement = if (msg.isMine || msg.isHistory) 0 else 1
+            
+            // Use specialized update query to avoid fetching full RoomEntity
+            database.roomDao().updateLastMessage(msg.roomJid, lastText, msg.timestamp, unreadIncrement)
+
+            // 3. Conditional Notification (Skip history, skip system messages)
+            if (!msg.isMine && !msg.isHistory &&
                 msg.messageType != MessageType.SYSTEM_JOIN &&
                 msg.messageType != MessageType.SYSTEM_LEAVE &&
                 msg.messageType != MessageType.SYSTEM_STATUS &&
                 msg.messageType != MessageType.SYSTEM_TOPIC &&
                 (msg.body.isNotBlank() || !msg.fileName.isNullOrBlank())
             ) {
-                // Discard stale history replay older than 30 seconds
                 val isRecent = (System.currentTimeMillis() - msg.timestamp) < 30_000L
                 if (isRecent) {
                     val roomConfig = database.roomConfigDao().getRoomConfigSync(msg.roomJid)
@@ -762,25 +767,16 @@ class XmppRepository(
                     if (shouldNotify) {
                         val isDirect = msg.messageType == MessageType.CHAT ||
                                 (!msg.roomJid.contains("conference.", ignoreCase = true) && !msg.roomJid.contains("muc.", ignoreCase = true))
-                        val roomName = existing?.name ?: msg.roomJid.substringBefore("@")
                         val senderName = msg.senderNickname.ifBlank { msg.senderJid.substringBefore("@") }
-
-                        val bodySnippet = when (msg.messageType) {
-                            MessageType.WHISPER -> "[Bisikan] ${msg.body}"
-                            MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
-                            MessageType.VOICE -> "[Pesan Suara]"
-                            MessageType.ACTION -> "* $senderName ${msg.body}"
-                            else -> msg.body
-                        }
 
                         val payload = PushMessagePayload(
                             messageId = msg.id,
                             roomJid = msg.roomJid,
                             senderNickname = senderName,
-                            body = bodySnippet,
+                            body = lastText,
                             isWhisper = msg.messageType == MessageType.WHISPER,
                             isDirect = isDirect,
-                            roomTitle = roomName,
+                            roomTitle = msg.senderNickname, // Fallback title
                             timestamp = msg.timestamp,
                             isMention = isMention
                         )
@@ -789,7 +785,7 @@ class XmppRepository(
                 }
             }
         } catch (e: Exception) {
-            // Handled safely
+            Log.e("XmppRepository", "Error processing message: ${e.message}")
         }
     }
 
@@ -815,7 +811,8 @@ class XmppRepository(
             myAffiliation = OccupantAffiliation.MEMBER,
             colorHex = randomColorForRoom(roomJid),
             password = if (password.isNotBlank()) password else null,
-            isAutoJoin = true
+            isAutoJoin = true,
+            isGroupChat = isMucJid(roomJid)
         )
         database.roomDao().insertOrUpdateRoom(roomEntity)
 
@@ -836,7 +833,8 @@ class XmppRepository(
             notificationsEnabled = true,
             subject = topic,
             colorHex = randomColorForRoom(roomJid),
-            lastJoinedAt = System.currentTimeMillis()
+            lastJoinedAt = System.currentTimeMillis(),
+            isGroupChat = isMucJid(roomJid)
         )
         database.roomConfigDao().insertOrUpdateConfig(config)
 
@@ -1015,7 +1013,8 @@ class XmppRepository(
             password = password,
             subject = topic,
             isBookmarked = true,
-            isAutoJoin = true
+            isAutoJoin = true,
+            isGroupChat = isMucJid(cleanJid)
         )).copy(
             roomName = name,
             nickname = nick,
@@ -1051,7 +1050,9 @@ class XmppRepository(
                 myRole = OccupantRole.PARTICIPANT,
                 myAffiliation = OccupantAffiliation.MEMBER,
                 colorHex = randomColorForRoom(cleanJid),
-                password = password
+                password = password,
+                isAutoJoin = true,
+                isGroupChat = isMucJid(cleanJid)
             )
             database.roomDao().insertOrUpdateRoom(newRoom)
         }
@@ -1598,6 +1599,14 @@ class XmppRepository(
     suspend fun getMembers(roomJid: String) = smackMucManager.getMembers(roomJid)
     suspend fun getOutcasts(roomJid: String) = smackMucManager.getOutcasts(roomJid)
 
+    private fun isMucJid(jid: String): Boolean {
+        val domain = jid.substringAfter("@", "")
+        return domain.contains("conference", true) || 
+               domain.contains("muc.", true) || 
+               domain.contains("chat.", true) ||
+               domain.contains("rooms.", true)
+    }
+
     private fun randomColorForRoom(roomJid: String): String {
         val colors = listOf("#0284C7", "#0D9488", "#7C3AED", "#D97706", "#DC2626", "#2563EB", "#059669")
         val index = kotlin.math.abs(roomJid.hashCode()) % colors.size
@@ -1647,7 +1656,8 @@ private fun RoomEntity.toModel(): XmppRoom = XmppRoom(
     colorHex = colorHex,
     isAutoJoin = isAutoJoin,
     bubbleTheme = bubbleTheme,
-    wallpaperStyle = wallpaperStyle
+    wallpaperStyle = wallpaperStyle,
+    isGroupChat = isGroupChat
 )
 
 private fun MessageEntity.toModel(): XmppMessage = XmppMessage(

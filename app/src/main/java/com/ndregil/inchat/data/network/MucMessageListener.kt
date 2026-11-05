@@ -168,7 +168,8 @@ class MucMessageListener(
                 recipientNickname = if (isWhisper) myNickname else null,
                 fileUrl = voiceUrl,
                 fileMimeType = if (isVoice) "audio/mp4" else null,
-                voiceDurationSeconds = voiceDuration
+                voiceDurationSeconds = voiceDuration,
+                isHistory = delayInfo != null
             )
 
             Log.d(

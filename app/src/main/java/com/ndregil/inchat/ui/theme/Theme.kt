@@ -58,15 +58,24 @@ private val LightColorScheme = lightColorScheme(
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
+    customAccentColor: Color? = null,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
+    var colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
+    }
+
+    if (customAccentColor != null) {
+        colorScheme = colorScheme.copy(
+            primary = customAccentColor,
+            primaryContainer = customAccentColor.copy(alpha = 0.2f),
+            outline = customAccentColor.copy(alpha = 0.5f)
+        )
     }
 
     val view = LocalView.current

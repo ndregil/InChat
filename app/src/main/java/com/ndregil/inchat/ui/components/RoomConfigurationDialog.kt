@@ -59,6 +59,7 @@ fun RoomConfigurationDialog(
     onUpdateNickname: (String) -> Unit = {},
     onUpdateTopic: (String) -> Unit = {},
     onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
+    isNicknameOnly: Boolean = false,
     onSaveConfig: (
         roomName: String?,
         description: String?,
@@ -109,7 +110,7 @@ fun RoomConfigurationDialog(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = if (isPersonalOnly) "Ganti Nickname & Notifikasi" else if (activeTab == 0) "Konfigurasi Ruangan MUC" else "Administrasi & Moderasi",
+                            text = if (isNicknameOnly) "Ganti Nickname" else if (isPersonalOnly) "Ganti Nickname & Notifikasi" else if (activeTab == 0) "Konfigurasi Ruangan MUC" else "Administrasi & Moderasi",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -121,7 +122,7 @@ fun RoomConfigurationDialog(
                     }
                 }
                 
-                if (!isPersonalOnly) {
+                if (!isPersonalOnly && !isNicknameOnly) {
                     Spacer(modifier = Modifier.height(12.dp))
                     
                     TabRow(
@@ -155,6 +156,7 @@ fun RoomConfigurationDialog(
                     initialNotificationMode = initialNotificationMode,
                     isLoading = isLoading,
                     isPersonalOnly = isPersonalOnly,
+                    isNicknameOnly = isNicknameOnly,
                     myRole = myRole,
                     myAffiliation = myAffiliation,
                     onSaveConfig = onSaveConfig,
@@ -229,7 +231,8 @@ fun RoomConfigurationContent(
     ) -> Unit,
     onUpdateNickname: (String) -> Unit = {},
     onUpdateTopic: (String) -> Unit = {},
-    onUpdateRoomAvatar: (android.net.Uri) -> Unit = {}
+    onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
+    isNicknameOnly: Boolean = false
 ) {
     val isOwner = myRole == OccupantRole.OWNER || myAffiliation == OccupantAffiliation.OWNER
     
@@ -346,7 +349,7 @@ fun RoomConfigurationContent(
             }
         }
 
-        if (!isPersonalOnly) {
+        if (!isPersonalOnly && !isNicknameOnly) {
             if (isOwner) {
                 // Section: Avatar
                 Card(
@@ -846,54 +849,56 @@ fun RoomConfigurationContent(
             }
         }
 
-        // Section: Notification Preferences (Local - Available to all)
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (!isNicknameOnly) {
+            // Section: Notification Preferences (Local - Available to all)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Preferensi Notifikasi Ruangan (Lokal)",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                }
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Preferensi Notifikasi Ruangan (Lokal)",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val modes = listOf("Semua Pesan", "Hanya Mention", "Senyap (Muted)")
-                    modes.forEachIndexed { index, label ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { notificationMode = index }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = notificationMode == index,
-                                onClick = { notificationMode = index }
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val modes = listOf("Semua Pesan", "Hanya Mention", "Senyap (Muted)")
+                        modes.forEachIndexed { index, label ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { notificationMode = index }
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                RadioButton(
+                                    selected = notificationMode == index,
+                                    onClick = { notificationMode = index }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(label, style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 }
             }
         }
 
-        if (isPersonalOnly) {
+        if (isPersonalOnly || isNicknameOnly) {
             Button(
                 onClick = {
                     onSaveConfig(
@@ -918,7 +923,7 @@ fun RoomConfigurationContent(
                 } else {
                     Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Simpan Pengaturan", fontWeight = FontWeight.Bold)
+                    Text(if (isNicknameOnly) "Simpan Nickname" else "Simpan Pengaturan", fontWeight = FontWeight.Bold)
                 }
             }
         }

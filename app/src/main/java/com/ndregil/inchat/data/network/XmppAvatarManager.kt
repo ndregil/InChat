@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.jivesoftware.smack.StanzaListener
 import org.jivesoftware.smack.filter.StanzaTypeFilter
@@ -29,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class XmppAvatarManager(
     private val connectionManager: XmppConnectionManager,
+    private val avatarDao: com.ndregil.inchat.data.local.dao.AvatarDao,
     private val scope: CoroutineScope
 ) {
     private val TAG = "XmppAvatarManager"
@@ -43,11 +45,13 @@ class XmppAvatarManager(
     private val _avatarUpdates = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val avatarUpdates: SharedFlow<String> = _avatarUpdates.asSharedFlow()
 
+    private val fetchSemaphore = kotlinx.coroutines.sync.Semaphore(5) // Max 5 concurrent fetches
+
     private var currentConnection: XMPPTCPConnection? = null
 
     fun onConnectionReady(connection: XMPPTCPConnection) {
         currentConnection = connection
-        clearCache() // Clear on new connection to avoid poisoned state from previous bugs
+        // Do not clear cache anymore, we want persistent avatars
         setupPep(connection)
     }
 
@@ -111,6 +115,12 @@ class XmppAvatarManager(
                 val key = resolveAvatarKey(fromJid)
                 avatarCache[key] = bytes
                 noAvatarSet.remove(key)
+                
+                // Save to database
+                scope.launch {
+                    avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+                }
+
                 _avatarUpdates.emit(key)
                 _avatarUpdates.emit(fromJid)
                 Log.i(TAG, "Successfully fetched PEP avatar for $fromJid (size: ${bytes.size} bytes)")
@@ -168,6 +178,12 @@ class XmppAvatarManager(
             val myJid = connection.user.asBareJid().toString()
             val key = resolveAvatarKey(myJid)
             avatarCache[key] = bytes
+            
+            // Save to database
+            scope.launch {
+                avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+            }
+
             _avatarUpdates.emit(key)
             _avatarUpdates.emit(myJid)
 
@@ -215,6 +231,12 @@ class XmppAvatarManager(
                         "</metadata>"
                     )
                     metadataNode.publish(PayloadItem(hash, metadataPayload))
+                    
+                    // Save to database
+                    scope.launch {
+                        avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+                    }
+
                     Log.i(TAG, "Successfully published room avatar XEP-0084 for $roomJid")
                 } catch (e: Exception) {
                     Log.w(TAG, "Room PubSub/XEP-0084 avatar publish note for $roomJid: ${e.message}")
@@ -270,11 +292,15 @@ class XmppAvatarManager(
         if (jid.isBlank()) return null
         val key = resolveAvatarKey(jid)
         if (key.isEmpty()) return null
-        val cached = avatarCache[key]
-        if (cached == null && !noAvatarSet.contains(key)) {
+        
+        val memoryCached = avatarCache[key]
+        if (memoryCached != null) return memoryCached
+
+        if (!noAvatarSet.contains(key)) {
+            // Check database and trigger network fetch if missing
             fetchAvatarAsync(jid, key)
         }
-        return cached
+        return null
     }
 
     /**
@@ -286,13 +312,26 @@ class XmppAvatarManager(
 
         scope.launch {
             try {
-                val avatar = fetchAvatarInternal(jid)
-                if (avatar != null) {
-                    avatarCache[cacheKey] = avatar
+                // 1. Check database first
+                val dbAvatar = avatarDao.getAvatarByJid(cacheKey)
+                if (dbAvatar != null) {
+                    avatarCache[cacheKey] = dbAvatar.avatarBytes
                     _avatarUpdates.emit(cacheKey)
                     _avatarUpdates.emit(jid)
-                } else {
-                    noAvatarSet.add(cacheKey)
+                    return@launch
+                }
+
+                // 2. Fetch from network with throttling
+                fetchSemaphore.withPermit {
+                    val avatar = fetchAvatarInternal(jid)
+                    if (avatar != null) {
+                        avatarCache[cacheKey] = avatar
+                        avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(cacheKey, avatar))
+                        _avatarUpdates.emit(cacheKey)
+                        _avatarUpdates.emit(jid)
+                    } else {
+                        noAvatarSet.add(cacheKey)
+                    }
                 }
             } catch (e: Exception) {
                 noAvatarSet.add(cacheKey)
@@ -392,5 +431,8 @@ class XmppAvatarManager(
     fun clearCache() {
         avatarCache.clear()
         noAvatarSet.clear()
+        scope.launch {
+            avatarDao.clearAllAvatars()
+        }
     }
 }
