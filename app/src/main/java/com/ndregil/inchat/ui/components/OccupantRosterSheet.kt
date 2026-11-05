@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -145,6 +146,7 @@ fun OccupantRosterSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxHeight(0.95f),
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -158,7 +160,7 @@ fun OccupantRosterSheet(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Row(
@@ -274,8 +276,8 @@ fun OccupantRosterSheet(
 
             LazyColumn(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .height(300.dp)
                     .padding(vertical = 4.dp)
             ) {
                 items(filteredOccupants, key = { it.nickname }) { occupant ->

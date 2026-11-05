@@ -586,65 +586,58 @@ fun SystemMessagePill(
     onQuoteClick: (XmppMessage) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val (pillColor, symbolText) = when (message.messageType) {
-        MessageType.SYSTEM_JOIN -> Pair(OnlineGreen, "→")
-        MessageType.SYSTEM_LEAVE -> Pair(Color(0xFFEA580C), "←")
+    val cleanBody = message.body
+        .removePrefix("• ")
+        .removePrefix("→ ")
+        .removePrefix("← ")
+        .trim()
+
+    val formattedDateTime = formatFullDateTime(message.timestamp)
+    val fullText = "$formattedDateTime $cleanBody"
+
+    val textColor = when (message.messageType) {
+        MessageType.SYSTEM_JOIN -> OnlineGreen
+        MessageType.SYSTEM_LEAVE -> Color(0xFFEA580C)
         MessageType.SYSTEM_STATUS -> {
-            val body = message.body
-            val color = when {
-                body.contains("[Away]", ignoreCase = true) || body.contains("[Extended Away]", ignoreCase = true) -> AwayAmber
-                body.contains("[Jangan Ganggu", ignoreCase = true) || body.contains("[DND]", ignoreCase = true) -> DndRed
-                body.contains("[Bebas Mengobrol]", ignoreCase = true) || body.contains("[Online]", ignoreCase = true) -> OnlineGreen
-                body.contains("Offline", ignoreCase = true) -> OfflineGray
-                body.contains("mengganti nickname", ignoreCase = true) -> Color(0xFF06B6D4)
-                else -> MaterialTheme.colorScheme.primary
+            when {
+                cleanBody.contains("[Away]", ignoreCase = true) || cleanBody.contains("[Extended Away]", ignoreCase = true) -> AwayAmber
+                cleanBody.contains("[Jangan Ganggu", ignoreCase = true) || cleanBody.contains("[DND]", ignoreCase = true) -> DndRed
+                cleanBody.contains("[Bebas Mengobrol]", ignoreCase = true) || cleanBody.contains("[Online]", ignoreCase = true) -> OnlineGreen
+                cleanBody.contains("Offline", ignoreCase = true) -> OfflineGray
+                cleanBody.contains("mengganti nickname", ignoreCase = true) -> Color(0xFF06B6D4)
+                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
             }
-            Pair(color, "•")
         }
-        MessageType.MODERATION -> Pair(Color(0xFF8B5CF6), "🛡️")
-        MessageType.SYSTEM_TOPIC -> Pair(MaterialTheme.colorScheme.primary, "📋")
-        else -> Pair(MaterialTheme.colorScheme.primary, "•")
+        MessageType.MODERATION -> Color(0xFF8B5CF6)
+        MessageType.SYSTEM_TOPIC -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
     }
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp, horizontal = 16.dp),
-        horizontalArrangement = Arrangement.Center
+            .padding(vertical = 2.dp, horizontal = 12.dp)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { onQuoteClick(message) }
+            )
+            .testTag("system_msg_${message.id}"),
+        contentAlignment = Alignment.Center
     ) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = pillColor.copy(alpha = 0.12f),
-            border = BorderStroke(0.6.dp, pillColor.copy(alpha = 0.35f)),
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .combinedClickable(
-                    onClick = {},
-                    onLongClick = { onQuoteClick(message) }
-                )
-                .testTag("system_msg_${message.id}")
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = message.body,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
-
-                Text(
-                    text = formatTime(message.timestamp),
-                    fontSize = 8.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            }
-        }
+        Text(
+            text = fullText,
+            style = MaterialTheme.typography.bodySmall,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Normal,
+            color = textColor,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
     }
+}
+
+private fun formatFullDateTime(timestamp: Long): String {
+    val sdf = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale.getDefault())
+    return "(${sdf.format(java.util.Date(timestamp))})"
 }
 
 @Composable
@@ -704,13 +697,40 @@ private fun getSenderColor(nickname: String): Color {
 fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
     val context = LocalContext.current
     val body = message.body
-    val geoUri = remember(body) {
-        val regex = "geo:([-0-9.]+),([-0-9.]+)(?:\\?z=([0-9]+))?".toRegex()
-        val match = regex.find(body)
-        if (match != null) {
-            match.value
-        } else {
-            "geo:-6.200000,106.816666?z=16"
+
+    // Extract lat/lng coordinates
+    val (lat, lng) = remember(body) {
+        val coordRegex = "([-0-9.]+),([-0-9.]+)".toRegex()
+        val match = coordRegex.find(body)
+        if (match != null && match.groupValues.size >= 3) {
+            val latitude = match.groupValues[1].toDoubleOrNull()
+            val longitude = match.groupValues[2].toDoubleOrNull()
+            if (latitude != null && longitude != null) {
+                Pair(latitude, longitude)
+            } else Pair(-6.200000, 106.816666)
+        } else Pair(-6.200000, 106.816666)
+    }
+
+    val displayTitle = remember(body) {
+        val clean = body.substringBefore("http").substringBefore("geo:").replace("📍", "").trim()
+        clean.ifBlank { "Lokasi Terkini" }
+    }
+
+    val openInMaps = {
+        val webMapsUrl = "https://maps.google.com/?q=$lat,$lng"
+        val geoUrl = "geo:$lat,$lng?q=$lat,$lng"
+        try {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(webMapsUrl))
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val geoIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUrl))
+                geoIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(geoIntent)
+            } catch (e2: Exception) {
+                Toast.makeText(context, "Tidak dapat membuka aplikasi peta", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -718,23 +738,18 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clickable {
-                try {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUri))
-                    context.startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(context, "Tidak dapat membuka aplikasi peta", Toast.LENGTH_SHORT).show()
-                }
-            }
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { openInMaps() }
             .testTag("location_bubble_${message.id}")
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(Color(0xFFEF4444).copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
@@ -743,45 +758,50 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
                     imageVector = Icons.Default.Place,
                     contentDescription = "Lokasi",
                     tint = Color(0xFFEF4444),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Lokasi GPS",
+                    text = displayTitle,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     color = textColor
                 )
                 Text(
-                    text = body.substringBefore("geo:").trim().ifBlank { geoUri },
+                    text = "Koordinat: %.5f, %.5f".format(Locale.getDefault(), lat, lng),
                     fontSize = 11.sp,
-                    color = textColor.copy(alpha = 0.8f),
-                    maxLines = 2,
+                    color = textColor.copy(alpha = 0.85f),
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = textColor.copy(alpha = 0.1f),
-            modifier = Modifier.fillMaxWidth()
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFFEF4444).copy(alpha = 0.15f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { openInMaps() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Map,
                     contentDescription = null,
-                    tint = textColor,
-                    modifier = Modifier.size(14.dp)
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Buka di Peta (Google Maps / OSM)",
+                    text = "Buka Peta (Google Maps)",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = textColor

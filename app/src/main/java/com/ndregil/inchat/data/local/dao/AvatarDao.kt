@@ -17,6 +17,9 @@ interface AvatarDao {
     @Query("DELETE FROM avatars WHERE jid = :jid")
     suspend fun deleteAvatar(jid: String)
 
+    @Query("SELECT * FROM avatars")
+    suspend fun getAllAvatars(): List<AvatarEntity>
+
     @Query("DELETE FROM avatars")
     suspend fun clearAllAvatars()
 }

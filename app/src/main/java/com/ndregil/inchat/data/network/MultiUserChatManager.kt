@@ -1351,7 +1351,7 @@ class MultiUserChatManager(
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$oldNick] mengganti nickname menjadi [$newNick].",
+                    body = "[$oldNick] mengganti nickname menjadi [$newNick].",
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
                 )
@@ -1398,9 +1398,9 @@ class MultiUserChatManager(
                         }
                         val statusSnippet = if (customStatus.isNotBlank()) " (\"$customStatus\")" else ""
                         val presenceText = if (presence.type == Presence.Type.unavailable) {
-                            "← [$nick] sekarang Offline$statusSnippet"
+                            "[$nick] sekarang Offline$statusSnippet"
                         } else {
-                            "• [$nick] sekarang [$modeName]$statusSnippet"
+                            "[$nick] sekarang [$modeName]$statusSnippet"
                         }
 
                         val systemMsg = XmppMessage(

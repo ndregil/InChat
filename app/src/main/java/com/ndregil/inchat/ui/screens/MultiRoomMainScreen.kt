@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
@@ -56,6 +57,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
@@ -170,6 +172,7 @@ fun MultiRoomMainScreen(
     modifier: Modifier = Modifier
 ) {
     var activeNavIndex by remember { mutableIntStateOf(initialNavIndex) } // 0 = Rooms Chat, 1 = Direct Chat, 2 = Contacts, 3 = Directory, 4 = Settings
+    var isDirectConversationOpen by remember { mutableStateOf(false) }
     var isSearchExpanded by remember { mutableStateOf(false) }
     var showRoomMenu by remember { mutableStateOf(false) }
     var selectedCapsOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
@@ -265,6 +268,12 @@ fun MultiRoomMainScreen(
         FcmPushManager.activeRoomJid = if (activeNavIndex == 0) activeRoom?.jid else null
     }
 
+    LaunchedEffect(activeRoom?.jid, activeRoom?.isGroupChat) {
+        if (activeRoom != null && !activeRoom!!.isGroupChat) {
+            isDirectConversationOpen = true
+        }
+    }
+
     // Show Toast for profile avatar update status
     val avatarUpdateStatus by viewModel.avatarUpdateStatus.collectAsStateWithLifecycle()
     LaunchedEffect(avatarUpdateStatus) {
@@ -326,9 +335,18 @@ fun MultiRoomMainScreen(
                     val roomUnread = viewModel.groupRooms.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
                     val directUnread = viewModel.directChats.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
 
+                    val groupRoomsList by viewModel.groupRooms.collectAsStateWithLifecycle()
+
                     CompactNavItem(
                         selected = activeNavIndex == 0,
-                        onClick = { activeNavIndex = 0 },
+                        onClick = {
+                            activeNavIndex = 0
+                            if (activeRoom == null || !activeRoom!!.isGroupChat) {
+                                groupRoomsList.firstOrNull()?.let { room ->
+                                    viewModel.selectRoom(room.jid)
+                                }
+                            }
+                        },
                         icon = Icons.Default.Forum,
                         label = "Room",
                         badgeCount = roomUnread,
@@ -337,7 +355,12 @@ fun MultiRoomMainScreen(
 
                     CompactNavItem(
                         selected = activeNavIndex == 1,
-                        onClick = { activeNavIndex = 1 },
+                        onClick = {
+                            activeNavIndex = 1
+                            if (activeRoom?.isGroupChat == true) {
+                                isDirectConversationOpen = false
+                            }
+                        },
                         icon = Icons.Default.Person,
                         label = "Chat",
                         badgeCount = directUnread,
@@ -441,7 +464,7 @@ fun MultiRoomMainScreen(
                                     }
                                 }
                                 Text(
-                                    text = activeRoom?.name ?: "InChat",
+                                    text = if (activeRoom?.isGroupChat == true) (activeRoom?.name ?: "Ruang Obrolan") else (filteredRooms.firstOrNull()?.name ?: "InChat"),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -469,45 +492,6 @@ fun MultiRoomMainScreen(
                                 modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(Icons.Default.Search, contentDescription = "Cari Room", modifier = Modifier.size(19.dp))
-                            }
-
-                            // Audio Call Action
-                            IconButton(
-                                onClick = { viewModel.initiateCall("Audio") },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_top_call_audio")
-                            ) {
-                                Icon(Icons.Default.Call, contentDescription = "Panggilan Audio", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
-                            }
-
-                            // Video Call Action
-                            IconButton(
-                                onClick = { viewModel.initiateCall("Video") },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_top_call_video")
-                            ) {
-                                Icon(Icons.Default.VideoCall, contentDescription = "Panggilan Video", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
-                            }
-
-                            // Roster Sheet button
-                            IconButton(
-                                onClick = { viewModel.isRosterSheetOpen.value = true },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_open_roster")
-                            ) {
-                                BadgedBox(badge = {
-                                    M3Badge(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    ) {
-                                        Text("${occupants.size}", fontSize = 9.sp)
-                                    }
-                                }) {
-                                    Icon(Icons.Default.Group, contentDescription = "Daftar Anggota", modifier = Modifier.size(19.dp))
-                                }
                             }
 
                             // Quick Bookmark Toggle (XEP-0048)
@@ -554,22 +538,6 @@ fun MultiRoomMainScreen(
                                     onClick = {
                                         showRoomMenu = false
                                         showTopicDetailDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Panggilan Audio Room") },
-                                    leadingIcon = { Icon(Icons.Default.Call, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        viewModel.initiateCall("Audio")
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Panggilan Video Room") },
-                                    leadingIcon = { Icon(Icons.Default.VideoCall, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        viewModel.initiateCall("Video")
                                     }
                                 )
                                 DropdownMenuItem(
@@ -849,125 +817,448 @@ fun MultiRoomMainScreen(
                 }
 
                 1 -> {
-                    // Direct Chats (1-on-1) View - Full Messaging Interface
+                    // Direct Chats (1-on-1) View - Dual Mode (List View / Active Conversation Screen)
                     val directChats by viewModel.filteredDirectChats.collectAsStateWithLifecycle()
                     val savedDirects by viewModel.savedDirectChats.collectAsStateWithLifecycle()
                     var showOnlySavedDirects by remember { mutableStateOf(false) }
+                    var searchDirectQuery by remember { mutableStateOf("") }
 
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        MultiRoomTabHeader(
-                            rooms = if (showOnlySavedDirects) savedDirects else directChats,
-                            selectedRoomJid = activeRoom?.jid,
-                            showOnlySavedRooms = showOnlySavedDirects,
-                            onToggleSavedOnly = { showOnlySavedDirects = !showOnlySavedDirects },
-                            onSelectRoom = { jid -> viewModel.selectRoom(jid) },
-                            onAddRoomClick = { activeNavIndex = 2 }
-                        )
+                    val isDirectActive = isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
 
-                        // For 1-on-1, we show a contact profile/status bar instead of room occupants
-                        val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
-                        if (activeRoom != null && !activeRoom!!.isGroupChat) {
+                    if (!isDirectActive) {
+                        // MODE A: Direct Chat List View
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.background)
+                        ) {
+                            // Top Bar Header for Direct Chats List with Status Bar Inset
                             Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                                tonalElevation = 1.dp
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .statusBarsPadding(),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 2.dp
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                                 ) {
-                                    Box(contentAlignment = Alignment.BottomEnd) {
-                                        val avatar = viewModel.repository.getRoomAvatar(activeRoom!!.jid)
-                                        if (avatar != null) {
-                                            coil.compose.AsyncImage(
-                                                model = avatar,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(32.dp).clip(CircleShape),
-                                                contentScale = ContentScale.Crop
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Chat Pribadi",
+                                                style = MaterialTheme.typography.titleLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
                                             )
-                                        } else {
-                                            Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                                                Text(activeRoom!!.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                                            }
+                                            Text(
+                                                text = "Pesan 1-on-1 & Obrolan Langsung",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                        if (activeContact != null) {
-                                            Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface).padding(1.dp)) {
-                                                Box(Modifier.fillMaxSize().clip(CircleShape).background(
-                                                    when(activeContact!!.presence) {
-                                                        UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
-                                                        UserPresence.AWAY, UserPresence.XA -> AwayAmber
-                                                        UserPresence.DND -> DndRed
-                                                        else -> OfflineGray
-                                                    }
-                                                ))
-                                            }
+
+                                        // Button to Start New Chat from Roster
+                                        Button(
+                                            onClick = {
+                                                activeNavIndex = 2
+                                                viewModel.refreshRoster()
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Add,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Chat Baru", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
-                                    Spacer(Modifier.width(12.dp))
-                                    Column {
-                                        Text(activeRoom!!.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                        if (activeContact != null) {
-                                            Text(activeContact!!.statusMessage.ifBlank { activeContact!!.presence.name.lowercase().capitalize() }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        } else {
-                                            Text("Obrolan Langsung (1-on-1)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Search Field for Direct Chats
+                                    OutlinedTextField(
+                                        value = searchDirectQuery,
+                                        onValueChange = { searchDirectQuery = it },
+                                        placeholder = { Text("Cari obrolan atau kontak...", fontSize = 13.5.sp) },
+                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                        trailingIcon = {
+                                            if (searchDirectQuery.isNotEmpty()) {
+                                                IconButton(onClick = { searchDirectQuery = "" }) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Bersihkan", modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Filter Chips (Semua / Favorit)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        FilterChip(
+                                            selected = !showOnlySavedDirects,
+                                            onClick = { showOnlySavedDirects = false },
+                                            label = { Text("Semua Chat (${directChats.size})", fontSize = 12.sp) }
+                                        )
+                                        FilterChip(
+                                            selected = showOnlySavedDirects,
+                                            onClick = { showOnlySavedDirects = true },
+                                            label = { Text("Favorit (${savedDirects.size})", fontSize = 12.sp) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.Default.Star,
+                                                    contentDescription = null,
+                                                    tint = if (showOnlySavedDirects) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        )
                                     }
                                 }
                             }
-                        }
 
-                        // Message Feed (Direct)
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            com.ndregil.inchat.ui.components.WallpaperBackground(
-                                wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
-                                customWallpaperUri = themePrefs.customWallpaperUri,
-                                opacity = themePrefs.wallpaperOpacity
-                            )
+                            val displayedList = (if (showOnlySavedDirects) savedDirects else directChats).filter {
+                                searchDirectQuery.isBlank() || it.name.contains(searchDirectQuery, ignoreCase = true) || it.jid.contains(searchDirectQuery, ignoreCase = true)
+                            }
 
-                            if (messages.isEmpty()) {
+                            if (displayedList.isEmpty()) {
                                 Column(
-                                    modifier = Modifier.fillMaxSize().padding(32.dp),
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(32.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
-                                    Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                    Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(72.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(36.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = if (searchDirectQuery.isNotBlank()) "Tidak Ada Chat yang Cocok" else "Belum Ada Chat Pribadi",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = if (searchDirectQuery.isNotBlank()) "Coba kata kunci lain untuk mencari kontak." else "Mulai obrolan 1-on-1 dengan memilih kontak dari daftar kontak Anda.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(20.dp))
+                                    Button(
+                                        onClick = {
+                                            activeNavIndex = 2
+                                            viewModel.refreshRoster()
+                                        },
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Pilih Kontak")
+                                    }
                                 }
                             } else {
-                                LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    items(messages, key = { it.id }) { msg ->
-                                        MessageBubble(
-                                            message = msg,
-                                            myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
-                                            onSenderClick = { },
-                                            onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
-                                            onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
-                                            onMentionClick = { nick -> viewModel.insertMention(nick) },
-                                            onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
-                                            bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
-                                            isDark = isDarkMode,
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(vertical = 4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    items(displayedList, key = { it.jid }) { room ->
+                                        val avatar = viewModel.repository.getRoomAvatar(room.jid)
+                                        RoomItemCard(
+                                            room = room,
+                                            isSelected = activeRoom?.jid == room.jid,
+                                            onClick = {
+                                                viewModel.selectRoom(room.jid)
+                                                isDirectConversationOpen = true
+                                            },
+                                            roomAvatar = avatar,
                                             themePrefs = themePrefs
                                         )
                                     }
                                 }
                             }
                         }
+                    } else {
+                        // MODE B: Active Direct Conversation Screen
+                        val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
+                        val roomAvatar = remember(activeRoom?.jid) { activeRoom?.let { viewModel.repository.getRoomAvatar(it.jid) } }
+                        var showDirectMenu by remember { mutableStateOf(false) }
 
-                        ChatInputBar(
-                            inputText = currentInput,
-                            onInputChange = { viewModel.currentInputText.value = it },
-                            onSendMessage = { viewModel.sendMessage(it) },
-                            onAttachClick = { filePicker.launch("*/*") },
-                            onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
-                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
-                            onCallClick = { viewModel.initiateCall(it) },
-                            whisperTarget = null,
-                            replyingToMessage = replyingToMessage,
-                            onCancelReply = { viewModel.clearReplyMessage() },
-                            onSendVoice = { audioFile, durationSeconds ->
-                                viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Top Bar Header for Active Direct Conversation with Status Bar Inset
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .statusBarsPadding(),
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 3.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Back Button to return to Direct Chat List
+                                    IconButton(
+                                        onClick = { isDirectConversationOpen = false },
+                                        modifier = Modifier.testTag("btn_back_to_direct_list")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                            contentDescription = "Kembali ke Daftar Chat Pribadi"
+                                        )
+                                    }
+
+                                    // Avatar & Presence Indicator
+                                    Box(contentAlignment = Alignment.BottomEnd) {
+                                        if (roomAvatar != null) {
+                                            coil.compose.AsyncImage(
+                                                model = roomAvatar,
+                                                contentDescription = null,
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = (activeRoom?.name ?: "?").take(1).uppercase(Locale.getDefault()),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                )
+                                            }
+                                        }
+
+                                        if (activeContact != null) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(12.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.surface)
+                                                    .padding(1.5.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .clip(CircleShape)
+                                                        .background(
+                                                            when (activeContact.presence) {
+                                                                UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+                                                                UserPresence.AWAY, UserPresence.XA -> AwayAmber
+                                                                UserPresence.DND -> DndRed
+                                                                else -> OfflineGray
+                                                            }
+                                                        )
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    // Name & Presence Status
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = activeRoom?.name ?: "",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = if (themePrefs.isCustomThemeEnabled) {
+                                                try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                                            } else {
+                                                Color.Unspecified
+                                            }
+                                        )
+                                        Text(
+                                            text = if (activeContact != null) {
+                                                val presText = activeContact.presence.name.lowercase(Locale.getDefault()).replaceFirstChar { it.uppercase() }
+                                                if (activeContact.statusMessage.isNotBlank()) "${activeContact.statusMessage} • $presText" else presText
+                                            } else {
+                                                activeRoom?.jid ?: "Chat 1-on-1"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (themePrefs.isCustomThemeEnabled) {
+                                                try { Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurfaceVariant }
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    // Action Buttons
+                                    IconButton(
+                                        onClick = { viewModel.initiateCall("Audio") },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Call,
+                                            contentDescription = "Panggilan Audio",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { viewModel.initiateCall("Video") },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.VideoCall,
+                                            contentDescription = "Panggilan Video",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { showDirectMenu = true },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showDirectMenu,
+                                        onDismissRequest = { showDirectMenu = false }
+                                    ) {
+                                        val isCurrentBookmarked = activeRoom?.isBookmarked == true
+                                        DropdownMenuItem(
+                                            text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                    contentDescription = null
+                                                )
+                                            },
+                                            onClick = {
+                                                showDirectMenu = false
+                                                activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Warna Chat & Wallpaper") },
+                                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                            onClick = {
+                                                showDirectMenu = false
+                                                viewModel.isThemeWallpaperDialogOpen.value = true
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Bersihkan Riwayat Chat") },
+                                            leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
+                                            onClick = {
+                                                showDirectMenu = false
+                                                activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Tutup Conversation") },
+                                            leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
+                                            onClick = {
+                                                showDirectMenu = false
+                                                isDirectConversationOpen = false
+                                            }
+                                        )
+                                    }
+                                }
                             }
-                        )
+
+                            // Message Feed (Direct Chat)
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                com.ndregil.inchat.ui.components.WallpaperBackground(
+                                    wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
+                                    customWallpaperUri = themePrefs.customWallpaperUri,
+                                    opacity = themePrefs.wallpaperOpacity
+                                )
+
+                                if (messages.isEmpty()) {
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Kirim pesan pertama untuk memulai obrolan langsung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                } else {
+                                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        items(messages, key = { it.id }) { msg ->
+                                            MessageBubble(
+                                                message = msg,
+                                                myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
+                                                onSenderClick = { },
+                                                onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
+                                                onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
+                                                onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
+                                                bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
+                                                isDark = isDarkMode,
+                                                themePrefs = themePrefs
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Chat Input Bar
+                            ChatInputBar(
+                                inputText = currentInput,
+                                onInputChange = { viewModel.currentInputText.value = it },
+                                onSendMessage = { viewModel.sendMessage(it) },
+                                onAttachClick = { filePicker.launch("*/*") },
+                                onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
+                                onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                onCallClick = { viewModel.initiateCall(it) },
+                                whisperTarget = null,
+                                replyingToMessage = replyingToMessage,
+                                onCancelReply = { viewModel.clearReplyMessage() },
+                                onSendVoice = { audioFile, durationSeconds ->
+                                    viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                                }
+                            )
+                        }
                     }
                 }
 
@@ -1555,16 +1846,34 @@ fun RoomOccupantsCapsBar(
                 }
             }
 
-            IconButton(
-                onClick = onOpenRosterClick,
-                modifier = Modifier.size(28.dp)
+            // Roster Button with Member Count Badge
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onOpenRosterClick)
+                    .testTag("btn_open_roster_caps_bar")
             ) {
-                Icon(
-                    imageVector = Icons.Default.Group,
-                    contentDescription = "Buka Roster Anggota",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Group,
+                        contentDescription = "Buka Roster Anggota",
+                        modifier = Modifier.size(15.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${occupants.size}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     }
@@ -1799,6 +2108,7 @@ fun ChatInputBar(
 ) {
     var showEmojiKeyboard by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var currentAmpRatio by remember { mutableFloatStateOf(0f) }
@@ -2044,7 +2354,24 @@ fun ChatInputBar(
                                 )
                             }
 
-                            // 3. Attachment (Lampiran) button inside form box
+                            // 3. Direct Send Location button (WhatsApp style)
+                            IconButton(
+                                onClick = {
+                                    showLocationDialog = true
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("btn_share_location_direct")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Kirim Lokasi",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
+
+                            // 4. Attachment (Lampiran) button inside form box
                             Box {
                                 IconButton(
                                     onClick = { showAttachMenu = true },
@@ -2138,6 +2465,126 @@ fun ChatInputBar(
                 com.ndregil.inchat.ui.components.EmojiKeyboard(
                     onEmojiSelected = { emoji ->
                         onInputChange(inputText + emoji)
+                    }
+                )
+            }
+
+            if (showLocationDialog) {
+                var selectedOption by remember { mutableIntStateOf(0) }
+                var customLatText by remember { mutableStateOf("-6.200000") }
+                var customLngText by remember { mutableStateOf("106.816666") }
+                var customLabelText by remember { mutableStateOf("Jakarta Pusat") }
+
+                AlertDialog(
+                    onDismissRequest = { showLocationDialog = false },
+                    icon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(32.dp)) },
+                    title = { Text("Bagikan Lokasi", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                    text = {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = selectedOption == 0,
+                                    onClick = { selectedOption = 0 },
+                                    label = { Text("Lokasi GPS Terkini", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = selectedOption == 1,
+                                    onClick = { selectedOption = 1 },
+                                    label = { Text("Pilih Lokasi Lain", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            if (selectedOption == 0) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text("📍 Deteksi GPS Terkini Pengirim", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Mengirim koordinat presisi dari posisi perangkat Anda secara langsung.", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Pilih Kota atau Koordinat Kustom", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(listOf(
+                                            "Jakarta" to Pair(-6.200000, 106.816666),
+                                            "Bandung" to Pair(-6.917464, 107.619123),
+                                            "Surabaya" to Pair(-7.257472, 112.752088),
+                                            "Yogyakarta" to Pair(-7.795580, 110.369490),
+                                            "Bali" to Pair(-8.670458, 115.212629),
+                                            "Medan" to Pair(-3.595196, 98.672223)
+                                        )) { (cityName, coords) ->
+                                            AssistChip(
+                                                onClick = {
+                                                    customLabelText = cityName
+                                                    customLatText = "%.6f".format(Locale.US, coords.first)
+                                                    customLngText = "%.6f".format(Locale.US, coords.second)
+                                                },
+                                                label = { Text(cityName, fontSize = 11.sp) }
+                                            )
+                                        }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = customLabelText,
+                                        onValueChange = { customLabelText = it },
+                                        label = { Text("Nama Tempat / Label") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        OutlinedTextField(
+                                            value = customLatText,
+                                            onValueChange = { customLatText = it },
+                                            label = { Text("Latitude") },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        OutlinedTextField(
+                                            value = customLngText,
+                                            onValueChange = { customLngText = it },
+                                            label = { Text("Longitude") },
+                                            singleLine = true,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showLocationDialog = false
+                                if (selectedOption == 0) {
+                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                                } else {
+                                    val lat = customLatText.toDoubleOrNull() ?: -6.200000
+                                    val lng = customLngText.toDoubleOrNull() ?: 106.816666
+                                    onShareLocation(lat, lng)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                        ) {
+                            Text("Kirim Lokasi Ini")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showLocationDialog = false }) {
+                            Text("Batal")
+                        }
                     }
                 )
             }

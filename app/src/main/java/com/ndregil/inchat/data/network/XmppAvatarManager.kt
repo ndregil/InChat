@@ -46,8 +46,26 @@ class XmppAvatarManager(
     val avatarUpdates: SharedFlow<String> = _avatarUpdates.asSharedFlow()
 
     private val fetchSemaphore = kotlinx.coroutines.sync.Semaphore(5) // Max 5 concurrent fetches
-
     private var currentConnection: XMPPTCPConnection? = null
+
+    init {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val dbAvatars = avatarDao.getAllAvatars()
+                dbAvatars.forEach { entity ->
+                    if (entity.avatarBytes.isNotEmpty()) {
+                        avatarCache[entity.jid] = entity.avatarBytes
+                    }
+                }
+                Log.i(TAG, "Preloaded ${dbAvatars.size} avatars from SQLite into memory cache.")
+                if (dbAvatars.isNotEmpty()) {
+                    _avatarUpdates.emit("preloaded")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to preload avatars from database: ${e.message}")
+            }
+        }
+    }
 
     fun onConnectionReady(connection: XMPPTCPConnection) {
         currentConnection = connection

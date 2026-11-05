@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -80,6 +82,7 @@ fun StanzaConsoleSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = Color(0xFF0A0F1D),
+        modifier = Modifier.fillMaxHeight(0.95f),
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -93,7 +96,7 @@ fun StanzaConsoleSheet(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .testTag("stanza_console_sheet")
         ) {
@@ -128,7 +131,7 @@ fun StanzaConsoleSheet(
             }
 
             Text(
-                text = "Inspeksi paket real-time RFC 6120 / XEP-0045 stanzas XML",
+                text = "Inspeksi paket real-time RFC 6120 / XEP-0045 stanzas XML (Formatted & Pretty Print)",
                 fontSize = 12.sp,
                 color = Color(0xFF94A3B8),
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -153,8 +156,8 @@ fun StanzaConsoleSheet(
             // Logs list
             LazyColumn(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .height(280.dp)
             ) {
                 if (filteredLogs.isEmpty()) {
                     item {
@@ -247,6 +250,10 @@ fun StanzaLogCard(
     val dirIcon = if (isOut) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward
     val dirText = if (isOut) "SENT" else "RCVD"
 
+    val formattedXml = remember(log.rawXml) {
+        formatXml(log.rawXml)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -305,13 +312,45 @@ fun StanzaLogCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = log.rawXml,
+                text = formattedXml,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 color = Color(0xFFE2E8F0),
                 lineHeight = 15.sp
             )
         }
+    }
+}
+
+private fun formatXml(xml: String): String {
+    try {
+        val trimmed = xml.trim()
+        if (!trimmed.startsWith("<")) return trimmed
+        
+        val sb = StringBuilder()
+        var indent = 0
+        val tokens = trimmed.replace("><", ">\n<").split("\n")
+        for (token in tokens) {
+            val line = token.trim()
+            if (line.isEmpty()) continue
+            
+            if (line.startsWith("</")) {
+                indent = (indent - 2).coerceAtLeast(0)
+            }
+            
+            sb.append(" ".repeat(indent))
+            sb.append(line)
+            sb.append("\n")
+            
+            if (line.startsWith("<") && !line.startsWith("</") && !line.endsWith("/>") && !line.contains("</")) {
+                if (!line.startsWith("<?") && !line.startsWith("<!--")) {
+                    indent += 2
+                }
+            }
+        }
+        return sb.toString().trim()
+    } catch (e: Exception) {
+        return xml
     }
 }
 

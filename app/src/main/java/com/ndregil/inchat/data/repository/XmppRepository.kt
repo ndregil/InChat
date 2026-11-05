@@ -27,6 +27,7 @@ import com.ndregil.inchat.data.network.HttpFileUploadManager
 import com.ndregil.inchat.data.network.JingleCallManager
 import com.ndregil.inchat.data.network.MultiUserChatManager
 import com.ndregil.inchat.data.network.RosterManager
+import kotlinx.coroutines.flow.flowOn
 import com.ndregil.inchat.data.network.ServiceDiscoveryManager
 import com.ndregil.inchat.data.network.XmppConnectionManager
 import com.ndregil.inchat.data.network.XmppProtocolEngine
@@ -280,7 +281,7 @@ class XmppRepository(
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
                 model.copy(senderAvatar = smackAvatarManager.getAvatar(avatarJid))
             }
-        }
+        }.flowOn(Dispatchers.IO)
     }
 
     suspend fun markRoomAsRead(roomJid: String) {

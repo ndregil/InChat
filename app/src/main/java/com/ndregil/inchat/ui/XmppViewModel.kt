@@ -535,10 +535,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun shareLocation(latitude: Double, longitude: Double) {
+    fun shareLocation(latitude: Double, longitude: Double, label: String = "Lokasi Terkini") {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
-        val locationText = "📍 Berbagi Lokasi GPS\ngeo:$latitude,$longitude?z=16"
+        val locationText = "📍 $label\nhttps://maps.google.com/?q=$latitude,$longitude\ngeo:$latitude,$longitude?z=16"
         viewModelScope.launch {
             repository.sendMessage(
                 roomJid = room.jid,
