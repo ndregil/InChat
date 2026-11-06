@@ -76,6 +76,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
@@ -523,48 +524,114 @@ fun MultiRoomMainScreen(
                             }
 
                             // More options
-                            IconButton(
-                                onClick = { showRoomMenu = true },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Menu", modifier = Modifier.size(19.dp))
-                            }
+                            Box {
+                                IconButton(
+                                    onClick = { showRoomMenu = true },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu", modifier = Modifier.size(19.dp))
+                                }
 
-                            DropdownMenu(
-                                expanded = showRoomMenu,
-                                onDismissRequest = { showRoomMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Lihat Topik & Info Ruang") },
-                                    leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        showTopicDetailDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Buat / Gabung Room Baru") },
-                                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        viewModel.isJoinCreateDialogOpen.value = true
-                                    }
-                                )
-                                val isBookmarked = activeRoom?.isBookmarked == true
-                                DropdownMenuItem(
-                                    text = { Text(if (isBookmarked) "Hapus dari Ruangan Tersimpan" else "Simpan Room ke Favorit") },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                            contentDescription = null,
-                                            tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                DropdownMenu(
+                                    expanded = showRoomMenu,
+                                    onDismissRequest = { showRoomMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Lihat Topik & Info Ruang") },
+                                        leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            showTopicDetailDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Buat / Gabung Room Baru") },
+                                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            viewModel.isJoinCreateDialogOpen.value = true
+                                        }
+                                    )
+                                    val isBookmarked = activeRoom?.isBookmarked == true
+                                    DropdownMenuItem(
+                                        text = { Text(if (isBookmarked) "Hapus dari Ruangan Tersimpan" else "Simpan Room ke Favorit") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                contentDescription = null,
+                                                tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Warna Chat & Wallpaper") },
+                                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            viewModel.isThemeWallpaperDialogOpen.value = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Ganti nickname") },
+                                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            isConfigNicknameOnly = true
+                                            activeRoom?.let { room ->
+                                                coroutineScope.launch {
+                                                    val info = viewModel.repository.getRoomInfo(room.jid)
+                                                    roomConfigInfo = info.getOrNull()
+                                                    viewModel.isRoomConfigOpen.value = true
+                                                }
+                                            }
+                                        }
+                                    )
+                                    if (activeRoom?.myRole == OccupantRole.ADMIN || activeRoom?.myRole == OccupantRole.OWNER || activeRoom?.myAffiliation == OccupantAffiliation.ADMIN || activeRoom?.myAffiliation == OccupantAffiliation.OWNER) {
+                                        DropdownMenuItem(
+                                            text = { Text("Konfigurasi & Kelola Room") },
+                                            leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                            onClick = {
+                                                showRoomMenu = false
+                                                activeRoom?.let { room ->
+                                                    coroutineScope.launch {
+                                                        val info = viewModel.repository.getRoomInfo(room.jid)
+                                                        viewModel.roomAdminInfo.value = info.getOrNull()
+                                                        viewModel.loadRoomAffiliations(room.jid)
+                                                        viewModel.isAdminPanelOpen.value = true
+                                                    }
+                                                }
+                                            }
                                         )
-                                    },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
                                     }
-                                )
+                                    DropdownMenuItem(
+                                        text = { Text("Tinggalkan Room Ini") },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            activeRoom?.let { viewModel.leaveRoom(it.jid) }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Bersihkan Riwayat Chat") },
+                                        leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Hapus Room dari Daftar") },
+                                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            activeRoom?.let { viewModel.deleteRoom(it.jid) }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -1077,55 +1144,57 @@ fun MultiRoomMainScreen(
                                         )
                                     }
 
-                                    IconButton(
-                                        onClick = { showDirectMenu = true },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
-                                    }
+                                    Box {
+                                        IconButton(
+                                            onClick = { showDirectMenu = true },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
+                                        }
 
-                                    DropdownMenu(
-                                        expanded = showDirectMenu,
-                                        onDismissRequest = { showDirectMenu = false }
-                                    ) {
-                                        val isCurrentBookmarked = activeRoom?.isBookmarked == true
-                                        DropdownMenuItem(
-                                            text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
-                                            leadingIcon = {
-                                                Icon(
-                                                    imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                    contentDescription = null
-                                                )
-                                            },
-                                            onClick = {
-                                                showDirectMenu = false
-                                                activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Warna Chat & Wallpaper") },
-                                            leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                            onClick = {
-                                                showDirectMenu = false
-                                                viewModel.isThemeWallpaperDialogOpen.value = true
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Bersihkan Riwayat Chat") },
-                                            leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
-                                            onClick = {
-                                                showDirectMenu = false
-                                                activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Tutup Conversation") },
-                                            leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
-                                            onClick = {
-                                                showDirectMenu = false
-                                                isDirectConversationOpen = false
-                                            }
-                                        )
+                                        DropdownMenu(
+                                            expanded = showDirectMenu,
+                                            onDismissRequest = { showDirectMenu = false }
+                                        ) {
+                                            val isCurrentBookmarked = activeRoom?.isBookmarked == true
+                                            DropdownMenuItem(
+                                                text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showDirectMenu = false
+                                                    activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Warna Chat & Wallpaper") },
+                                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                                onClick = {
+                                                    showDirectMenu = false
+                                                    viewModel.isThemeWallpaperDialogOpen.value = true
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Bersihkan Riwayat Chat") },
+                                                leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
+                                                onClick = {
+                                                    showDirectMenu = false
+                                                    activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Tutup Conversation") },
+                                                leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
+                                                onClick = {
+                                                    showDirectMenu = false
+                                                    isDirectConversationOpen = false
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
