@@ -52,13 +52,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -381,7 +384,9 @@ fun MessageBubble(
                                         text = message.body,
                                         myNickname = myNickname,
                                         textColor = textColor,
-                                        accentColor = palette.accentColor
+                                        accentColor = palette.accentColor,
+                                        onMentionClick = onMentionClick,
+                                        onQuoteClick = { onReplyClick(message) }
                                     )
                                 }
                             }
@@ -534,19 +539,56 @@ fun FormattedMessageText(
     text: String,
     myNickname: String,
     textColor: Color,
-    accentColor: Color
+    accentColor: Color,
+    onMentionClick: ((String) -> Unit)? = null,
+    onQuoteClick: (() -> Unit)? = null
 ) {
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val linkColor = if (textColor.luminance() > 0.5f) Color(0xFF60A5FA) else Color(0xFF2563EB)
+
+    val urlRegex = Regex("""(https?://[^\s]+|www\.[^\s]+)""", RegexOption.IGNORE_CASE)
+
     val annotatedString = buildAnnotatedString {
         val words = text.split(" ")
         words.forEachIndexed { index, word ->
-            if (word.startsWith("@") && word.length > 1) {
-                val cleanWord = word.trimEnd(',', '.', '!', '?')
+            val match = urlRegex.matchEntire(word)
+            if (match != null) {
+                val rawUrl = match.value
+                val cleanUrl = rawUrl.trimEnd(',', '.', '!', '?', ';', ':', ')', ']')
+                val trailingPunct = rawUrl.substring(cleanUrl.length)
+                val fullUrl = if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
+                    cleanUrl
+                } else {
+                    "https://$cleanUrl"
+                }
+
+                pushStringAnnotation(tag = "URL", annotation = fullUrl)
+                pushStyle(
+                    SpanStyle(
+                        color = linkColor,
+                        textDecoration = TextDecoration.Underline,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                append(cleanUrl)
+                pop()
+                pop()
+
+                if (trailingPunct.isNotEmpty()) {
+                    append(trailingPunct)
+                }
+            } else if (word.startsWith("@") && word.length > 1) {
+                val cleanWord = word.trimEnd(',', '.', '!', '?', ';', ':', ')', ']')
+                val trailingPunct = word.substring(cleanWord.length)
                 val isMe = myNickname.isNotBlank() && cleanWord.equals("@$myNickname", ignoreCase = true)
                 val mentionColor = if (isMe) {
                     if (textColor.luminance() > 0.5f) Color(0xFFFACC15) else Color(0xFFCA8A04)
                 } else {
                     accentColor
                 }
+
+                pushStringAnnotation(tag = "MENTION", annotation = cleanWord.removePrefix("@"))
                 pushStyle(
                     SpanStyle(
                         fontWeight = FontWeight.Bold,
@@ -554,8 +596,13 @@ fun FormattedMessageText(
                         background = if (isMe) mentionColor.copy(alpha = 0.15f) else Color.Unspecified
                     )
                 )
-                append(word)
+                append(cleanWord)
                 pop()
+                pop()
+
+                if (trailingPunct.isNotEmpty()) {
+                    append(trailingPunct)
+                }
             } else if (word.startsWith(">")) {
                 pushStyle(
                     SpanStyle(
@@ -572,10 +619,35 @@ fun FormattedMessageText(
         }
     }
 
-    Text(
+    ClickableText(
         text = annotatedString,
-        style = MaterialTheme.typography.bodyMedium,
-        color = textColor
+        style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+        onClick = { offset ->
+            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                .firstOrNull()?.let { annotation ->
+                    try {
+                        uriHandler.openUri(annotation.item)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(annotation.item)).apply {
+                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        } catch (err: Exception) {
+                            Toast.makeText(context, "Tidak dapat membuka URL: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    return@ClickableText
+                }
+
+            annotatedString.getStringAnnotations(tag = "MENTION", start = offset, end = offset)
+                .firstOrNull()?.let { annotation ->
+                    onMentionClick?.invoke(annotation.item)
+                    return@ClickableText
+                }
+
+            onQuoteClick?.invoke()
+        }
     )
 }
 
