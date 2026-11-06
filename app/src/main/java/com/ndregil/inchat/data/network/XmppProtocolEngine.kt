@@ -233,6 +233,25 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
         )
     }
 
+    suspend fun sendDirectOobMessage(targetJid: String, url: String, myNickname: String): XmppMessage {
+        val msgId = "raw_file_${System.currentTimeMillis()}"
+        val stanza = "<message to='$targetJid' type='chat' id='$msgId'><body>$url</body><x xmlns='jabber:x:oob'><url>$url</url></x></message>"
+        sendRawStanza(stanza, "MESSAGE", targetJid)
+
+        return XmppMessage(
+            id = msgId,
+            roomJid = targetJid,
+            senderJid = targetJid, // Simplified for now
+            senderNickname = myNickname,
+            body = url,
+            timestamp = System.currentTimeMillis(),
+            isMine = true,
+            messageType = MessageType.FILE,
+            status = DeliveryStatus.SENT,
+            fileUrl = url
+        )
+    }
+
     suspend fun sendGroupFile(roomJid: String, url: String, fileName: String, mimeType: String, fileSize: Long, myNickname: String): XmppMessage {
         val msgId = "raw_file_${System.currentTimeMillis()}"
         val body = "File: $fileName\n$url"

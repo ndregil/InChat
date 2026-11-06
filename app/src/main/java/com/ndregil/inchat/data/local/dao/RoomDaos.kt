@@ -135,6 +135,9 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateMessageStatus(id: String, status: DeliveryStatus)
 
+    @Query("SELECT MAX(timestamp) FROM messages WHERE roomJid = :roomJid")
+    suspend fun getLatestMessageTimestamp(roomJid: String): Long?
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: String)
 

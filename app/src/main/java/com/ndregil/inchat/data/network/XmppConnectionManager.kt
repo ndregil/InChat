@@ -828,32 +828,33 @@ class XmppConnectionManager(
             val bareJidObj = fullInputJid.asBareJid()
             val bareJidStr = bareJidObj.toString()
             
-            // Collect candidate JIDs (try active presence resources first, then full input JID, then bare JID)
+            // Collect candidate JIDs:
+            // CRITICAL: If targetJid has a resource (e.g. occupant room@conf/nick or user@domain/res), ONLY query that specific full JID.
+            // DO NOT fall back to bare JID (room/server JID), because querying room JIDs returns room server info!
             val candidateJids = mutableListOf<org.jxmpp.jid.Jid>()
             if (fullInputJid.hasResource()) {
                 candidateJids.add(fullInputJid)
-            }
-            
-            try {
-                val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
-                val entityBareJid = bareJidObj.asEntityBareJidIfPossible()
-                if (entityBareJid != null) {
-                    val presences = roster.getPresences(entityBareJid)
-                    for (p in presences) {
-                        val fromJid = p.from
-                        if (fromJid != null && fromJid.hasResource()) {
-                            if (!candidateJids.contains(fromJid)) {
-                                candidateJids.add(fromJid)
+            } else {
+                try {
+                    val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
+                    val entityBareJid = bareJidObj.asEntityBareJidIfPossible()
+                    if (entityBareJid != null) {
+                        val presences = roster.getPresences(entityBareJid)
+                        for (p in presences) {
+                            val fromJid = p.from
+                            if (fromJid != null && fromJid.hasResource()) {
+                                if (!candidateJids.contains(fromJid)) {
+                                    candidateJids.add(fromJid)
+                                }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Could not fetch presences for $targetJid: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.d(TAG, "Could not fetch presences for $targetJid: ${e.message}")
-            }
-            
-            if (!candidateJids.contains(bareJidObj)) {
-                candidateJids.add(bareJidObj)
+                if (candidateJids.isEmpty()) {
+                    candidateJids.add(bareJidObj)
+                }
             }
 
             val versionManager = VersionManager.getInstanceFor(conn)
@@ -864,7 +865,7 @@ class XmppConnectionManager(
             var osStr = ""
             val featuresList = mutableListOf<String>()
             var querySucceeded = false
-            var capsExt: org.jivesoftware.smackx.caps.packet.CapsExtension? = null
+            var capsPair: Pair<String, String>? = null
 
             // Try candidate JIDs for XEP-0092 and XEP-0030
             for (jid in candidateJids) {
@@ -892,78 +893,67 @@ class XmppConnectionManager(
                             featuresList.add(f.`var`)
                         }
                     }
-                    if (info.identities.isNotEmpty()) {
-                        val identity = info.identities.first()
-                        if (softwareName.isBlank() && identity.name != null) {
-                            softwareName = identity.name
-                            querySucceeded = true
-                        }
-                    }
-                    if (softwareName.isBlank() && info.node != null) {
-                        softwareName = info.node
-                        querySucceeded = true
-                    }
-                    if (querySucceeded) break
                 } catch (e: Exception) {
                     Log.d(TAG, "Disco info query failed for $jid: ${e.message}")
                 }
             }
 
-            // Check presence Caps extension (XEP-0115) from roster/presence
+            // Check presence Caps extension (XEP-0115)
             try {
+                var presence: org.jivesoftware.smack.packet.Presence? = null
+                
+                // 1. Try Roster (for normal contacts)
                 val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
                 val entityBareJid = bareJidObj.asEntityBareJidIfPossible()
-                val presence = if (entityBareJid != null) roster.getPresence(entityBareJid) else null
-                capsExt = presence?.let { p ->
-                    org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
-                        ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                if (entityBareJid != null) {
+                    presence = roster.getPresence(entityBareJid)
                 }
+                
+                // 2. Try MUC (for room occupants)
+                if (presence == null && fullInputJid.hasResource()) {
+                    try {
+                        val smackMucManager = org.jivesoftware.smackx.muc.MultiUserChatManager.getInstanceFor(conn)
+                        val entityFullJid = fullInputJid.asEntityFullJidIfPossible()
+                        if (entityFullJid != null) {
+                            val muc = smackMucManager.getMultiUserChat(entityFullJid.asEntityBareJid())
+                            presence = muc.getOccupantPresence(entityFullJid)
+                        }
+                    } catch (e: Exception) {
+                        // Not a MUC or not in the room
+                    }
+                }
+
+                capsPair = ClientRegistryManager.extractCapsFromPresence(presence)
             } catch (e: Exception) {
                 Log.d(TAG, "Failed to get presence caps for $targetJid: ${e.message}")
             }
 
-            val finalName = if (softwareName.isBlank()) {
-                capsExt?.node?.ifBlank { null } ?: bareJidStr.substringBefore("@")
-            } else {
-                softwareName
+            if (!querySucceeded && softwareName.isBlank() && versionStr.isBlank()) {
+                return@withContext Result.failure(Exception("Klien tidak merespons atau tidak mengijinkan query versi (XEP-0092)."))
             }
-            val finalVersion = if (versionStr.isBlank()) {
-                capsExt?.ver?.ifBlank { null } ?: "1.0"
-            } else {
-                versionStr
-            }
-            val finalOs = if (osStr.isBlank()) "Unknown OS" else osStr
 
-            val base = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+            val nickname = if (fullInputJid.hasResource()) fullInputJid.resourceOrNull?.toString() else null
+            val finalName = if (softwareName.isNotBlank()) softwareName else (nickname ?: bareJidStr.substringBefore("@"))
+            val finalVersion = versionStr.ifBlank { "-" }
+            val finalOs = osStr.ifBlank { "-" }
+
+            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = finalName,
                 jid = targetJid,
-                node = capsExt?.node ?: finalName,
-                ver = capsExt?.ver ?: finalVersion,
-                hash = capsExt?.hash ?: "sha-1"
+                node = capsPair?.first ?: "",
+                ver = capsPair?.second ?: "",
+                hash = "sha-1",
+                version = finalVersion,
+                os = finalOs
+            ).copy(
+                features = featuresList.ifEmpty { listOf() }
             )
 
-            val platform = when {
-                finalName.contains("Android", ignoreCase = true) || finalOs.contains("Android", ignoreCase = true) || finalName.contains("Conversations", ignoreCase = true) -> com.ndregil.inchat.data.model.ClientPlatform.ANDROID
-                finalName.contains("iOS", ignoreCase = true) || finalOs.contains("iOS", ignoreCase = true) || finalName.contains("Monal", ignoreCase = true) -> com.ndregil.inchat.data.model.ClientPlatform.IOS
-                finalName.contains("Web", ignoreCase = true) || finalOs.contains("Movim", ignoreCase = true) -> com.ndregil.inchat.data.model.ClientPlatform.WEB
-                finalName.contains("Bot", ignoreCase = true) -> com.ndregil.inchat.data.model.ClientPlatform.BOT
-                else -> base.platform
-            }
-
-            val caps = base.copy(
-                clientName = if (base.clientName != "Unknown Client") base.clientName else finalName,
-                version = if (base.version != "1.0") base.version else finalVersion,
-                os = finalOs,
-                platform = if (platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) platform else base.platform,
-                features = featuresList.ifEmpty { base.features }
-            )
-
-            Log.i(TAG, "Successfully resolved client version for $targetJid: ${caps.clientName} v${caps.version} (live queried: $querySucceeded)")
+            Log.i(TAG, "Successfully resolved client version for $targetJid: ${caps.clientName} v${caps.version} (os: ${caps.os})")
             Result.success(caps)
         } catch (e: Exception) {
-            Log.w(TAG, "Version query failed for $targetJid: ${e.message}, returning fallback resolved caps")
-            val fallbackCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(name = targetJid, jid = targetJid, node = targetJid)
-            Result.success(fallbackCaps)
+            Log.w(TAG, "Version query failed for $targetJid: ${e.message}")
+            Result.failure(e)
         }
     }
 

@@ -206,10 +206,10 @@ fun ClientCapsDialog(
                             .border(1.dp, platformColor.copy(alpha = 0.4f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
-                        ClientCapsIcon(
-                            platform = activeCaps.platform,
-                            clientCaps = activeCaps,
-                            modifier = Modifier.size(26.dp),
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
                             tint = platformColor
                         )
                     }
@@ -254,7 +254,7 @@ fun ClientCapsDialog(
                                     isLiveVerified = true
                                     queryStatusMessage = "Versi klien terverifikasi via XEP-0092 IQ Version!"
                                 }.onFailure {
-                                    queryStatusMessage = "Klien user tidak merespons query XEP-0092. Menampilkan estimasi Presence Caps (XEP-0115)."
+                                    queryStatusMessage = "Klien user tidak merespons query XEP-0092."
                                 }
                             }
                         } else {
@@ -294,204 +294,57 @@ fun ClientCapsDialog(
                     )
                 }
 
-                // Client Identity Card
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                // Client Identity Card (shown ONLY when live version query button is clicked)
+                if (isLiveVerified) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ClientCapsIcon(
-                                    platform = activeCaps.platform,
-                                    clientCaps = activeCaps,
-                                    modifier = Modifier.size(24.dp)
-                                )
                                 Text(
                                     text = activeCaps.clientName,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = platformColor.copy(alpha = 0.2f)
+                                ) {
+                                    Text(
+                                        text = platformLabel,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = platformColor,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = platformColor.copy(alpha = 0.2f)
-                            ) {
-                                Text(
-                                    text = platformLabel,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = platformColor,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
 
-                        Text(
-                            text = "Nama Klien: ${activeCaps.clientName}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Versi Klien: ${activeCaps.version}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "Sistem Operasi / Platform: ${activeCaps.os}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-
-                // XEP-0115 Entity Capabilities Info
-                Text(
-                    text = "XEP-0115: Entity Capabilities",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                val displayNodeUri = activeCaps.nodeUri.ifBlank {
-                    if (activeCaps.rawNode.isNotBlank()) {
-                        if (activeCaps.rawNode.startsWith("http")) activeCaps.rawNode else "http://${activeCaps.rawNode}"
-                    } else "urn:xmpp:caps"
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "Node URI:",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = displayNodeUri,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        if (activeCaps.rawNode.isNotBlank() && activeCaps.rawNode != displayNodeUri) {
                             Text(
-                                text = "Detected Node: ${activeCaps.rawNode}",
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "Nama Klien: ${activeCaps.clientName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Versi Klien: ${activeCaps.version.ifBlank { "-" }}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF16A34A)
+                            )
+                            Text(
+                                text = "Sistem Operasi / Platform: ${activeCaps.os.ifBlank { "-" }}",
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Text(
-                            text = "Caps Hash (${activeCaps.hash}):",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = activeCaps.ver,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                // Supported XMPP Features / Extensions
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Extension,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Fitur & Ekstensi XMPP Terdeteksi (${activeCaps.features.size})",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    activeCaps.readableFeatures.forEach { (title, _) ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                0.5.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Text(
-                                    text = title,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Raw Caps XML preview snippet
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Text(
-                            text = "Stanza XML Presence Caps / IQ Version:",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "<c xmlns='http://jabber.org/protocol/caps'\n   hash='${activeCaps.hash}'\n   node='$displayNodeUri'\n   ver='${activeCaps.ver}'/>",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
                 }
             }

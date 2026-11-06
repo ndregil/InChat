@@ -8,6 +8,7 @@ import com.ndregil.inchat.data.model.XmppMessage
 import org.jivesoftware.smack.MessageListener
 import org.jivesoftware.smack.packet.Message
 import org.jivesoftware.smackx.delay.DelayInformationManager
+
 import java.util.UUID
 
 /**
@@ -129,16 +130,26 @@ class MucMessageListener(
             // Differentiate between private whispers (type="chat") and group messages (type="groupchat")
             // Differentiate between private whispers, voice notes, and group messages
             val isWhisper = message.type == Message.Type.chat
+            
+            // XEP-0066 OOB Detection
+            val xml = message.toXML().toString()
+            val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+            val oobUrl = oobRegex.find(xml)?.groupValues?.get(1)?.trim()
+            val isImage = (oobUrl != null && (oobUrl.contains(".jpg") || oobUrl.contains(".jpeg") || oobUrl.contains(".png") || oobUrl.contains(".gif")))
+            
             val isVoice = body.startsWith("🎤 Pesan Suara") || 
                 (body.contains("http") && (body.contains(".m4a") || body.contains(".aac") || body.contains(".mp3") || body.contains(".ogg") || body.contains(".wav") || body.contains("voice_")))
+            
+            val isFile = isImage || oobUrl != null
 
             val messageType = when {
                 isVoice -> MessageType.VOICE
+                isFile -> MessageType.FILE
                 isWhisper -> MessageType.WHISPER
                 else -> MessageType.GROUPCHAT
             }
 
-            val voiceUrl = if (isVoice) {
+            val fileUrl = oobUrl ?: if (isVoice) {
                 body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") } 
                     ?: body.substringAfter("\n", "").takeIf { it.startsWith("http") || it.startsWith("file://") }
             } else null
@@ -166,8 +177,13 @@ class MucMessageListener(
                 messageType = messageType,
                 status = DeliveryStatus.DELIVERED,
                 recipientNickname = if (isWhisper) myNickname else null,
-                fileUrl = voiceUrl,
-                fileMimeType = if (isVoice) "audio/mp4" else null,
+                fileUrl = fileUrl,
+                fileMimeType = when {
+                    isImage -> "image/jpeg"
+                    isVoice -> "audio/mp4"
+                    else -> null
+                },
+                fileName = if (isFile) "Lampiran" else null,
                 voiceDurationSeconds = voiceDuration,
                 isHistory = delayInfo != null
             )

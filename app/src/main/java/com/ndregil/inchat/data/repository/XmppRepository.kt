@@ -34,6 +34,8 @@ import com.ndregil.inchat.data.network.XmppProtocolEngine
 import com.ndregil.inchat.data.network.fcm.FcmPushManager
 import com.ndregil.inchat.data.network.fcm.PushMessagePayload
 import org.jxmpp.jid.impl.JidCreate
+import org.jivesoftware.smackx.delay.DelayInformationManager
+
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -613,6 +615,13 @@ class XmppRepository(
                 ?: fromStr.substringAfterLast("/").takeIf { fromStr.contains("/") && !it.equals(fromBareJid, ignoreCase = true) }
 
             scope.launch(Dispatchers.IO) {
+                // XEP-0066 OOB Detection
+                val xml = message.toXML().toString()
+                val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+                val oobUrl = oobRegex.find(xml)?.groupValues?.get(1)?.trim()
+                val isImage = (oobUrl != null && (oobUrl.contains(".jpg") || oobUrl.contains(".jpeg") || oobUrl.contains(".png") || oobUrl.contains(".gif")))
+                val isFile = isImage || oobUrl != null
+
                 val roomEntity = database.roomDao().getRoomByJid(fromBareJid)
                 val isMucContext = smackMucManager.isRoomJoined(fromBareJid) ||
                         fromBareJid.contains("conference.", ignoreCase = true) ||
@@ -640,9 +649,12 @@ class XmppRepository(
                         body = bodyText,
                         timestamp = System.currentTimeMillis(),
                         isMine = false,
-                        messageType = MessageType.WHISPER,
+                        messageType = if (isFile) MessageType.FILE else MessageType.WHISPER,
                         status = DeliveryStatus.DELIVERED,
-                        recipientNickname = myRoomNick
+                        recipientNickname = myRoomNick,
+                        fileUrl = oobUrl,
+                        fileMimeType = if (isImage) "image/jpeg" else null,
+                        fileName = if (isFile) "Lampiran" else null
                     )
 
                     Log.i("XmppRepository", "Received WHISPER from '$senderNick' in room [$roomJid]: $bodyText")
@@ -670,8 +682,11 @@ class XmppRepository(
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
                     isMine = false,
-                    messageType = MessageType.CHAT,
-                    status = DeliveryStatus.DELIVERED
+                    messageType = if (isFile) MessageType.FILE else MessageType.CHAT,
+                    status = DeliveryStatus.DELIVERED,
+                    fileUrl = oobUrl,
+                    fileMimeType = if (isImage) "image/jpeg" else null,
+                    fileName = if (isFile) "Lampiran" else null
                 )
 
                 Log.i("XmppRepository", "Received 1-on-1 direct message from [$fromBareJid] ('$senderNick'): $bodyText")
@@ -852,6 +867,15 @@ class XmppRepository(
                     Log.i("XmppRepository", "Disabling auto-join for non-MUC JID: $roomJid")
                     updateRoomAutoJoin(roomJid, false)
                 }
+            } else {
+                // If join succeeded, trigger MAM history sync to fill gaps since last seen message
+                scope.launch {
+                    try {
+                        syncMamHistory(roomJid)
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "MAM Sync failed for $roomJid: ${e.message}")
+                    }
+                }
             }
         }
 
@@ -936,6 +960,65 @@ class XmppRepository(
             val namesStr = joinedNames.distinct().joinToString(", ")
             _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")
             Log.i("XmppRepository", "Concurrent auto-join completed for: $namesStr")
+        }
+    }
+
+    /**
+     * Synchronizes historical messages for a specific JID using XEP-0313 (MAM).
+     */
+    suspend fun syncMamHistory(roomJid: String, limit: Int = 50) {
+        if (!smackConnectionManager.isConnected()) return
+
+        val latestTimestamp = database.messageDao().getLatestMessageTimestamp(roomJid) ?: 0L
+        Log.i("XmppRepository", "Starting MAM Sync for $roomJid since ${java.util.Date(latestTimestamp)} (limit: $limit)")
+
+        val result = smackMucManager.fetchMamHistory(roomJid, latestTimestamp, limit)
+        result.onSuccess { messages ->
+            if (messages.isEmpty()) {
+                Log.d("XmppRepository", "No new MAM messages for $roomJid")
+                return@onSuccess
+            }
+
+            Log.i("XmppRepository", "Processing ${messages.size} MAM messages for $roomJid")
+            val roomEntity = database.roomDao().getRoomByJid(roomJid)
+            val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
+            val myJid = currentAccount.value.jid
+
+            messages.forEach { smackMsg ->
+                try {
+                    val body = smackMsg.body ?: return@forEach
+                    val fromJid = smackMsg.from
+                    val senderNick = fromJid?.resourceOrNull?.toString() 
+                        ?: fromJid?.asBareJid()?.toString()?.substringBefore("@") 
+                        ?: "User"
+                    
+                    val isMine = if (isMucJid(roomJid)) {
+                        senderNick.equals(myNickname, ignoreCase = true)
+                    } else {
+                        fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                    }
+
+                    val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
+                    val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
+                    val stanzaId = smackMsg.stanzaId ?: java.util.UUID.randomUUID().toString()
+
+                    val xmppMsg = XmppMessage(
+                        id = stanzaId,
+                        roomJid = roomJid,
+                        senderJid = fromJid?.toString() ?: roomJid,
+                        senderNickname = senderNick,
+                        body = body,
+                        timestamp = timestamp,
+                        isMine = isMine,
+                        messageType = if (smackMsg.type == org.jivesoftware.smack.packet.Message.Type.groupchat) MessageType.GROUPCHAT else MessageType.CHAT,
+                        status = DeliveryStatus.DELIVERED,
+                        isHistory = true
+                    )
+                    processIncomingMessage(xmppMsg)
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Error parsing MAM message: ${e.message}")
+                }
+            }
         }
     }
 
@@ -1203,26 +1286,41 @@ class XmppRepository(
         val myJid = currentAccount.value.jid
         val myAvatar = smackAvatarManager.getAvatar(myJid)
 
-        // 1. If Smack MUC is connected and room joined, send via Smack MUC
+        val isUrl = text.trim().startsWith("http")
+        val cleanJidJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+
+        // 1. If Smack MUC is connected and room joined, send via Smack MUC or raw stanza
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             try {
-                smackMucManager.sendMessage(cleanJid, text)
+                if (isUrl) {
+                    engine.sendGroupFile(cleanJid, text, "File", "image/jpeg", 0L, myNickname)
+                } else {
+                    smackMucManager.sendMessage(cleanJid, text)
+                }
                 return
             } catch (e: Exception) {
-                // Handled gracefully, fall back
+                Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${e.message}")
             }
-        } else if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
-            // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
+        }
+        
+        // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
+        if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             try {
-                val conn = smackConnectionManager.getRawConnection()
-                if (conn != null) {
-                    val toJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
-                    val msgStanza = org.jivesoftware.smack.packet.Message(toJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
-                        body = text
-                        stanzaId = java.util.UUID.randomUUID().toString()
+                if (isUrl) {
+                    engine.sendDirectOobMessage(cleanJid, text, myNickname)
+                    Log.i("XmppRepository", "Successfully sent 1-on-1 direct OOB message to $cleanJid")
+                    return
+                } else {
+                    val conn = smackConnectionManager.getRawConnection()
+                    if (conn != null) {
+                        val msgStanza = org.jivesoftware.smack.packet.Message(cleanJidJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
+                            body = text
+                            stanzaId = java.util.UUID.randomUUID().toString()
+                        }
+                        conn.sendStanza(msgStanza)
+                        Log.i("XmppRepository", "Successfully sent 1-on-1 direct XMPP stanza to $cleanJid")
+                        return
                     }
-                    conn.sendStanza(msgStanza)
-                    Log.i("XmppRepository", "Successfully sent 1-on-1 direct XMPP stanza to $cleanJid")
                 }
             } catch (e: Exception) {
                 Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $cleanJid: ${e.message}")

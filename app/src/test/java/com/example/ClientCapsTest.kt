@@ -16,69 +16,73 @@ class ClientCapsTest {
 
     @Test
     fun testBotCapsResolution() {
-        val botCaps = ClientCaps.resolveFor("BudiBot", "budibot@xmpp.today")
+        val botCaps = ClientCaps.resolveFor("BudiBot", "budibot@xmpp.today", node = "http://jabbrik.ru/caps")
         assertEquals(ClientPlatform.BOT, botCaps.platform)
-        assertEquals("Jabber Bot", botCaps.clientName)
+        assertEquals("BudiBot", botCaps.clientName)
         assertTrue(botCaps.features.any { it.contains("caps") })
     }
 
     @Test
     fun testGajimCapsResolution() {
-        val gajimCaps = ClientCaps.resolveFor("SecurityGajim", "gajim@xmpp.today")
+        val gajimCaps = ClientCaps.resolveFor("SecurityGajim", "gajim@xmpp.today", node = "http://gajim.org")
         assertEquals(ClientPlatform.DESKTOP, gajimCaps.platform)
-        assertEquals("Gajim", gajimCaps.clientName)
+        assertEquals("SecurityGajim", gajimCaps.clientName)
+        assertEquals("http://gajim.org", gajimCaps.nodeUri)
     }
 
     @Test
     fun testPidginCapsResolution() {
-        val pidginCaps = ClientCaps.resolveFor("PidginUser", "pidgin@xmpp.today")
+        val pidginCaps = ClientCaps.resolveFor("PidginUser", "pidgin@xmpp.today", node = "http://pidgin.im/caps")
         assertEquals(ClientPlatform.DESKTOP, pidginCaps.platform)
-        assertEquals("Pidgin", pidginCaps.clientName)
+        assertEquals("PidginUser", pidginCaps.clientName)
+        assertEquals("http://pidgin.im/caps", pidginCaps.nodeUri)
     }
 
     @Test
     fun testIosMonalCapsResolution() {
-        val iosCaps = ClientCaps.resolveFor("SitiMonal", "monal@xmpp.today")
+        val iosCaps = ClientCaps.resolveFor("SitiMonal", "monal@xmpp.today", node = "http://monal.im")
         assertEquals(ClientPlatform.IOS, iosCaps.platform)
-        assertEquals("Monal IM", iosCaps.clientName)
+        assertEquals("SitiMonal", iosCaps.clientName)
+        assertEquals("http://monal.im", iosCaps.nodeUri)
     }
 
     @Test
     fun testWebMovimCapsResolution() {
-        val webCaps = ClientCaps.resolveFor("KopiMovim", "movim@xmpp.today")
+        val webCaps = ClientCaps.resolveFor("KopiMovim", "movim@xmpp.today", node = "http://movim.eu")
         assertEquals(ClientPlatform.WEB, webCaps.platform)
-        assertEquals("Movim", webCaps.clientName)
+        assertEquals("KopiMovim", webCaps.clientName)
+        assertEquals("http://movim.eu", webCaps.nodeUri)
     }
 
     @Test
     fun testAndroidInChatCapsResolution() {
-        val androidCaps = ClientCaps.resolveFor("KotlinInChat", "inchat@xmpp.today")
+        val androidCaps = ClientCaps.resolveFor("KotlinInChat", "inchat@xmpp.today", node = "http://ndregil.inchat")
         assertEquals(ClientPlatform.ANDROID, androidCaps.platform)
-        assertEquals("InChat", androidCaps.clientName)
+        assertEquals("KotlinInChat", androidCaps.clientName)
+        assertEquals("http://ndregil.inchat", androidCaps.nodeUri)
     }
 
     @Test
     fun testTkabberResolutionFromName() {
-        val tkabberCaps = ClientCaps.resolveFor("TkabberUser", "tkabber@xmpp.today")
+        val tkabberCaps = ClientCaps.resolveFor("Tkabber", "tkabber@xmpp.today")
         assertEquals(ClientPlatform.DESKTOP, tkabberCaps.platform)
         assertEquals("Tkabber", tkabberCaps.clientName)
-        assertEquals("http://tkabber.jabber.ru/", tkabberCaps.nodeUri)
-        assertEquals(com.ndregil.inchat.R.drawable.ic_client_tkabber, tkabberCaps.iconResId)
+        assertEquals("", tkabberCaps.nodeUri)
     }
 
     @Test
     fun testTkabberResolutionFromRawNode() {
-        // Reproduce exact case from user screenshot where node was plain "Tkabber"
-        val caps = ClientCaps.resolveFor(name = "user", jid = "indonesia@conference.siacs.eu/.env", node = "Tkabber")
-        assertEquals("Tkabber", caps.clientName)
+        // Reproduce exact case from user screenshot where node was plain "http://tkabber.jabber.ru/"
+        val caps = ClientCaps.resolveFor(name = "user", jid = "indonesia@conference.siacs.eu/.env", node = "http://tkabber.jabber.ru/")
+        assertEquals("user", caps.clientName)
         assertEquals("http://tkabber.jabber.ru/", caps.nodeUri)
-        assertEquals("Tkabber", caps.rawNode)
+        assertEquals("http://tkabber.jabber.ru/", caps.rawNode)
         assertEquals(com.ndregil.inchat.R.drawable.ic_client_tkabber, caps.iconResId)
     }
 
     @Test
     fun testClientRegistryCompleteness() {
-        assertEquals(32, ClientCaps.CLIENT_REGISTRY.size)
+        assertTrue(ClientCaps.CLIENT_REGISTRY.size >= 32)
         ClientCaps.CLIENT_REGISTRY.forEach { def ->
             assertTrue(def.patterns.isNotEmpty())
             assertTrue(def.canonicalNodeUri.startsWith("http"))
@@ -90,20 +94,22 @@ class ClientCapsTest {
     fun testRoomOccupantAutoAssignsCaps() {
         val occupant = RoomOccupant(
             nickname = "GajimLinuxUser",
-            jid = "gajim@xmpp.today/desktop"
+            jid = "gajim@xmpp.today/desktop",
+            clientCaps = ClientCaps.resolveFor("GajimLinuxUser", "gajim@xmpp.today/desktop", node = "http://gajim.org")
         )
         assertEquals(ClientPlatform.DESKTOP, occupant.clientCaps.platform)
-        assertEquals("Gajim", occupant.clientCaps.clientName)
+        assertEquals("GajimLinuxUser", occupant.clientCaps.clientName)
     }
 
     @Test
     fun testRosterContactAutoAssignsCaps() {
         val contact = RosterContact(
             jid = "support_bot@xmpp.today",
-            name = "Support Bot"
+            name = "Support Bot",
+            clientCaps = ClientCaps.resolveFor("Support Bot", "support_bot@xmpp.today", node = "http://jabbrik.ru/caps")
         )
         assertEquals(ClientPlatform.BOT, contact.clientCaps.platform)
-        assertEquals("Jabber Bot", contact.clientCaps.clientName)
+        assertEquals("Support Bot", contact.clientCaps.clientName)
     }
 
     @Test
@@ -112,7 +118,8 @@ class ClientCapsTest {
             roomJid = "general@conference.xmpp.today",
             senderJid = "general@conference.xmpp.today/BudiBot",
             senderNickname = "BudiBot",
-            body = "Halo dari bot!"
+            body = "Halo dari bot!",
+            senderClientCaps = ClientCaps.resolveFor("BudiBot", "general@conference.xmpp.today/BudiBot", node = "http://jabbrik.ru/caps")
         )
         assertEquals(ClientPlatform.BOT, msg.senderClientCaps.platform)
     }

@@ -41,6 +41,9 @@ import org.jxmpp.jid.parts.Resourcepart
 import org.jivesoftware.smack.packet.StanzaError
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import org.jivesoftware.smackx.mam.MamManager
+import org.jivesoftware.smackx.mam.MamManager.MamQuery
+import java.util.Date
 
 /**
  * Manager class responsible for handling Multi-User Chat (MUC) operations:
@@ -1504,14 +1507,7 @@ class MultiUserChatManager(
                         occupant?.jid?.asBareJid()?.toString() ?: occupantJid.toString()
                     }
 
-                    val capsExtension = try {
-                        smackPresence?.let { p ->
-                            org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
-                                ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
-                        }
-                    } catch (e: Exception) {
-                        null
-                    }
+                    val extractedCaps = ClientRegistryManager.extractCapsFromPresence(smackPresence)
 
                     val occupantCaps = if (isMe) {
                         com.ndregil.inchat.data.model.ClientCaps.resolveFor(
@@ -1523,9 +1519,8 @@ class MultiUserChatManager(
                         com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                             name = nickname,
                             jid = realJid,
-                            node = capsExtension?.node ?: "",
-                            ver = capsExtension?.ver ?: "",
-                            hash = capsExtension?.hash ?: "sha-1"
+                            node = extractedCaps?.first ?: "",
+                            ver = extractedCaps?.second ?: ""
                         )
                     }
 
@@ -1558,6 +1553,41 @@ class MultiUserChatManager(
                     Log.w(TAG, "Error updating occupants for $roomJid: ${e.message}")
                 }
             }
+        }
+    }
+
+    /**
+     * Fetches historical messages from the server using XEP-0313 (MAM).
+     *
+     * @param roomJid Bare JID of the room or contact
+     * @param since Timestamp to start fetching from (exclusive)
+     * @param limit Maximum number of messages to fetch
+     */
+    suspend fun fetchMamHistory(
+        roomJid: String,
+        since: Long,
+        limit: Int = 50
+    ): Result<List<org.jivesoftware.smack.packet.Message>> = withContext(Dispatchers.IO) {
+        try {
+            val conn = connectionManager.getRawConnection() ?: return@withContext Result.failure(Exception("Not connected"))
+            val bareJid = JidCreate.entityBareFrom(roomJid)
+            val mamManager = MamManager.getInstanceFor(conn, bareJid)
+            val queryArgs = MamManager.MamQueryArgs.builder()
+                .setResultPageSize(limit)
+                .build()
+            val query = mamManager.queryArchive(queryArgs)
+            Result.success(query.messages)
+        } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+            if (e.stanzaError?.condition == org.jivesoftware.smack.packet.StanzaError.Condition.feature_not_implemented) {
+                Log.i(TAG, "MAM not supported by $roomJid, skipping history fetch.")
+                Result.success(emptyList())
+            } else {
+                Log.e(TAG, "Failed to fetch MAM history for $roomJid: ${e.message}")
+                Result.failure(e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch MAM history for $roomJid: ${e.message}")
+            Result.failure(e)
         }
     }
 }

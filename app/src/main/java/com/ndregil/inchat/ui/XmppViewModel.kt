@@ -433,6 +433,13 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun loadRoomInfo(roomJid: String) {
+        viewModelScope.launch {
+            val info = repository.getRoomInfo(roomJid)
+            roomAdminInfo.value = info.getOrNull()
+        }
+    }
+
     // Active input text
     val currentInputText = MutableStateFlow("")
 

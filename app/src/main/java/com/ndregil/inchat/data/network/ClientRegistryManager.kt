@@ -74,7 +74,7 @@ object ClientRegistryManager {
         ClientDefinition(
             patterns = listOf("gajim.org", "gajim", "http://gajim.org"),
             clientName = "Gajim",
-            canonicalNodeUri = "http://gajim.org/",
+            canonicalNodeUri = "http://gajim.org",
             platform = ClientPlatform.DESKTOP,
             iconResId = com.ndregil.inchat.R.drawable.ic_client_gajim,
             defaultVersion = "Desktop",
@@ -272,7 +272,7 @@ object ClientRegistryManager {
         ClientDefinition(
             patterns = listOf("movim.eu", "http://movim.eu"),
             clientName = "Movim",
-            canonicalNodeUri = "http://movim.eu/",
+            canonicalNodeUri = "http://movim.eu",
             platform = ClientPlatform.WEB,
             iconResId = com.ndregil.inchat.R.drawable.ic_client_movim,
             defaultVersion = "Web",
@@ -374,11 +374,23 @@ object ClientRegistryManager {
                     
                     if (patterns.isNotEmpty()) {
                         val iconRes = resolveIconRes(clientName, context)
+                        val firstPat = patterns.first()
+                        val canonicalUri = when {
+                            patterns.any { it.startsWith("http://") || it.startsWith("https://") } ->
+                                patterns.first { it.startsWith("http://") || it.startsWith("https://") }
+                            patterns.any { it.contains(".") } ->
+                                "http://" + patterns.first { it.contains(".") }
+                            firstPat.contains(".") ->
+                                "http://$firstPat"
+                            else ->
+                                "http://$firstPat"
+                        }
+
                         loadedClients.add(
                             ClientDefinition(
                                 patterns = patterns,
                                 clientName = clientName,
-                                canonicalNodeUri = patterns.firstOrNull { it.startsWith("http") } ?: "http://$clientName",
+                                canonicalNodeUri = canonicalUri,
                                 platform = determinePlatform(clientName),
                                 iconResId = iconRes,
                                 defaultVersion = "1.0",
@@ -404,6 +416,8 @@ object ClientRegistryManager {
         val clean = clientName.lowercase().trim()
         return when {
             clean.contains("inchat") -> com.ndregil.inchat.R.drawable.ic_client_inchat
+            clean.contains("slixmpp") -> com.ndregil.inchat.R.drawable.ic_client_slixmpp
+            clean.contains("jtalk") -> com.ndregil.inchat.R.drawable.ic_client_jtalk
             clean.contains("bombusmod-qd") || clean.contains("bombus-qd") -> com.ndregil.inchat.R.drawable.ic_client_bombus_qd
             clean.contains("bombusmod") -> com.ndregil.inchat.R.drawable.ic_client_bombusmod
             clean.contains("bombus") -> com.ndregil.inchat.R.drawable.ic_client_bombus
@@ -477,48 +491,111 @@ object ClientRegistryManager {
     }
 
     /**
+     * Robustly extracts node and ver attributes from any XEP-0115 presence packet.
+     * Handles CapsExtension, DefaultExtensionElement, StandardExtensionElement, and XML fallbacks.
+     */
+    fun extractCapsFromPresence(presence: org.jivesoftware.smack.packet.Presence?): Pair<String, String>? {
+        if (presence == null) return null
+
+        try {
+            val capsExt = org.jivesoftware.smackx.caps.packet.CapsExtension.from(presence)
+                ?: (presence.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+            if (capsExt != null && capsExt.node.isNotBlank()) {
+                return Pair(capsExt.node, capsExt.ver ?: "")
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val ext = presence.getExtension("c", "http://jabber.org/protocol/caps")
+                ?: presence.getExtension("http://jabber.org/protocol/caps")
+                ?: presence.extensions.firstOrNull { it.elementName == "c" && it.namespace == "http://jabber.org/protocol/caps" }
+
+            if (ext != null) {
+                if (ext is org.jivesoftware.smackx.caps.packet.CapsExtension) {
+                    return Pair(ext.node, ext.ver ?: "")
+                }
+                if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
+                    val nodeAttr = ext.getAttributeValue("node")
+                    val verAttr = ext.getAttributeValue("ver")
+                    if (!nodeAttr.isNullOrBlank()) {
+                        return Pair(nodeAttr, verAttr ?: "")
+                    }
+                }
+                val xml = ext.toXML("").toString()
+                val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                if (!nodeMatch.isNullOrBlank()) {
+                    return Pair(nodeMatch, verMatch ?: "")
+                }
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
+    /**
+     * Strictly matches a node URL against clients.txt patterns.
+     */
+    fun resolveByNode(node: String): ClientDefinition? {
+        val rawClean = node.trim().lowercase()
+        if (rawClean.isBlank()) return null
+        val cleanNode = rawClean.removePrefix("http://").removePrefix("https://").removeSuffix("/")
+
+        return dynamicRegistry.firstOrNull { def -> 
+            def.patterns.any { pattern ->
+                val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (cleanPattern.isBlank()) return@any false
+
+                cleanNode == cleanPattern || 
+                cleanNode.startsWith("$cleanPattern/") || 
+                cleanNode.startsWith("$cleanPattern#") || 
+                cleanNode.startsWith("$cleanPattern?") ||
+                cleanNode.startsWith("$cleanPattern.") ||
+                cleanNode.startsWith(cleanPattern) ||
+                cleanPattern.startsWith(cleanNode) ||
+                cleanNode.substringBefore("/") == cleanPattern.substringBefore("/") ||
+                cleanNode.substringBefore("#") == cleanPattern.substringBefore("#") ||
+                (cleanNode.contains(".") && cleanPattern.contains(".") && cleanNode.substringBefore(".") == cleanPattern.substringBefore("."))
+            } 
+        }
+    }
+
+    /**
+     * Matches client name against clients.txt patterns without inferring node URI.
+     */
+    fun resolveByName(name: String): ClientDefinition? {
+        val cleanName = name.trim().lowercase()
+        if (cleanName.isBlank() || cleanName == "unknown" || cleanName.contains("@")) return null
+
+        return dynamicRegistry.firstOrNull { def ->
+            def.clientName.lowercase() == cleanName || 
+            def.patterns.any { p ->
+                val cp = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                val cpBase = cp.substringBefore("/")
+                cpBase.isNotBlank() && cleanName == cpBase
+            }
+        }
+    }
+
+    /**
      * Resolves client definition strictly from clients.txt definitions and node patterns.
      * Note: Server domain in JID is NEVER used to infer or resolve the client.
      */
     fun resolve(name: String, jid: String, node: String): ClientDefinition? {
-        val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-        val cleanName = name.trim().lowercase()
-
-        // 1. Direct and Highest Precision: Match node from XEP-0115 against patterns in clients.txt
+        val cleanNode = node.trim()
         if (cleanNode.isNotBlank()) {
-            dynamicRegistry.firstOrNull { def -> 
-                def.patterns.any { pattern ->
-                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    cleanNode == cleanPattern || cleanNode.startsWith("$cleanPattern/") || cleanNode.startsWith("$cleanPattern#")
-                } 
-            }?.let { return it }
-
-            // Partial contains match on node pattern (minimum 4 characters)
-            dynamicRegistry.firstOrNull { def ->
-                def.patterns.any { pattern ->
-                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    cleanPattern.length >= 4 && cleanNode.contains(cleanPattern)
-                }
-            }?.let { return it }
+            resolveByNode(cleanNode)?.let { return it }
         }
 
-        // 2. Exact Client Name match (e.g. from XEP-0092 Software Version Query)
+        val cleanName = name.trim()
         if (cleanName.isNotBlank()) {
-            dynamicRegistry.firstOrNull { def ->
-                def.clientName.lowercase() == cleanName || 
-                def.patterns.any { p -> p.lowercase() == cleanName }
-            }?.let { return it }
+            resolveByName(cleanName)?.let { return it }
         }
 
-        // 3. Special case: If node is absent but name is explicitly our app
-        if (cleanName == "inchat") {
-            return dynamicRegistry.firstOrNull { it.clientName.equals("InChat", ignoreCase = true) }
-        }
-
-        // Do NOT guess from server domain in JID!
         return null
     }
 
     fun getRegistry(): List<ClientDefinition> = dynamicRegistry
 }
+
 

@@ -194,8 +194,8 @@ fun MainSubSettingsMenu(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
-                        .padding(horizontal = 12.dp),
+                        .height(34.dp)
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -210,10 +210,9 @@ fun MainSubSettingsMenu(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)
+                .padding(paddingValues),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            contentPadding = PaddingValues(top = 0.dp, bottom = 4.dp)
         ) {
             // Profile & Connection Quick Header
             item {
@@ -229,10 +228,10 @@ fun MainSubSettingsMenu(
             item {
                 Text(
                     text = "Sub Pengaturan",
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                    modifier = Modifier.padding(start = 12.dp, top = 2.dp)
                 )
             }
 
@@ -457,11 +456,11 @@ fun SubSettingTileCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier.size(32.dp),
                 shape = RoundedCornerShape(10.dp),
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
             ) {
@@ -532,24 +531,24 @@ fun SubSettingDetailScreen(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.fillMaxWidth().statusBarsPadding()
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp)
+                            .padding(horizontal = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Kembali ke Pengaturan",
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
                     Text(
                         text = category.title,
                         style = MaterialTheme.typography.titleMedium,
@@ -624,9 +623,9 @@ fun AccountSubSettings(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
             AccountConnectionCard(
@@ -830,9 +829,9 @@ fun DisplaySubSettings(
     onNavigateToCustomTheme: () -> Unit
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
             Card(
@@ -925,9 +924,9 @@ fun ConnectionSubSettings(
     var showXepInfoDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         item {
             Card(
@@ -1145,9 +1144,9 @@ fun NotificationSubSettings() {
     val mucSoundOptions = listOf("Default", "Group Beep", "Chime", "Bubble", "Silent")
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Master Notification Toggle Card (All Messages)
         item {

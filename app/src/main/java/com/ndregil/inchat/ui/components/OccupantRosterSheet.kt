@@ -298,7 +298,7 @@ fun OccupantRosterSheet(
         ClientCapsDialog(
             clientCaps = occupant.clientCaps,
             userName = "${occupant.nickname} (${occupant.jid.ifBlank { "MUC Occupant" }})",
-            targetJid = occupant.jid,
+            targetJid = occupant.fullJid.ifBlank { occupant.jid },
             onQuerySoftwareVersion = onQuerySoftwareVersion,
             onDismiss = { selectedCapsOccupant = null }
         )

@@ -92,6 +92,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.platform.LocalContext
 import com.ndregil.inchat.data.model.OccupantRole
+import com.ndregil.inchat.data.model.OccupantAffiliation
 import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -108,6 +109,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -563,83 +565,9 @@ fun MultiRoomMainScreen(
                                         activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Ubah Topik Room") },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        editTopicText = activeRoom?.topic ?: ""
-                                        viewModel.isTopicModalOpen.value = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Warna Chat & Wallpaper") },
-                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        viewModel.isThemeWallpaperDialogOpen.value = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Ganti nickname") },
-                                    leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        isConfigNicknameOnly = true
-                                        activeRoom?.let { room ->
-                                            coroutineScope.launch {
-                                                val info = viewModel.repository.getRoomInfo(room.jid)
-                                                roomConfigInfo = info.getOrNull()
-                                                viewModel.isRoomConfigOpen.value = true
-                                            }
-                                        }
-                                    }
-                                )
-                                if (activeRoom?.myRole == OccupantRole.ADMIN || activeRoom?.myRole == OccupantRole.OWNER) {
-                                    DropdownMenuItem(
-                                        text = { Text("Administrasi room") },
-                                        leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                        onClick = {
-                                            showRoomMenu = false
-                                            isConfigNicknameOnly = false
-                                            activeRoom?.let { room ->
-                                                coroutineScope.launch {
-                                                    val info = viewModel.repository.getRoomInfo(room.jid)
-                                                    roomConfigInfo = info.getOrNull()
-                                                    viewModel.isAdminPanelOpen.value = true
-                                                }
-                                            }
-                                        }
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("Tinggalkan Room Ini") },
-                                    leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        activeRoom?.let { viewModel.leaveRoom(it.jid) }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Bersihkan Riwayat Chat") },
-                                    leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Hapus Room dari Daftar") },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        showRoomMenu = false
-                                        activeRoom?.let { viewModel.deleteRoom(it.jid) }
-                                    }
-                                )
                             }
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                    }
                 )
             }
         }
@@ -1706,14 +1634,20 @@ fun MultiRoomMainScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    showTopicDetailDialog = false
-                    editTopicText = currentTopic
-                    viewModel.isTopicModalOpen.value = true
-                }) {
-                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Ubah Topik")
+                val isOwner = activeRoom!!.myRole == OccupantRole.OWNER || activeRoom!!.myAffiliation == OccupantAffiliation.OWNER
+                val isAdmin = activeRoom!!.myRole == OccupantRole.ADMIN || activeRoom!!.myAffiliation == OccupantAffiliation.ADMIN
+                val allowSubjectChange = roomAdminInfo?.isSubjectModifiable ?: false
+                val canChange = isOwner || isAdmin || allowSubjectChange
+                if (canChange) {
+                    Button(onClick = {
+                        showTopicDetailDialog = false
+                        editTopicText = currentTopic
+                        viewModel.isTopicModalOpen.value = true
+                    }) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Ubah Topik")
+                    }
                 }
             },
             dismissButton = {
@@ -2308,55 +2242,51 @@ fun ChatInputBar(
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Google / WhatsApp Style Form Box Capsule with unified, solid background
+                    // Optimized Form Box Capsule
                     Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(1f)
                             .animateContentSize(),
                         shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
                         border = androidx.compose.foundation.BorderStroke(
                             width = 1.dp,
-                            color = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                   else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                         )
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // 1. Emoji button (Compact 32.dp)
+                            // 1. Emoji button
                             IconButton(
                                 onClick = { showEmojiKeyboard = !showEmojiKeyboard },
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(34.dp)
                                     .testTag("btn_toggle_emoji")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.SentimentSatisfied,
-                                    contentDescription = "Pilih Emoji",
+                                    contentDescription = "Emoji",
                                     tint = if (showEmojiKeyboard) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
 
-                            // 2. Text Input seamlessly integrated with uniform transparent background
+                            // 2. Text Input
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .background(Color.Transparent)
-                                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
                                         text = "Tulis pesan...",
                                         fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
 
@@ -2365,124 +2295,74 @@ fun ChatInputBar(
                                     onValueChange = onInputChange,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color.Transparent)
                                         .testTag("chat_input_field"),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 15.sp,
-                                        lineHeight = 20.sp
+                                        fontSize = 15.sp
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     minLines = 1,
-                                    maxLines = 5
+                                    maxLines = 6
                                 )
                             }
 
-                            // 3. Compact Action Row: Lokasi, Lampiran, Suara / Kirim
+                            // 3. Compact Action Row
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
                             ) {
-                                // Tombol Lokasi (Compact 32.dp)
+                                // Lokasi
                                 IconButton(
                                     onClick = { showLocationDialog = true },
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .testTag("btn_share_location_direct")
+                                    modifier = Modifier.size(32.dp).testTag("btn_loc")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = "Kirim Lokasi",
-                                        tint = Color(0xFFEF4444),
-                                        modifier = Modifier.size(19.dp)
-                                    )
+                                    Icon(Icons.Default.LocationOn, null, tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))
                                 }
 
-                                // Tombol Lampiran (Compact 32.dp with Dropdown)
-                                Box {
-                                    IconButton(
-                                        onClick = { showAttachMenu = true },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .testTag("btn_attach_file")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.AttachFile,
-                                            contentDescription = "Lampirkan",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-
-                                    DropdownMenu(
-                                        expanded = showAttachMenu,
-                                        onDismissRequest = { showAttachMenu = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Ambil Foto (Kamera)") },
-                                            leadingIcon = { Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                            onClick = {
-                                                showAttachMenu = false
-                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Lampirkan File / Dokumen") },
-                                            leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                            onClick = {
-                                                showAttachMenu = false
-                                                onAttachClick()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Bagikan Lokasi (ShareLoc)") },
-                                            leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFFEF4444)) },
-                                            onClick = {
-                                                showAttachMenu = false
-                                                showLocationDialog = true
-                                            }
-                                        )
-                                    }
+                                // Lampiran
+                                IconButton(
+                                    onClick = onAttachClick,
+                                    modifier = Modifier.size(32.dp).testTag("btn_attach")
+                                ) {
+                                    Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
                                 }
 
-                                // Tombol Suara (Mic) saat teks kosong ATAU Tombol Kirim (Send) saat ada teks
+                                // Tombol Suara (Mic)
                                 if (inputText.isBlank()) {
                                     IconButton(
                                         onClick = {
                                             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                         },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .testTag("btn_voice_record")
+                                        modifier = Modifier.size(32.dp).testTag("btn_voice")
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Mic,
-                                            contentDescription = "Kirim Pesan Suara",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            onSendMessage(inputText)
-                                            showEmojiKeyboard = false
-                                        },
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary)
-                                            .testTag("btn_send_message")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Send,
-                                            contentDescription = "Kirim Pesan",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    if (inputText.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        // Floating Send Button
+                        FloatingActionButton(
+                            onClick = {
+                                onSendMessage(inputText)
+                                showEmojiKeyboard = false
+                            },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .testTag("btn_send_message"),
+                            shape = CircleShape,
+                            containerColor = if (whisperTarget != null) Color(0xFF7C3AED) else MaterialTheme.colorScheme.primary,
+                            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Kirim",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }

@@ -30,7 +30,14 @@ fun FileMessageBubbleContent(
     textColor: Color
 ) {
     val context = LocalContext.current
-    val isImage = message.fileMimeType?.startsWith("image/") == true
+    val isImageUrl = message.fileUrl?.let { url ->
+        url.contains(".jpg", ignoreCase = true) || 
+        url.contains(".jpeg", ignoreCase = true) || 
+        url.contains(".png", ignoreCase = true) || 
+        url.contains(".gif", ignoreCase = true) ||
+        url.contains(".webp", ignoreCase = true)
+    } ?: false
+    val isImage = message.fileMimeType?.startsWith("image/") == true || isImageUrl
     val isVideo = message.fileMimeType?.startsWith("video/") == true
 
     Column(modifier = Modifier.padding(vertical = 4.dp)) {

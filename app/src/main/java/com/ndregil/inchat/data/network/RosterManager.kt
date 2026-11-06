@@ -147,14 +147,7 @@ class RosterManager(
             val statusMsg = presence.status ?: ""
 
             // XEP-0115: Entity Capabilities
-            val capsExt = try {
-                presence?.let { p ->
-                    org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
-                        ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
-                }
-            } catch (e: Exception) {
-                null
-            }
+            val extractedCaps = ClientRegistryManager.extractCapsFromPresence(presence)
 
             // XEP-0172: User Nickname
             val extractedNick = extractNickname(presence)
@@ -165,9 +158,8 @@ class RosterManager(
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = effectiveName,
                 jid = fromJid,
-                node = capsExt?.node ?: existing?.clientCaps?.rawNode ?: "",
-                ver = capsExt?.ver ?: existing?.clientCaps?.ver ?: "",
-                hash = capsExt?.hash ?: existing?.clientCaps?.hash ?: "sha-1"
+                node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
+                ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )
 
             Log.d(TAG, "Presence changed for $fromJid: $userPresence ($statusMsg), nick: $extractedNick, caps: ${contactCaps.clientName}")
@@ -769,14 +761,7 @@ class RosterManager(
             val groupNames = entry.groups.map { it.name }
 
             // XEP-0115 Entity Capabilities
-            val capsExt = try {
-                presence?.let { p ->
-                    org.jivesoftware.smackx.caps.packet.CapsExtension.from(p)
-                        ?: (p.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
-                }
-            } catch (e: Exception) {
-                null
-            }
+            val extractedCaps = ClientRegistryManager.extractCapsFromPresence(presence)
 
             // XEP-0172 User Nickname
             val nickFromPresence = extractNickname(presence) ?: existing?.nickname
@@ -786,9 +771,8 @@ class RosterManager(
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = effectiveName,
                 jid = jidString,
-                node = capsExt?.node ?: existing?.clientCaps?.rawNode ?: "",
-                ver = capsExt?.ver ?: existing?.clientCaps?.ver ?: "",
-                hash = capsExt?.hash ?: existing?.clientCaps?.hash ?: "sha-1"
+                node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
+                ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )
 
             RosterContact(

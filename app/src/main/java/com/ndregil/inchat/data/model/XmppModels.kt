@@ -175,7 +175,7 @@ data class ClientCaps(
             ClientDefinition(
                 patterns = listOf("jtalk.ustyugov.net/caps", "jtalk", "jtalk.ustyugov.net"),
                 clientName = "jTalk",
-                canonicalNodeUri = "jtalk.ustyugov.net/caps",
+                canonicalNodeUri = "http://jtalk.ustyugov.net/caps",
                 platform = ClientPlatform.ANDROID,
                 iconResId = com.ndregil.inchat.R.drawable.ic_client_jtalk,
                 defaultVersion = "1.0",
@@ -229,7 +229,7 @@ data class ClientCaps(
             ClientDefinition(
                 patterns = listOf("gajim.org", "gajim"),
                 clientName = "Gajim",
-                canonicalNodeUri = "http://gajim.org/",
+                canonicalNodeUri = "http://gajim.org",
                 platform = ClientPlatform.DESKTOP,
                 iconResId = com.ndregil.inchat.R.drawable.ic_client_gajim,
                 defaultVersion = "Desktop",
@@ -418,7 +418,7 @@ data class ClientCaps(
             ClientDefinition(
                 patterns = listOf("movim.eu", "movim"),
                 clientName = "Movim",
-                canonicalNodeUri = "http://movim.eu/",
+                canonicalNodeUri = "http://movim.eu",
                 platform = ClientPlatform.WEB,
                 iconResId = com.ndregil.inchat.R.drawable.ic_client_movim,
                 defaultVersion = "Web",
@@ -476,86 +476,55 @@ data class ClientCaps(
             jid: String = "",
             node: String = "",
             ver: String = "kFwX23eY765qL90mN12aBcDeFgH=",
-            hash: String = "sha-1"
+            hash: String = "sha-1",
+            version: String = "",
+            os: String = ""
         ): ClientCaps {
-            // 1. Try dynamic registry from clients.txt
-            val dynamicMatch = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(name, jid, node)
-            if (dynamicMatch != null) {
-                val resolvedNode = when {
-                    node.startsWith("http://") || node.startsWith("https://") -> node
-                    node.isNotBlank() && (node.contains(".") || node.contains("/")) -> "http://$node"
-                    else -> dynamicMatch.canonicalNodeUri
-                }
-                return ClientCaps(
-                    clientName = dynamicMatch.clientName,
-                    version = dynamicMatch.defaultVersion,
-                    os = dynamicMatch.defaultOs,
-                    platform = dynamicMatch.platform,
-                    nodeUri = resolvedNode,
-                    hash = hash,
-                    ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
-                    iconResId = dynamicMatch.iconResId,
-                    rawNode = node
-                )
-            }
+            val cleanNode = node.trim()
+            val cleanName = name.trim()
+            val cleanVersion = version.trim()
+            val cleanOs = os.trim()
 
-            // 2. Fallback to hardcoded static registry: STRICTLY MATCH node or client name, NEVER jid server domain!
-            val cleanNode = node.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-            val cleanName = name.trim().lowercase()
+            // 1. Resolve node strictly against clients.txt
+            val nodeMatch = if (cleanNode.isNotBlank()) {
+                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByNode(cleanNode)
+            } else null
 
-            val matched = CLIENT_REGISTRY.firstOrNull { def ->
-                def.patterns.any { pattern ->
-                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    (cleanNode.isNotBlank() && (cleanNode == cleanPattern || cleanNode.startsWith("$cleanPattern/") || cleanNode.startsWith("$cleanPattern#") || cleanNode.contains(cleanPattern))) ||
-                    (cleanName.isNotBlank() && !cleanName.contains("@") && (cleanName == cleanPattern || cleanName.contains(cleanPattern)))
-                }
-            }
+            // 2. Resolve name against clients.txt (for icon / platform lookup when node is missing)
+            val nameMatch = if (cleanName.isNotBlank()) {
+                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByName(cleanName)
+            } else null
 
-            if (matched != null) {
-                val resolvedNode = when {
-                    node.startsWith("http://") || node.startsWith("https://") -> node
-                    node.isNotBlank() && (node.contains(".") || node.contains("/")) -> "http://$node"
-                    else -> matched.canonicalNodeUri
-                }
-                return ClientCaps(
-                    clientName = matched.clientName,
-                    version = matched.defaultVersion,
-                    os = matched.defaultOs,
-                    platform = matched.platform,
-                    nodeUri = resolvedNode,
-                    hash = hash,
-                    ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
-                    iconResId = matched.iconResId,
-                    rawNode = node
-                )
-            }
-
-            val fallbackNode = when {
-                node.startsWith("http://") || node.startsWith("https://") -> node
-                node.isNotBlank() && (node.contains(".") || node.contains("/")) -> "http://$node"
-                node.isNotBlank() -> "http://$node"
-                else -> "urn:xmpp:caps"
-            }
-
-            val fallbackName = when {
-                cleanName.isNotBlank() && !cleanName.contains("@") && cleanName != "unknown" -> name
-                node.isNotBlank() -> {
-                    val clean = node.removePrefix("http://").removePrefix("https://").removeSuffix("/").substringAfterLast("/")
-                    if (clean.length > 2) clean.replaceFirstChar { it.uppercase() } else "Unknown"
-                }
+            // CRITICAL: Software name MUST be the exact name returned by the user being checked!
+            val resolvedName = when {
+                cleanName.isNotBlank() && !cleanName.contains("@") && cleanName != "Unknown" -> cleanName
+                nodeMatch != null -> nodeMatch.clientName
+                nameMatch != null -> nameMatch.clientName
                 else -> "Unknown"
             }
 
+            val resolvedVersion = cleanVersion.ifBlank { "-" }
+            val resolvedOs = cleanOs.ifBlank { "-" }
+
+            // Node URI is strictly taken from clients.txt ONLY if node matched an entry in clients.txt!
+            val resolvedNodeUri = nodeMatch?.canonicalNodeUri ?: ""
+
+            // Icon is shown ONLY if node matched clients.txt OR name matched clients.txt!
+            val resolvedIcon = nodeMatch?.iconResId ?: nameMatch?.iconResId
+
+            // Platform
+            val resolvedPlatform = nodeMatch?.platform ?: nameMatch?.platform ?: ClientPlatform.UNKNOWN
+
             return ClientCaps(
-                clientName = fallbackName,
-                version = "1.0",
-                os = "Unknown",
-                platform = ClientPlatform.UNKNOWN,
-                nodeUri = fallbackNode,
+                clientName = resolvedName,
+                version = resolvedVersion,
+                os = resolvedOs,
+                platform = resolvedPlatform,
+                nodeUri = resolvedNodeUri,
                 hash = hash,
                 ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
-                iconResId = null,
-                rawNode = node
+                iconResId = resolvedIcon,
+                rawNode = cleanNode
             )
         }
     }
