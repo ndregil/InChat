@@ -509,9 +509,13 @@ fun AccountConnectionScreen(
                 }
                 Button(onClick = {
                     val port = portInput.toIntOrNull() ?: 5222
-                    val dom = if (jidInput.contains("@")) jidInput.substringAfter("@") else hostInput
-                    val user = if (jidInput.contains("@")) jidInput.substringBefore("@") else jidInput
-                    onConnect(XmppAccount(jidInput.trim(), user.trim(), dom.trim(), nicknameInput.trim().ifBlank { user }, hostInput.trim().ifBlank { dom }, port, useTls, false, statusMsgInput.trim()), passwordInput)
+                    val rawJid = jidInput.trim()
+                    val cleanJid = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeJid(rawJid)
+                    val rawDom = if (cleanJid.contains("@")) cleanJid.substringAfter("@") else hostInput.trim()
+                    val cleanDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(rawDom)
+                    val user = if (cleanJid.contains("@")) cleanJid.substringBefore("@") else cleanJid
+                    val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(hostInput.trim(), cleanDom)
+                    onConnect(XmppAccount(cleanJid, user.trim(), cleanDom, nicknameInput.trim().ifBlank { user.trim() }, cleanHost, port, useTls, false, statusMsgInput.trim()), passwordInput)
                 }, modifier = Modifier.weight(1f).height(52.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(16.dp)) {
                     Icon(Icons.Default.Link, null)
                     Spacer(Modifier.width(8.dp))

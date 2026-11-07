@@ -1,6 +1,6 @@
 package com.ndregil.inchat
 
-import android.content.Intent
+import android.content.Intent // Force recompile
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent

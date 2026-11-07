@@ -98,6 +98,10 @@ import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge as M3Badge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -798,7 +802,7 @@ fun MultiRoomMainScreen(
                             onInputChange = { viewModel.currentInputText.value = it },
                             onSendMessage = { viewModel.sendMessage(it) },
                             onAttachClick = { filePicker.launch("*/*") },
-                            onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
+                            onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
                             onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
                             onCallClick = { viewModel.initiateCall(it) },
                             whisperTarget = whisperTarget,
@@ -836,7 +840,7 @@ fun MultiRoomMainScreen(
                                 shadowElevation = 2.dp
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -979,10 +983,9 @@ fun MultiRoomMainScreen(
                                 }
                             } else {
                                 LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(vertical = 4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     items(displayedList, key = { it.jid }) { room ->
                                         val avatar = viewModel.repository.getRoomAvatar(room.jid)
@@ -1178,12 +1181,17 @@ fun MultiRoomMainScreen(
                                                     viewModel.isThemeWallpaperDialogOpen.value = true
                                                 }
                                             )
-                                            DropdownMenuItem(
+                                             DropdownMenuItem(
                                                 text = { Text("Bersihkan Riwayat Chat") },
                                                 leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
                                                 onClick = {
                                                     showDirectMenu = false
-                                                    activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
+                                                    activeRoom?.let { room ->
+                                                        viewModel.clearRoomChatHistory(room.jid)
+                                                        if (!room.isGroupChat) {
+                                                            isDirectConversationOpen = false
+                                                        }
+                                                    }
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -1191,6 +1199,9 @@ fun MultiRoomMainScreen(
                                                 leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
                                                 onClick = {
                                                     showDirectMenu = false
+                                                    activeRoom?.let { room ->
+                                                        viewModel.closeConversation(room.jid)
+                                                    }
                                                     isDirectConversationOpen = false
                                                 }
                                             )
@@ -1245,7 +1256,7 @@ fun MultiRoomMainScreen(
                                 onInputChange = { viewModel.currentInputText.value = it },
                                 onSendMessage = { viewModel.sendMessage(it) },
                                 onAttachClick = { filePicker.launch("*/*") },
-                                onShareLocation = { lat, lng -> viewModel.shareLocation(lat, lng) },
+                                onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
                                 onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
                                 onCallClick = { viewModel.initiateCall(it) },
                                 whisperTarget = null,
@@ -2123,7 +2134,7 @@ fun ChatInputBar(
     onInputChange: (String) -> Unit,
     onSendMessage: (String) -> Unit,
     onAttachClick: () -> Unit,
-    onShareLocation: (Double, Double) -> Unit,
+    onShareLocation: (Double, Double, String) -> Unit,
     onAttachPhoto: ((android.net.Uri, String, Long) -> Unit)? = null,
     onCallClick: (String) -> Unit,
     whisperTarget: RoomOccupant?,
@@ -2139,6 +2150,7 @@ fun ChatInputBar(
     var currentAmpRatio by remember { mutableFloatStateOf(0f) }
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -2216,7 +2228,7 @@ fun ChatInputBar(
 
         val lat = loc?.latitude ?: -6.200000
         val lng = loc?.longitude ?: 106.816666
-        onShareLocation(lat, lng)
+        onShareLocation(lat, lng, "Lokasi GPS Terkini")
         if (isGranted) {
             android.widget.Toast.makeText(context, "Lokasi GPS berhasil dibagikan!", android.widget.Toast.LENGTH_SHORT).show()
         } else {
@@ -2446,121 +2458,10 @@ fun ChatInputBar(
             }
 
             if (showLocationDialog) {
-                var selectedOption by remember { mutableIntStateOf(0) }
-                var customLatText by remember { mutableStateOf("-6.200000") }
-                var customLngText by remember { mutableStateOf("106.816666") }
-                var customLabelText by remember { mutableStateOf("Jakarta Pusat") }
-
-                AlertDialog(
-                    onDismissRequest = { showLocationDialog = false },
-                    icon = { Icon(Icons.Default.LocationOn, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(32.dp)) },
-                    title = { Text("Bagikan Lokasi", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
-                    text = {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = selectedOption == 0,
-                                    onClick = { selectedOption = 0 },
-                                    label = { Text("Lokasi GPS Terkini", fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = selectedOption == 1,
-                                    onClick = { selectedOption = 1 },
-                                    label = { Text("Pilih Lokasi Lain", fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            if (selectedOption == 0) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text("📍 Deteksi GPS Terkini Pengirim", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Mengirim koordinat presisi dari posisi perangkat Anda secara langsung.", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Pilih Kota atau Koordinat Kustom", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        items(listOf(
-                                            "Jakarta" to Pair(-6.200000, 106.816666),
-                                            "Bandung" to Pair(-6.917464, 107.619123),
-                                            "Surabaya" to Pair(-7.257472, 112.752088),
-                                            "Yogyakarta" to Pair(-7.795580, 110.369490),
-                                            "Bali" to Pair(-8.670458, 115.212629),
-                                            "Medan" to Pair(-3.595196, 98.672223)
-                                        )) { (cityName, coords) ->
-                                            AssistChip(
-                                                onClick = {
-                                                    customLabelText = cityName
-                                                    customLatText = "%.6f".format(Locale.US, coords.first)
-                                                    customLngText = "%.6f".format(Locale.US, coords.second)
-                                                },
-                                                label = { Text(cityName, fontSize = 11.sp) }
-                                            )
-                                        }
-                                    }
-
-                                    OutlinedTextField(
-                                        value = customLabelText,
-                                        onValueChange = { customLabelText = it },
-                                        label = { Text("Nama Tempat / Label") },
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        OutlinedTextField(
-                                            value = customLatText,
-                                            onValueChange = { customLatText = it },
-                                            label = { Text("Latitude") },
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        OutlinedTextField(
-                                            value = customLngText,
-                                            onValueChange = { customLngText = it },
-                                            label = { Text("Longitude") },
-                                            singleLine = true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                showLocationDialog = false
-                                if (selectedOption == 0) {
-                                    locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                                } else {
-                                    val lat = customLatText.toDoubleOrNull() ?: -6.200000
-                                    val lng = customLngText.toDoubleOrNull() ?: 106.816666
-                                    onShareLocation(lat, lng)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
-                        ) {
-                            Text("Kirim Lokasi Ini")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showLocationDialog = false }) {
-                            Text("Batal")
-                        }
+                com.ndregil.inchat.ui.components.InteractiveMapPickerDialog(
+                    onDismiss = { showLocationDialog = false },
+                    onShareLocation = { lat, lng, label ->
+                        onShareLocation(lat, lng, label)
                     }
                 )
             }

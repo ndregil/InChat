@@ -56,13 +56,56 @@ data class XmppCredentials(
     }
 
     companion object {
+        fun sanitizeDomain(rawDomain: String): String {
+            val clean = rawDomain.trim().lowercase(Locale.getDefault())
+            return when {
+                clean == "comversations.im" || clean == "comversation.im" || 
+                clean == "conversations.m" || clean == "conversations.i" || 
+                clean == "comversations.net" || clean == "comversation.net" ||
+                clean == "conversations.net" || clean == "conversation.im" -> "conversations.im"
+                clean == "trashserver.n" || clean == "trashserver.de" -> "trashserver.net"
+                clean == "xmpp.j" -> "xmpp.jp"
+                clean.contains("comversations.im") -> clean.replace("comversations.im", "conversations.im")
+                else -> clean
+            }
+        }
+
+        fun sanitizeHost(rawHost: String, cleanDomain: String): String {
+            val clean = rawHost.trim().lowercase(Locale.getDefault())
+            if (clean.isBlank() || clean == "auto") return cleanDomain
+            return when {
+                clean == "comversations.im" || clean == "comversation.im" || 
+                clean == "conversations.m" || clean == "conversations.i" || 
+                clean == "comversations.net" || clean == "comversation.net" ||
+                clean == "conversations.net" || clean == "conversation.im" -> "conversations.im"
+                clean == "trashserver.n" || clean == "trashserver.de" -> "trashserver.net"
+                clean == "xmpp.j" -> "xmpp.jp"
+                clean.contains("comversations.im") -> clean.replace("comversations.im", "conversations.im")
+                else -> rawHost.trim()
+            }
+        }
+
+        fun sanitizeJid(rawJid: String): String {
+            val clean = rawJid.trim()
+            if (!clean.contains("@")) return clean
+            val user = clean.substringBefore("@")
+            val rest = clean.substringAfter("@")
+            val res = if (rest.contains("/")) "/" + rest.substringAfter("/") else ""
+            val dom = rest.substringBefore("/")
+            val cleanDom = sanitizeDomain(dom)
+            return "$user@$cleanDom$res"
+        }
+
         fun fromAccount(account: XmppAccount, password: String = ""): XmppCredentials {
+            val cleanDom = sanitizeDomain(account.domain)
+            val cleanHost = sanitizeHost(account.host, cleanDom)
+            val cleanJid = sanitizeJid(account.jid)
             return XmppCredentials(
-                jid = account.jid,
+                jid = cleanJid,
                 username = account.username,
-                domain = account.domain,
+                domain = cleanDom,
                 password = password,
-                host = account.host,
+                host = cleanHost,
                 port = account.port,
                 resource = "InChat-Android",
                 nickname = account.nickname,
@@ -82,6 +125,10 @@ class XmppConnectionManager(
     companion object {
         private const val TAG = "XmppConnectionManager"
         private const val DEFAULT_CONNECT_TIMEOUT_MS = 15000
+
+        fun sanitizeDomain(rawDomain: String): String = XmppCredentials.sanitizeDomain(rawDomain)
+        fun sanitizeHost(rawHost: String, cleanDomain: String): String = XmppCredentials.sanitizeHost(rawHost, cleanDomain)
+        fun sanitizeJid(rawJid: String): String = XmppCredentials.sanitizeJid(rawJid)
     }
 
     // State flows for connection status and current credentials
@@ -222,6 +269,11 @@ class XmppConnectionManager(
             }
         }
 
+        val rawDomain = creds.domain.ifBlank { creds.jid.substringAfter("@", "").substringBefore("/") }
+        val cleanDomain = sanitizeDomain(rawDomain)
+        val cleanHost = sanitizeHost(creds.host, cleanDomain)
+        val cleanJid = sanitizeJid(creds.jid)
+
         try {
             _connectionStatus.value = ConnectionStatus.CONNECTING
             _lastError.value = null
@@ -229,9 +281,9 @@ class XmppConnectionManager(
             // Clean up any stale existing connection
             safeDisconnectInternal()
 
-            Log.i(TAG, "Initializing Smack TCP connection to ${creds.host}:${creds.port} (domain=${creds.domain})")
+            Log.i(TAG, "Initializing Smack TCP connection to $cleanHost:${creds.port} (domain=$cleanDomain)")
 
-            val domainJid = JidCreate.domainBareFrom(creds.domain.trim())
+            val domainJid = JidCreate.domainBareFrom(cleanDomain)
             val username = creds.username.trim()
             val resource = creds.resource.ifBlank { "InChat-Android" }
 
@@ -245,14 +297,14 @@ class XmppConnectionManager(
                     else ConnectionConfiguration.SecurityMode.disabled
                 )
 
-            if (creds.host.isNotBlank()) {
-                configBuilder.setHost(creds.host.trim())
+            if (cleanHost.isNotBlank()) {
+                configBuilder.setHost(cleanHost)
                 // Resolve host IP address if hostname is provided
                 try {
-                    val address = InetAddress.getByName(creds.host.trim())
+                    val address = InetAddress.getByName(cleanHost)
                     configBuilder.setHostAddress(address)
                 } catch (e: Exception) {
-                    Log.w(TAG, "DNS resolution warning for ${creds.host}: ${e.message}")
+                    Log.w(TAG, "DNS resolution warning for $cleanHost: ${e.message}")
                 }
             }
 
@@ -337,6 +389,8 @@ class XmppConnectionManager(
                     "Koneksi ditolak oleh server. Periksa host dan port XMPP."
                 rawMsg.contains("timeout", ignoreCase = true) ->
                     "Batas waktu koneksi habis (timeout). Periksa koneksi internet atau server XMPP."
+                rawMsg.contains("NX_DOMAIN", ignoreCase = true) || rawMsg.contains("ResolutionUnsuccessfulException", ignoreCase = true) || rawMsg.contains("Could not lookup", ignoreCase = true) || rawMsg.contains("UnknownHostException", ignoreCase = true) ->
+                    "Gagal menemukan server XMPP di DNS (Domain '$rawDomain' tidak valid). Periksa ejaan domain Anda (contoh: conversations.im, xmpp.jp, trashserver.net)."
                 else -> rawMsg
             }
             _lastError.value = friendlyMsg

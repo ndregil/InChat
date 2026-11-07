@@ -80,7 +80,7 @@ fun RoomItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .testTag("room_item_${room.jid}"),

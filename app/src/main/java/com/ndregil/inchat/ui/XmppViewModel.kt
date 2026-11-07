@@ -136,7 +136,16 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val directChats: StateFlow<List<XmppRoom>> = allRooms.map { rooms ->
-        rooms.filter { !it.isGroupChat }
+        rooms.filter { room ->
+            !room.isGroupChat && 
+            room.lastMessageText.isNotBlank() && 
+            room.lastMessageText != "Sinkronisasi dari server" &&
+            room.lastMessageText != "Ruangan disimpan ke favorit" &&
+            room.lastMessageText != "Baru saja bergabung" &&
+            room.lastMessageText != "Sinkronisasi Favorit" &&
+            room.lastMessageText != "Obrolan Langsung (1-on-1)" &&
+            room.lastMessageText != "Ruangan MUC"
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Room Configurations (persisted in Room DB)
@@ -201,12 +210,31 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedRoomJid = MutableStateFlow<String?>(null)
     val selectedRoomJid: StateFlow<String?> = _selectedRoomJid.asStateFlow()
 
-    // Active room object with graceful fallback
+    // Active room object with graceful fallback or virtual room for new chats
     val activeRoom: StateFlow<XmppRoom?> = combine(allRooms, _selectedRoomJid) { rooms, jid ->
-        if (jid == null) rooms.firstOrNull() else (rooms.find { it.jid == jid } ?: rooms.firstOrNull())
+        if (jid == null) {
+            // If no JID selected, pick the first room from the ALL list as a baseline
+            return@combine rooms.firstOrNull()
+        }
+        
+        val found = rooms.find { it.jid == jid }
+        if (found != null) return@combine found
+        
+        // If JID is specified but not in DB yet, create a "virtual" placeholder room
+        // so that messages can be sent and received immediately.
+        val isGroup = jid.contains("conference.", ignoreCase = true) || jid.contains("muc.", ignoreCase = true)
+        XmppRoom(
+            jid = jid,
+            name = jid.substringBefore("@"),
+            topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
+            isGroupChat = isGroup,
+            isJoined = isGroup,
+            isBookmarked = false,
+            lastMessageText = ""
+        )
     }.stateIn(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
+        started = SharingStarted.Eagerly, // Use Eagerly to keep activeRoom ready
         initialValue = null
     )
 
@@ -1244,6 +1272,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun clearRoomChatHistory(roomJid: String) {
         viewModelScope.launch {
             repository.clearRoomChatHistory(roomJid)
+            if (_selectedRoomJid.value == roomJid) {
+                _selectedRoomJid.value = null
+            }
+        }
+    }
+
+    fun closeConversation(roomJid: String) {
+        viewModelScope.launch {
+            repository.closeConversation(roomJid)
+            if (_selectedRoomJid.value == roomJid) {
+                _selectedRoomJid.value = null
+            }
         }
     }
 

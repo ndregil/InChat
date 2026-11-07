@@ -151,12 +151,30 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
                     val roomJid = if (from.contains("/")) from.substringBefore("/") else from
                     val senderNick = if (from.contains("/")) from.substringAfter("/") else from
 
-                    val isUrl = body.trim().startsWith("http")
+                    val bodyClean = body.trim()
+                    val isBodyImageUrl = (bodyClean.startsWith("http") && (
+                            bodyClean.contains(".jpg", ignoreCase = true) ||
+                            bodyClean.contains(".jpeg", ignoreCase = true) ||
+                            bodyClean.contains(".png", ignoreCase = true) ||
+                            bodyClean.contains(".gif", ignoreCase = true) ||
+                            bodyClean.contains(".webp", ignoreCase = true) ||
+                            bodyClean.contains("/preview/", ignoreCase = true)
+                    ))
+                    
+                    val isVoice = bodyClean.startsWith("🎤 Pesan Suara") ||
+                        (bodyClean.contains("http") && (bodyClean.contains(".m4a") || bodyClean.contains(".aac") || bodyClean.contains(".mp3") || bodyClean.contains(".ogg") || bodyClean.contains(".wav") || bodyClean.contains("voice_")))
+
                     val mType = when {
+                        isVoice -> MessageType.VOICE
+                        isBodyImageUrl -> MessageType.FILE
                         type == "chat" -> MessageType.CHAT
-                        isUrl -> MessageType.FILE
                         else -> MessageType.GROUPCHAT
                     }
+
+                    val voiceDuration = if (isVoice) {
+                        val durationMatch = Regex("\\((\\d+)d\\)").find(bodyClean)
+                        durationMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 5
+                    } else null
 
                     val msg = XmppMessage(
                         id = UUID.randomUUID().toString(),
@@ -168,7 +186,13 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
                         isMine = senderNick == _currentAccount.value.nickname,
                         messageType = mType,
                         status = DeliveryStatus.DELIVERED,
-                        fileUrl = if (isUrl) body.trim() else null
+                        fileUrl = if (isVoice || isBodyImageUrl) bodyClean else null,
+                        fileMimeType = when {
+                            isBodyImageUrl -> "image/jpeg"
+                            isVoice -> "audio/mp4"
+                            else -> null
+                        },
+                        voiceDurationSeconds = voiceDuration
                     )
                     scope.launch { _incomingMessages.emit(msg) }
                 }

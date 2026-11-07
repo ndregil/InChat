@@ -35,7 +35,8 @@ fun FileMessageBubbleContent(
         url.contains(".jpeg", ignoreCase = true) || 
         url.contains(".png", ignoreCase = true) || 
         url.contains(".gif", ignoreCase = true) ||
-        url.contains(".webp", ignoreCase = true)
+        url.contains(".webp", ignoreCase = true) ||
+        url.contains("/preview/", ignoreCase = true)
     } ?: false
     val isImage = message.fileMimeType?.startsWith("image/") == true || isImageUrl
     val isVideo = message.fileMimeType?.startsWith("video/") == true

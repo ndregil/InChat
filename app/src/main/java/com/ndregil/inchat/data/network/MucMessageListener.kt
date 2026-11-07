@@ -131,11 +131,30 @@ class MucMessageListener(
             // Differentiate between private whispers, voice notes, and group messages
             val isWhisper = message.type == Message.Type.chat
             
+            // Detect image/file URLs in body (common in XEP-0363 HTTP File Upload)
+            val bodyClean = body.trim()
+            val isBodyImageUrl = (bodyClean.startsWith("http") && (
+                    bodyClean.contains(".jpg", ignoreCase = true) ||
+                    bodyClean.contains(".jpeg", ignoreCase = true) ||
+                    bodyClean.contains(".png", ignoreCase = true) ||
+                    bodyClean.contains(".gif", ignoreCase = true) ||
+                    bodyClean.contains(".webp", ignoreCase = true) ||
+                    bodyClean.contains("/preview/", ignoreCase = true)
+            ))
+
             // XEP-0066 OOB Detection
             val xml = message.toXML().toString()
             val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
             val oobUrl = oobRegex.find(xml)?.groupValues?.get(1)?.trim()
-            val isImage = (oobUrl != null && (oobUrl.contains(".jpg") || oobUrl.contains(".jpeg") || oobUrl.contains(".png") || oobUrl.contains(".gif")))
+            val isOobImage = (oobUrl != null && (
+                    oobUrl.contains(".jpg", ignoreCase = true) ||
+                    oobUrl.contains(".jpeg", ignoreCase = true) ||
+                    oobUrl.contains(".png", ignoreCase = true) ||
+                    oobUrl.contains(".gif", ignoreCase = true) ||
+                    oobUrl.contains(".webp", ignoreCase = true)
+            ))
+
+            val isImage = isOobImage || isBodyImageUrl
             
             val isVoice = body.startsWith("🎤 Pesan Suara") || 
                 (body.contains("http") && (body.contains(".m4a") || body.contains(".aac") || body.contains(".mp3") || body.contains(".ogg") || body.contains(".wav") || body.contains("voice_")))
@@ -149,9 +168,10 @@ class MucMessageListener(
                 else -> MessageType.GROUPCHAT
             }
 
-            val fileUrl = oobUrl ?: if (isVoice) {
+            val fileUrl = oobUrl ?: if (isVoice || isBodyImageUrl) {
                 body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") } 
                     ?: body.substringAfter("\n", "").takeIf { it.startsWith("http") || it.startsWith("file://") }
+                    ?: body.trim().takeIf { it.startsWith("http") }
             } else null
 
             val voiceDuration = if (isVoice) {

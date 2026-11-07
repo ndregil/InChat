@@ -2,6 +2,7 @@ package com.ndregil.inchat.ui.components
 
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -366,28 +367,30 @@ fun MessageBubble(
 
                     // Main Content
                     Box(modifier = Modifier.padding(bottom = 2.dp)) {
-                        when (message.messageType) {
-                            MessageType.FILE -> {
-                                FileMessageBubbleContent(message = message, textColor = textColor)
-                            }
-                            MessageType.VOICE -> {
-                                VoiceMessageBubbleContent(message = message, textColor = textColor, isMine = isMine)
-                            }
-                            MessageType.CALL_SIGNALLING -> {
-                                CallSignallingBubble(message = message, textColor = textColor)
-                            }
-                            else -> {
-                                if (message.body.contains("geo:") || message.body.contains("Berbagi Lokasi")) {
-                                    LocationMessageBubbleContent(message = message, textColor = textColor)
-                                } else {
-                                    FormattedMessageText(
-                                        text = message.body,
-                                        myNickname = myNickname,
-                                        textColor = textColor,
-                                        accentColor = palette.accentColor,
-                                        onMentionClick = onMentionClick,
-                                        onQuoteClick = { onReplyClick(message) }
-                                    )
+                        SelectionContainer {
+                            when (message.messageType) {
+                                MessageType.FILE -> {
+                                    FileMessageBubbleContent(message = message, textColor = textColor)
+                                }
+                                MessageType.VOICE -> {
+                                    VoiceMessageBubbleContent(message = message, textColor = textColor, isMine = isMine)
+                                }
+                                MessageType.CALL_SIGNALLING -> {
+                                    CallSignallingBubble(message = message, textColor = textColor)
+                                }
+                                else -> {
+                                    if (message.body.contains("geo:") || message.body.contains("Berbagi Lokasi")) {
+                                        LocationMessageBubbleContent(message = message, textColor = textColor)
+                                    } else {
+                                        FormattedMessageText(
+                                            text = message.body,
+                                            myNickname = myNickname,
+                                            textColor = textColor,
+                                            accentColor = palette.accentColor,
+                                            onMentionClick = onMentionClick,
+                                            onQuoteClick = { onReplyClick(message) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -623,30 +626,29 @@ fun FormattedMessageText(
         text = annotatedString,
         style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
         onClick = { offset ->
-            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                .firstOrNull()?.let { annotation ->
+            val annotations = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+            if (annotations.isNotEmpty()) {
+                val annotation = annotations.first()
+                try {
+                    uriHandler.openUri(annotation.item)
+                } catch (e: Exception) {
                     try {
-                        uriHandler.openUri(annotation.item)
-                    } catch (e: Exception) {
-                        try {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(annotation.item)).apply {
-                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } catch (err: Exception) {
-                            Toast.makeText(context, "Tidak dapat membuka URL: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(annotation.item)).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
+                        context.startActivity(intent)
+                    } catch (err: Exception) {
+                        Toast.makeText(context, "Tidak dapat membuka URL: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
                     }
-                    return@ClickableText
                 }
-
-            annotatedString.getStringAnnotations(tag = "MENTION", start = offset, end = offset)
-                .firstOrNull()?.let { annotation ->
-                    onMentionClick?.invoke(annotation.item)
-                    return@ClickableText
+            } else {
+                val mentionAnnotations = annotatedString.getStringAnnotations(tag = "MENTION", start = offset, end = offset)
+                if (mentionAnnotations.isNotEmpty()) {
+                    onMentionClick?.invoke(mentionAnnotations.first().item)
+                } else {
+                    onQuoteClick?.invoke()
                 }
-
-            onQuoteClick?.invoke()
+            }
         }
     )
 }
@@ -789,17 +791,21 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
     }
 
     val openInMaps = {
-        val webMapsUrl = "https://maps.google.com/?q=$lat,$lng"
-        val geoUrl = "geo:$lat,$lng?q=$lat,$lng"
+        val labelEncoded = java.net.URLEncoder.encode(displayTitle, "UTF-8")
+        val geoUrl = "geo:$lat,$lng?q=$lat,$lng($labelEncoded)"
+        val webMapsUrl = "https://www.google.com/maps/search/?api=1&query=$lat,$lng"
+        
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUrl))
+        val chooser = android.content.Intent.createChooser(intent, "Pilih Aplikasi Peta")
+        chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        
         try {
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(webMapsUrl))
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+            context.startActivity(chooser)
         } catch (e: Exception) {
             try {
-                val geoIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUrl))
-                geoIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(geoIntent)
+                val webIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(webMapsUrl))
+                webIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(webIntent)
             } catch (e2: Exception) {
                 Toast.makeText(context, "Tidak dapat membuka aplikasi peta", Toast.LENGTH_SHORT).show()
             }

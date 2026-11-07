@@ -27,7 +27,7 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.MyApplication">
         <activity
-            android:name=".MainActivity"
+            android:name="com.ndregil.inchat.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTask"
@@ -42,7 +42,7 @@
 
         <!-- Firebase Cloud Messaging background notification service -->
         <service
-            android:name=".data.network.fcm.XmppFirebaseMessagingService"
+            android:name="com.ndregil.inchat.data.network.fcm.XmppFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -51,7 +51,7 @@
 
         <!-- Foreground Service for Anti-Kill & Persistent XMPP background connection -->
         <service
-            android:name=".data.network.fcm.XmppForegroundService"
+            android:name="com.ndregil.inchat.data.network.fcm.XmppForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
@@ -64,13 +64,13 @@
 
         <!-- Notification Action BroadcastReceiver (e.g. Mark as read) -->
         <receiver
-            android:name=".data.network.fcm.NotificationActionReceiver"
+            android:name="com.ndregil.inchat.data.network.fcm.NotificationActionReceiver"
             android:exported="false" />
 
         <!-- FileProvider for camera photo capture and file sharing -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.ndregil.inchat.fileprovider"
+            android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

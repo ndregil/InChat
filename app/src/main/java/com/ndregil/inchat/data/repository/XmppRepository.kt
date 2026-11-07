@@ -298,16 +298,25 @@ class XmppRepository(
             return@withLock
         }
 
+        val cleanDomain = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(account.domain)
+        val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(account.host, cleanDomain)
+        val cleanJid = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeJid(account.jid)
+        val sanitizedAccount = account.copy(
+            jid = cleanJid,
+            domain = cleanDomain,
+            host = cleanHost
+        )
+
         val existing = database.accountDao().getActiveAccountSync()
         val pwdToSave = if (password.isNotBlank()) password else (existing?.password ?: "")
-        database.accountDao().saveAccount(account.toEntity(pwdToSave))
-        _currentAccount.value = account
+        database.accountDao().saveAccount(sanitizedAccount.toEntity(pwdToSave))
+        _currentAccount.value = sanitizedAccount
 
         // Check if Smack is already connected to this account
         if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             val creds = smackConnectionManager.currentCredentials
-            if (creds.username.equals(account.username, ignoreCase = true) &&
-                creds.domain.equals(account.domain, ignoreCase = true)) {
+            if (creds.username.equals(sanitizedAccount.username, ignoreCase = true) &&
+                creds.domain.equals(sanitizedAccount.domain, ignoreCase = true)) {
                 // Already connected! Do not disconnect.
                 return@withLock
             }
@@ -315,7 +324,7 @@ class XmppRepository(
         
         // 1. Connect via Smack (Real XMPP)
         val smackResult = smackConnectionManager.connectAndLogin(
-            com.ndregil.inchat.data.network.XmppCredentials.fromAccount(account, pwdToSave)
+            com.ndregil.inchat.data.network.XmppCredentials.fromAccount(sanitizedAccount, pwdToSave)
         )
 
         if (smackResult.isFailure) {
@@ -615,12 +624,44 @@ class XmppRepository(
                 ?: fromStr.substringAfterLast("/").takeIf { fromStr.contains("/") && !it.equals(fromBareJid, ignoreCase = true) }
 
             scope.launch(Dispatchers.IO) {
+                // Detect image/file URLs in body (common in XEP-0363 HTTP File Upload)
+                val bodyClean = bodyText.trim()
+                
+                // More robust URL extraction: find any URL in the body
+                val urlRegex = Regex("""(https?://[^\s]+)""", RegexOption.IGNORE_CASE)
+                val urls = urlRegex.findAll(bodyText).map { it.value }.toList()
+                
+                val isImageUrl = { url: String ->
+                    url.contains(".jpg", ignoreCase = true) ||
+                    url.contains(".jpeg", ignoreCase = true) ||
+                    url.contains(".png", ignoreCase = true) ||
+                    url.contains(".gif", ignoreCase = true) ||
+                    url.contains(".webp", ignoreCase = true) ||
+                    url.contains("/preview/", ignoreCase = true) ||
+                    url.contains("image", ignoreCase = true)
+                }
+
+                val bodyUrl = urls.firstOrNull()
+                val isBodyImageUrl = bodyUrl != null && isImageUrl(bodyUrl)
+
                 // XEP-0066 OOB Detection
                 val xml = message.toXML().toString()
                 val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
                 val oobUrl = oobRegex.find(xml)?.groupValues?.get(1)?.trim()
-                val isImage = (oobUrl != null && (oobUrl.contains(".jpg") || oobUrl.contains(".jpeg") || oobUrl.contains(".png") || oobUrl.contains(".gif")))
-                val isFile = isImage || oobUrl != null
+                val isOobImage = (oobUrl != null && isImageUrl(oobUrl))
+
+                val isVoice = bodyText.contains("🎤 Pesan Suara", ignoreCase = true) ||
+                        (bodyText.contains("http") && (bodyText.contains(".m4a") || bodyText.contains(".aac") || bodyText.contains(".mp3") || bodyText.contains(".ogg") || bodyText.contains(".wav") || bodyText.contains("voice_")))
+
+                val isImage = isOobImage || isBodyImageUrl
+                val isFile = isImage || oobUrl != null || bodyUrl != null
+
+                val fileUrl = oobUrl ?: bodyUrl
+                
+                val voiceDuration = if (isVoice) {
+                    val durationMatch = Regex("\\((\\d+)d\\)").find(bodyText)
+                    durationMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 5
+                } else null
 
                 val roomEntity = database.roomDao().getRoomByJid(fromBareJid)
                 val isMucContext = smackMucManager.isRoomJoined(fromBareJid) ||
@@ -649,15 +690,25 @@ class XmppRepository(
                         body = bodyText,
                         timestamp = System.currentTimeMillis(),
                         isMine = false,
-                        messageType = if (isFile) MessageType.FILE else MessageType.WHISPER,
+                        messageType = when {
+                            isVoice -> MessageType.VOICE
+                            isImage -> MessageType.FILE
+                            isFile -> MessageType.FILE
+                            else -> MessageType.WHISPER
+                        },
                         status = DeliveryStatus.DELIVERED,
                         recipientNickname = myRoomNick,
-                        fileUrl = oobUrl,
-                        fileMimeType = if (isImage) "image/jpeg" else null,
-                        fileName = if (isFile) "Lampiran" else null
+                        fileUrl = fileUrl,
+                        fileMimeType = when {
+                            isImage -> "image/jpeg"
+                            isVoice -> "audio/mp4"
+                            else -> if (isFile) "application/octet-stream" else null
+                        },
+                        fileName = if (isFile) "Lampiran" else null,
+                        voiceDurationSeconds = voiceDuration
                     )
 
-                    Log.i("XmppRepository", "Received WHISPER from '$senderNick' in room [$roomJid]: $bodyText")
+                    Log.i("XmppRepository", "Received WHISPER from '$senderNick' in room [$roomJid]: $bodyText (isImage=$isImage)")
                     processIncomingMessage(xmppMsg)
                     return@launch
                 }
@@ -682,14 +733,24 @@ class XmppRepository(
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
                     isMine = false,
-                    messageType = if (isFile) MessageType.FILE else MessageType.CHAT,
+                    messageType = when {
+                        isVoice -> MessageType.VOICE
+                        isImage -> MessageType.FILE
+                        isFile -> MessageType.FILE
+                        else -> MessageType.CHAT
+                    },
                     status = DeliveryStatus.DELIVERED,
-                    fileUrl = oobUrl,
-                    fileMimeType = if (isImage) "image/jpeg" else null,
-                    fileName = if (isFile) "Lampiran" else null
+                    fileUrl = fileUrl,
+                    fileMimeType = when {
+                        isImage -> "image/jpeg"
+                        isVoice -> "audio/mp4"
+                        else -> if (isFile) "application/octet-stream" else null
+                    },
+                    fileName = if (isFile) "Lampiran" else null,
+                    voiceDurationSeconds = voiceDuration
                 )
 
-                Log.i("XmppRepository", "Received 1-on-1 direct message from [$fromBareJid] ('$senderNick'): $bodyText")
+                Log.i("XmppRepository", "Received 1-on-1 direct message from [$fromBareJid] ('$senderNick'): $bodyText (isImage=$isImage)")
                 processIncomingMessage(xmppMsg)
             }
         }, filter)
@@ -1261,6 +1322,27 @@ class XmppRepository(
 
     suspend fun clearRoomChatHistory(roomJid: String) {
         database.messageDao().clearRoomMessages(roomJid)
+        val room = database.roomDao().getRoomByJid(roomJid)
+        if (room != null) {
+            if (!room.isGroupChat && !room.isBookmarked) {
+                database.roomDao().deleteRoom(roomJid)
+            } else {
+                database.roomDao().updateLastMessage(roomJid, "", 0L, 0)
+                database.roomDao().resetUnreadCount(roomJid)
+            }
+        }
+    }
+
+    suspend fun closeConversation(roomJid: String) {
+        val room = database.roomDao().getRoomByJid(roomJid)
+        if (room != null) {
+            if (!room.isGroupChat && !room.isBookmarked) {
+                database.roomDao().deleteRoom(roomJid)
+            } else {
+                database.roomDao().updateLastMessage(roomJid, "", 0L, 0)
+                database.roomDao().resetUnreadCount(roomJid)
+            }
+        }
     }
 
     fun searchRoomChatHistory(roomJid: String, query: String): Flow<List<XmppMessage>> {
@@ -1289,7 +1371,13 @@ class XmppRepository(
         val isUrl = text.trim().startsWith("http")
         val cleanJidJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
 
-        // 1. If Smack MUC is connected and room joined, send via Smack MUC or raw stanza
+        var isSentSuccessfully = false
+        val stanzaId = java.util.UUID.randomUUID().toString()
+        val timestamp = System.currentTimeMillis()
+
+        Log.d("XmppRepository", "Sending message to $cleanJid (isUrl=$isUrl)")
+
+        // 1. If Smack MUC is connected and room joined, send via Smack MUC
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             try {
                 if (isUrl) {
@@ -1297,29 +1385,30 @@ class XmppRepository(
                 } else {
                     smackMucManager.sendMessage(cleanJid, text)
                 }
-                return
+                isSentSuccessfully = true
+                Log.i("XmppRepository", "Sent MUC message to $cleanJid via Smack")
             } catch (e: Exception) {
                 Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${e.message}")
             }
         }
         
-        // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
-        if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+        // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) - Only if not already sent via MUC
+        if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             try {
                 if (isUrl) {
                     engine.sendDirectOobMessage(cleanJid, text, myNickname)
-                    Log.i("XmppRepository", "Successfully sent 1-on-1 direct OOB message to $cleanJid")
-                    return
+                    isSentSuccessfully = true
+                    Log.i("XmppRepository", "Sent 1-on-1 direct OOB message to $cleanJid")
                 } else {
                     val conn = smackConnectionManager.getRawConnection()
                     if (conn != null) {
                         val msgStanza = org.jivesoftware.smack.packet.Message(cleanJidJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
                             body = text
-                            stanzaId = java.util.UUID.randomUUID().toString()
+                            setStanzaId(stanzaId)
                         }
                         conn.sendStanza(msgStanza)
-                        Log.i("XmppRepository", "Successfully sent 1-on-1 direct XMPP stanza to $cleanJid")
-                        return
+                        isSentSuccessfully = true
+                        Log.i("XmppRepository", "Sent 1-on-1 direct XMPP stanza to $cleanJid")
                     }
                 }
             } catch (e: Exception) {
@@ -1327,43 +1416,92 @@ class XmppRepository(
             }
         }
 
-        // Save sent message locally in Room DB
-        val msg = engine.sendGroupMessage(cleanJid, text, myNickname).copy(
+        // 3. Fallback to raw engine if still not sent (e.g. demo mode or connection issues)
+        if (!isSentSuccessfully) {
+            try {
+                engine.sendGroupMessage(cleanJid, text, myNickname)
+                isSentSuccessfully = true
+                Log.i("XmppRepository", "Sent message to $cleanJid via raw engine fallback")
+            } catch (e: Exception) {
+                Log.e("XmppRepository", "Final fallback send failed for $cleanJid: ${e.message}")
+            }
+        }
+
+        // 4. SAVE sent message locally in Room DB so it appears in UI immediately
+        val isImage = isUrl && (
+            text.contains(".jpg", ignoreCase = true) ||
+            text.contains(".jpeg", ignoreCase = true) ||
+            text.contains(".png", ignoreCase = true) ||
+            text.contains(".gif", ignoreCase = true) ||
+            text.contains(".webp", ignoreCase = true) ||
+            text.contains("/preview/", ignoreCase = true)
+        )
+        
+        val msg = XmppMessage(
+            id = stanzaId,
+            roomJid = cleanJid,
             senderJid = myJid,
-            senderAvatar = myAvatar,
-            messageType = MessageType.CHAT,
+            senderNickname = myNickname,
+            body = text,
+            timestamp = timestamp,
+            isMine = true,
+            messageType = when {
+                isImage -> MessageType.FILE
+                isMucJid(cleanJid) -> MessageType.GROUPCHAT
+                else -> MessageType.CHAT
+            },
+            status = if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED,
             replyToMessageId = replyToMessageId,
             replyToSender = replyToSender,
-            replyToText = replyToText
+            replyToText = replyToText,
+            fileUrl = if (isUrl) text.trim() else null,
+            fileMimeType = if (isImage) "image/jpeg" else if (isUrl) "application/octet-stream" else null,
+            fileName = if (isUrl) "Lampiran" else null
         )
-        database.messageDao().insertMessage(msg.toEntity())
+        
+        try {
+            database.messageDao().insertMessage(msg.toEntity())
+            Log.d("XmppRepository", "Saved sent message to local DB: $stanzaId")
+        } catch (e: Exception) {
+            Log.e("XmppRepository", "Failed to save sent message to DB: ${e.message}")
+        }
 
-        val existing = database.roomDao().getRoomByJid(cleanJid)
-        if (existing != null) {
-            database.roomDao().insertOrUpdateRoom(
-                existing.copy(
-                    lastMessageText = text,
-                    lastMessageTime = msg.timestamp
+        // 5. Update or Create Room Entity to ensure it stays in the list
+        try {
+            val existing = database.roomDao().getRoomByJid(cleanJid)
+            if (existing != null) {
+                database.roomDao().updateLastMessage(
+                    cleanJid, 
+                    if (isUrl) "[Berkas] $text" else text, 
+                    timestamp, 
+                    0 // unread stays same for mine
                 )
-            )
-        } else {
-            // Auto-create room entity for 1-on-1 chat
-            val newRoom = RoomEntity(
-                jid = cleanJid,
-                name = cleanJid.substringBefore("@"),
-                topic = "Obrolan Langsung (1-on-1)",
-                myNickname = myNickname,
-                occupantCount = 2,
-                unreadCount = 0,
-                lastMessageText = text,
-                lastMessageTime = msg.timestamp,
-                isJoined = true,
-                isBookmarked = true,
-                myRole = OccupantRole.MEMBER,
-                myAffiliation = OccupantAffiliation.MEMBER,
-                colorHex = randomColorForRoom(cleanJid)
-            )
-            database.roomDao().insertOrUpdateRoom(newRoom)
+                Log.d("XmppRepository", "Updated last message for existing room: $cleanJid")
+            } else {
+                // Auto-create room entity for 1-on-1 chat if it doesn't exist
+                val isGroup = isMucJid(cleanJid)
+                val newRoom = RoomEntity(
+                    jid = cleanJid,
+                    name = cleanJid.substringBefore("@"),
+                    topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
+                    myNickname = myNickname,
+                    occupantCount = if (isGroup) 1 else 2,
+                    unreadCount = 0,
+                    lastMessageText = if (isUrl) "[Berkas] $text" else text,
+                    lastMessageTime = timestamp,
+                    isJoined = true,
+                    isBookmarked = false,
+                    myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.MEMBER,
+                    myAffiliation = if (isGroup) OccupantAffiliation.MEMBER else OccupantAffiliation.MEMBER,
+                    colorHex = randomColorForRoom(cleanJid),
+                    isAutoJoin = isGroup,
+                    isGroupChat = isGroup
+                )
+                database.roomDao().insertOrUpdateRoom(newRoom)
+                Log.d("XmppRepository", "Created new room entity for: $cleanJid")
+            }
+        } catch (e: Exception) {
+            Log.e("XmppRepository", "Failed to update room last message: ${e.message}")
         }
     }
 
