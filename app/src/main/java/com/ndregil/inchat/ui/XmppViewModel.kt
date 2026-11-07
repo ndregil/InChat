@@ -372,13 +372,20 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val whisperTargetOccupant = MutableStateFlow<RoomOccupant?>(null)
     val replyingToMessage = MutableStateFlow<XmppMessage?>(null)
 
-    // Theme state
-    private val _isDarkMode = MutableStateFlow<Boolean?>(null) // null means follow system
-    val isDarkMode: StateFlow<Boolean?> = _isDarkMode.asStateFlow()
+    // Theme state - observe persisted themePreferences and update DataStore
+    val isDarkMode: StateFlow<Boolean?> = themePreferences.map { it.isDarkModeOverride }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
 
     fun toggleDarkMode(currentSystemDark: Boolean) {
-        val current = _isDarkMode.value ?: currentSystemDark
-        _isDarkMode.value = !current
+        val currentEffectiveDark = isDarkMode.value ?: currentSystemDark
+        val newDarkOverride = !currentEffectiveDark
+        viewModelScope.launch {
+            val currentPrefs = themePreferences.value
+            repository.updateThemePreferences(currentPrefs.copy(isDarkModeOverride = newDarkOverride))
+        }
     }
 
     // ...

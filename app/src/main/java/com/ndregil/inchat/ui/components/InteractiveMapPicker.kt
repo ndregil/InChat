@@ -9,6 +9,7 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -429,7 +430,14 @@ fun InteractiveMapPickerDialog(
                                 settings.domStorageEnabled = true
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = true
-                                webViewClient = WebViewClient()
+                                webViewClient = object : WebViewClient() {
+                                    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                        try {
+                                            view?.destroy()
+                                        } catch (_: Exception) {}
+                                        return true
+                                    }
+                                }
                                 addJavascriptInterface(LocationBridge { lat, lng ->
                                     scope.launch(Dispatchers.Main) {
                                         selectedLat = lat

@@ -2341,9 +2341,15 @@ fun ChatInputBar(
                                 .padding(horizontal = 4.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                             // 1. Emoji button
                             IconButton(
-                                onClick = { showEmojiKeyboard = !showEmojiKeyboard },
+                                onClick = {
+                                    if (!showEmojiKeyboard) {
+                                        keyboardController?.hide()
+                                    }
+                                    showEmojiKeyboard = !showEmojiKeyboard
+                                },
                                 modifier = Modifier
                                     .size(34.dp)
                                     .testTag("btn_toggle_emoji")
@@ -2388,28 +2394,28 @@ fun ChatInputBar(
                             }
 
                             // 3. Compact Action Row
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                // Lokasi
-                                IconButton(
-                                    onClick = { showLocationDialog = true },
-                                    modifier = Modifier.size(32.dp).testTag("btn_loc")
+                            if (inputText.isBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(1.dp)
                                 ) {
-                                    Icon(Icons.Default.LocationOn, null, tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))
-                                }
+                                    // Lokasi
+                                    IconButton(
+                                        onClick = { showLocationDialog = true },
+                                        modifier = Modifier.size(32.dp).testTag("btn_loc")
+                                    ) {
+                                        Icon(Icons.Default.LocationOn, null, tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))
+                                    }
 
-                                // Lampiran
-                                IconButton(
-                                    onClick = onAttachClick,
-                                    modifier = Modifier.size(32.dp).testTag("btn_attach")
-                                ) {
-                                    Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
-                                }
+                                    // Lampiran
+                                    IconButton(
+                                        onClick = onAttachClick,
+                                        modifier = Modifier.size(32.dp).testTag("btn_attach")
+                                    ) {
+                                        Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
+                                    }
 
-                                // Tombol Suara (Mic)
-                                if (inputText.isBlank()) {
+                                    // Tombol Suara (Mic)
                                     IconButton(
                                         onClick = {
                                             audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)

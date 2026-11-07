@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -1140,6 +1141,12 @@ fun AccountConnectionScreen(
                                             cm.setAcceptThirdPartyCookies(this, true)
                                         }
                                         webViewClient = object : WebViewClient() {
+                                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                                try { view?.destroy() } catch (_: Exception) {}
+                                                isLoadingWeb = false
+                                                return true
+                                            }
+
                                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                                 super.onPageStarted(view, url, favicon)
                                                 if (url != null) browserUrl = url
@@ -1411,6 +1418,12 @@ fun AccountConnectionScreen(
                                             cm.setAcceptThirdPartyCookies(this, true)
                                         }
                                         webViewClient = object : WebViewClient() {
+                                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                                try { view?.destroy() } catch (_: Exception) {}
+                                                isLoadingWeb = false
+                                                return true
+                                            }
+
                                             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                                 super.onPageStarted(view, url, favicon)
                                                 if (url != null) browserUrl = url

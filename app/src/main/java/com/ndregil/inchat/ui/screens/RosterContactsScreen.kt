@@ -516,8 +516,26 @@ fun RosterContactListItem(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val presenceColor = if (themePrefs.isCustomThemeEnabled && (contact.presence == UserPresence.ONLINE || contact.presence == UserPresence.CHAT)) {
-        try { Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex)) } catch (e: Exception) { OnlineGreen }
+    val presenceColor = if (themePrefs.isCustomThemeEnabled) {
+        try {
+            when (contact.presence) {
+                UserPresence.ONLINE -> Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex))
+                UserPresence.CHAT -> Color(android.graphics.Color.parseColor(themePrefs.presenceChatColorHex))
+                UserPresence.AWAY -> Color(android.graphics.Color.parseColor(themePrefs.presenceAwayColorHex))
+                UserPresence.XA -> Color(android.graphics.Color.parseColor(themePrefs.presenceXaColorHex))
+                UserPresence.DND -> Color(android.graphics.Color.parseColor(themePrefs.presenceDndColorHex))
+                UserPresence.OFFLINE -> OfflineGray
+            }
+        } catch (e: Exception) {
+            when (contact.presence) {
+                UserPresence.ONLINE -> OnlineGreen
+                UserPresence.CHAT -> Color(0xFF0D9488)
+                UserPresence.AWAY -> AwayAmber
+                UserPresence.XA -> Color(0xFFD97706)
+                UserPresence.DND -> DndRed
+                UserPresence.OFFLINE -> OfflineGray
+            }
+        }
     } else {
         when (contact.presence) {
             UserPresence.ONLINE -> OnlineGreen

@@ -17,25 +17,45 @@ class ThemePreferencesManager(private val context: Context) {
         val NICKNAME_COLOR = stringPreferencesKey("nickname_color")
         val CONTACT_COLOR = stringPreferencesKey("contact_color")
         val PRESENCE_COLOR = stringPreferencesKey("presence_color")
+        val PRESENCE_CHAT_COLOR = stringPreferencesKey("presence_chat_color")
+        val PRESENCE_AWAY_COLOR = stringPreferencesKey("presence_away_color")
+        val PRESENCE_XA_COLOR = stringPreferencesKey("presence_xa_color")
+        val PRESENCE_DND_COLOR = stringPreferencesKey("presence_dnd_color")
         val INCOMING_BUBBLE_COLOR = stringPreferencesKey("incoming_bubble_color")
         val OUTGOING_BUBBLE_COLOR = stringPreferencesKey("outgoing_bubble_color")
+        val INCOMING_TEXT_COLOR = stringPreferencesKey("incoming_text_color")
+        val OUTGOING_TEXT_COLOR = stringPreferencesKey("outgoing_text_color")
         val CUSTOM_WALLPAPER_URI = stringPreferencesKey("custom_wallpaper_uri")
         val WALLPAPER_OPACITY = floatPreferencesKey("wallpaper_opacity")
         val IS_CUSTOM_THEME_ENABLED = booleanPreferencesKey("is_custom_theme_enabled")
+        val IS_DARK_MODE_MODE = intPreferencesKey("is_dark_mode_mode")
     }
 
     val themePreferences: Flow<ThemePreferences> = context.dataStore.data
         .map { preferences ->
+            val darkModeInt = preferences[PreferencesKeys.IS_DARK_MODE_MODE] ?: 0
+            val darkOverride = when (darkModeInt) {
+                1 -> true
+                2 -> false
+                else -> null
+            }
             ThemePreferences(
                 accentColorHex = preferences[PreferencesKeys.ACCENT_COLOR] ?: "#0284C7",
                 nicknameColorHex = preferences[PreferencesKeys.NICKNAME_COLOR] ?: "#0284C7",
                 contactColorHex = preferences[PreferencesKeys.CONTACT_COLOR] ?: "#1E293B",
                 presenceOnlineColorHex = preferences[PreferencesKeys.PRESENCE_COLOR] ?: "#10B981",
+                presenceChatColorHex = preferences[PreferencesKeys.PRESENCE_CHAT_COLOR] ?: "#0D9488",
+                presenceAwayColorHex = preferences[PreferencesKeys.PRESENCE_AWAY_COLOR] ?: "#F59E0B",
+                presenceXaColorHex = preferences[PreferencesKeys.PRESENCE_XA_COLOR] ?: "#D97706",
+                presenceDndColorHex = preferences[PreferencesKeys.PRESENCE_DND_COLOR] ?: "#EF4444",
                 incomingBubbleColorHex = preferences[PreferencesKeys.INCOMING_BUBBLE_COLOR] ?: "#F1F5F9",
                 outgoingBubbleColorHex = preferences[PreferencesKeys.OUTGOING_BUBBLE_COLOR] ?: "#0284C7",
+                incomingTextColorHex = preferences[PreferencesKeys.INCOMING_TEXT_COLOR] ?: "#0F172A",
+                outgoingTextColorHex = preferences[PreferencesKeys.OUTGOING_TEXT_COLOR] ?: "#FFFFFF",
                 customWallpaperUri = preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI],
                 wallpaperOpacity = preferences[PreferencesKeys.WALLPAPER_OPACITY] ?: 0.5f,
-                isCustomThemeEnabled = preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] ?: false
+                isCustomThemeEnabled = preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] ?: false,
+                isDarkModeOverride = darkOverride
             )
         }
 
@@ -45,11 +65,23 @@ class ThemePreferencesManager(private val context: Context) {
             preferences[PreferencesKeys.NICKNAME_COLOR] = prefs.nicknameColorHex
             preferences[PreferencesKeys.CONTACT_COLOR] = prefs.contactColorHex
             preferences[PreferencesKeys.PRESENCE_COLOR] = prefs.presenceOnlineColorHex
+            preferences[PreferencesKeys.PRESENCE_CHAT_COLOR] = prefs.presenceChatColorHex
+            preferences[PreferencesKeys.PRESENCE_AWAY_COLOR] = prefs.presenceAwayColorHex
+            preferences[PreferencesKeys.PRESENCE_XA_COLOR] = prefs.presenceXaColorHex
+            preferences[PreferencesKeys.PRESENCE_DND_COLOR] = prefs.presenceDndColorHex
             preferences[PreferencesKeys.INCOMING_BUBBLE_COLOR] = prefs.incomingBubbleColorHex
             preferences[PreferencesKeys.OUTGOING_BUBBLE_COLOR] = prefs.outgoingBubbleColorHex
+            preferences[PreferencesKeys.INCOMING_TEXT_COLOR] = prefs.incomingTextColorHex
+            preferences[PreferencesKeys.OUTGOING_TEXT_COLOR] = prefs.outgoingTextColorHex
             prefs.customWallpaperUri?.let { preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI] = it } ?: preferences.remove(PreferencesKeys.CUSTOM_WALLPAPER_URI)
             preferences[PreferencesKeys.WALLPAPER_OPACITY] = prefs.wallpaperOpacity
             preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] = prefs.isCustomThemeEnabled
+            val darkInt = when (prefs.isDarkModeOverride) {
+                true -> 1
+                false -> 2
+                null -> 0
+            }
+            preferences[PreferencesKeys.IS_DARK_MODE_MODE] = darkInt
         }
     }
 }

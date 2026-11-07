@@ -204,7 +204,12 @@ fun MessageBubble(
     }
 
     val textColor = if (themePrefs.isCustomThemeEnabled && !isWhisper) {
-        if (bubbleBg.luminance() > 0.5f) Color(0xFF1E293B) else Color.White
+        try {
+            if (isMine) Color(android.graphics.Color.parseColor(themePrefs.outgoingTextColorHex))
+            else Color(android.graphics.Color.parseColor(themePrefs.incomingTextColorHex))
+        } catch (e: Exception) {
+            if (bubbleBg.luminance() > 0.5f) Color(0xFF1E293B) else Color.White
+        }
     } else {
         when {
             isWhisper -> Color(0xFFF3E8FF)

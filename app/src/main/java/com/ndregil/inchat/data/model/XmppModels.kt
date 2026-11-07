@@ -676,9 +676,16 @@ data class ThemePreferences(
     val nicknameColorHex: String = "#0284C7",
     val contactColorHex: String = "#1E293B",
     val presenceOnlineColorHex: String = "#10B981",
+    val presenceChatColorHex: String = "#0D9488",
+    val presenceAwayColorHex: String = "#F59E0B",
+    val presenceXaColorHex: String = "#D97706",
+    val presenceDndColorHex: String = "#EF4444",
     val incomingBubbleColorHex: String = "#F1F5F9",
     val outgoingBubbleColorHex: String = "#0284C7",
+    val incomingTextColorHex: String = "#0F172A",
+    val outgoingTextColorHex: String = "#FFFFFF",
     val customWallpaperUri: String? = null,
     val wallpaperOpacity: Float = 0.5f,
-    val isCustomThemeEnabled: Boolean = false
+    val isCustomThemeEnabled: Boolean = false,
+    val isDarkModeOverride: Boolean? = null
 )

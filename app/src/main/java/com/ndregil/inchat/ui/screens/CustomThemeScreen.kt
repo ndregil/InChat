@@ -155,7 +155,7 @@ fun CustomThemeScreen(
                 item {
                     ColorPreferenceItem(
                         label = "Warna Status Online",
-                        description = "Warna dot kehadiran saat tersedia",
+                        description = "Warna dot kehadiran saat tersedia (Online)",
                         colorHex = currentPrefs.presenceOnlineColorHex,
                         onClick = { showColorPickerFor = "presence" }
                     )
@@ -163,8 +163,44 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Pesan Masuk (Incoming)",
-                        description = "Warna bubble untuk pesan dari orang lain",
+                        label = "Warna Status Chat",
+                        description = "Warna dot kehadiran saat siap ngobrol (Chat)",
+                        colorHex = currentPrefs.presenceChatColorHex,
+                        onClick = { showColorPickerFor = "presence_chat" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Status Away",
+                        description = "Warna dot kehadiran saat sedang pergi (Away)",
+                        colorHex = currentPrefs.presenceAwayColorHex,
+                        onClick = { showColorPickerFor = "presence_away" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Status XA",
+                        description = "Warna dot kehadiran saat pergi lama (Extended Away)",
+                        colorHex = currentPrefs.presenceXaColorHex,
+                        onClick = { showColorPickerFor = "presence_xa" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Status DND",
+                        description = "Warna dot kehadiran sibuk (Do Not Disturb)",
+                        colorHex = currentPrefs.presenceDndColorHex,
+                        onClick = { showColorPickerFor = "presence_dnd" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Bubble Masuk (Incoming)",
+                        description = "Warna latar bubble untuk pesan dari orang lain",
                         colorHex = currentPrefs.incomingBubbleColorHex,
                         onClick = { showColorPickerFor = "incoming" }
                     )
@@ -172,10 +208,28 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Pesan Keluar (Outgoing)",
-                        description = "Warna bubble untuk pesan dari Anda",
+                        label = "Warna Bubble Keluar (Outgoing)",
+                        description = "Warna latar bubble untuk pesan dari Anda",
                         colorHex = currentPrefs.outgoingBubbleColorHex,
                         onClick = { showColorPickerFor = "outgoing" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Teks Pesan Masuk",
+                        description = "Warna teks untuk pesan masuk",
+                        colorHex = currentPrefs.incomingTextColorHex,
+                        onClick = { showColorPickerFor = "incoming_text" }
+                    )
+                }
+
+                item {
+                    ColorPreferenceItem(
+                        label = "Warna Teks Pesan Keluar",
+                        description = "Warna teks untuk pesan keluar",
+                        colorHex = currentPrefs.outgoingTextColorHex,
+                        onClick = { showColorPickerFor = "outgoing_text" }
                     )
                 }
             }
@@ -274,8 +328,14 @@ fun CustomThemeScreen(
             "nickname" -> currentPrefs.nicknameColorHex
             "contact" -> currentPrefs.contactColorHex
             "presence" -> currentPrefs.presenceOnlineColorHex
+            "presence_chat" -> currentPrefs.presenceChatColorHex
+            "presence_away" -> currentPrefs.presenceAwayColorHex
+            "presence_xa" -> currentPrefs.presenceXaColorHex
+            "presence_dnd" -> currentPrefs.presenceDndColorHex
             "incoming" -> currentPrefs.incomingBubbleColorHex
             "outgoing" -> currentPrefs.outgoingBubbleColorHex
+            "incoming_text" -> currentPrefs.incomingTextColorHex
+            "outgoing_text" -> currentPrefs.outgoingTextColorHex
             else -> "#000000"
         }
 
@@ -288,8 +348,14 @@ fun CustomThemeScreen(
                     "nickname" -> currentPrefs.copy(nicknameColorHex = newHex)
                     "contact" -> currentPrefs.copy(contactColorHex = newHex)
                     "presence" -> currentPrefs.copy(presenceOnlineColorHex = newHex)
+                    "presence_chat" -> currentPrefs.copy(presenceChatColorHex = newHex)
+                    "presence_away" -> currentPrefs.copy(presenceAwayColorHex = newHex)
+                    "presence_xa" -> currentPrefs.copy(presenceXaColorHex = newHex)
+                    "presence_dnd" -> currentPrefs.copy(presenceDndColorHex = newHex)
                     "incoming" -> currentPrefs.copy(incomingBubbleColorHex = newHex)
                     "outgoing" -> currentPrefs.copy(outgoingBubbleColorHex = newHex)
+                    "incoming_text" -> currentPrefs.copy(incomingTextColorHex = newHex)
+                    "outgoing_text" -> currentPrefs.copy(outgoingTextColorHex = newHex)
                     else -> currentPrefs
                 }
                 onPrefsChange(updatedPrefs)
