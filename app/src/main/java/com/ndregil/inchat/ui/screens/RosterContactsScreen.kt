@@ -1714,23 +1714,26 @@ fun SavedRoomItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .testTag("saved_room_${room.jid}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = androidx.compose.foundation.BorderStroke(1.2.dp, roomColor.copy(alpha = 0.35f))
+            .testTag("saved_room_${room.jid}")
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, roomColor.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Room Avatar with accent glow / border
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(52.dp)
                         .clip(CircleShape)
-                        .background(roomColor.copy(alpha = 0.15f))
-                        .border(1.8.dp, roomColor, CircleShape)
+                        .background(roomColor.copy(alpha = 0.16f))
+                        .border(2.dp, roomColor, CircleShape)
                         .clickable { onChangeColorClick() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1738,7 +1741,9 @@ fun SavedRoomItem(
                         Image(
                             bitmap = bitmap.asImageBitmap(),
                             contentDescription = "Avatar $cleanTitle",
-                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
                     } else {
@@ -1751,10 +1756,13 @@ fun SavedRoomItem(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Text(
                             text = cleanTitle,
                             style = MaterialTheme.typography.titleMedium,
@@ -1763,76 +1771,125 @@ fun SavedRoomItem(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
                             color = if (themePrefs.isCustomThemeEnabled) {
-                                try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                                try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurface }
                             } else {
-                                Color.Unspecified
+                                MaterialTheme.colorScheme.onSurface
                             }
                         )
+                        // Group chat badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = roomColor.copy(alpha = 0.14f)
+                        ) {
+                            Text(
+                                text = "MUC",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = roomColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
                         text = room.jid,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    if (room.topic.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = room.topic,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
                 }
 
-                IconButton(onClick = onRemove) {
+                IconButton(
+                    onClick = onRemove,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+                ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "Hapus Bookmark",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            if (room.isAutoJoin) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
-                        .clickable { onToggleAutoJoin?.invoke() }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                // Auto-Join Pill Button
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (room.isAutoJoin) roomColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (room.isAutoJoin) roomColor.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    ),
+                    modifier = Modifier.clickable { onToggleAutoJoin?.invoke() }
                 ) {
-                    Icon(
-                        imageVector = if (room.isAutoJoin) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp),
-                        tint = if (room.isAutoJoin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = if (room.isAutoJoin) "Auto-Join Aktif" else "Auto-Join Nonaktif",
-                        fontSize = 11.sp,
-                        fontWeight = if (room.isAutoJoin) FontWeight.Bold else FontWeight.Normal,
-                        color = if (room.isAutoJoin) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (room.isAutoJoin) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = if (room.isAutoJoin) roomColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (room.isAutoJoin) "Auto-Join Aktif" else "Auto-Join Nonaktif",
+                            fontSize = 12.sp,
+                            fontWeight = if (room.isAutoJoin) FontWeight.Bold else FontWeight.Medium,
+                            color = if (room.isAutoJoin) roomColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
+                // Change Theme Color Button
                 OutlinedButton(
                     onClick = onChangeColorClick,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    modifier = Modifier.height(30.dp),
-                    shape = RoundedCornerShape(8.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    modifier = Modifier.height(34.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, roomColor.copy(alpha = 0.5f))
                 ) {
-                    Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(14.dp), tint = roomColor)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Warna", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = roomColor
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Warna Room",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }
