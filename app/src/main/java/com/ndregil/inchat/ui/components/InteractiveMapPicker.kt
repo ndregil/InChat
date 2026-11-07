@@ -8,8 +8,12 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -17,10 +21,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -33,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,8 +73,25 @@ fun InteractiveMapPickerDialog(
     var isGeocoding by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
+    var isRendererCrashed by remember { mutableStateOf(false) }
 
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
+
+    // Safe lifecycle cleanup on dismissal
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                webViewRef.value?.let { wv ->
+                    wv.stopLoading()
+                    wv.webViewClient = WebViewClient()
+                    wv.loadUrl("about:blank")
+                    (wv.parent as? ViewGroup)?.removeView(wv)
+                    wv.destroy()
+                }
+                webViewRef.value = null
+            } catch (_: Exception) {}
+        }
+    }
 
     // GPS location fetcher helper
     fun fetchGpsPosition() {
@@ -142,6 +164,15 @@ fun InteractiveMapPickerDialog(
             fetchGpsPosition()
         } else {
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    // Attempt GPS detection on start if permission already granted
+    LaunchedEffect(Unit) {
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            fetchGpsPosition()
         }
     }
 
@@ -225,19 +256,41 @@ fun InteractiveMapPickerDialog(
         <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
             <style>
-                body, html, #map { margin:0; padding:0; height:100%; width:100%; background:#e5e3df; font-family: sans-serif; }
+                * { box-sizing: border-box; }
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    overflow: hidden;
+                    background: #f1f5f9;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }
+                #map {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    width: 100%;
+                    height: 100%;
+                    z-index: 1;
+                }
                 .center-pin {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 38px;
-                    height: 38px;
-                    margin-top: -38px;
-                    margin-left: -19px;
+                    width: 42px;
+                    height: 42px;
+                    margin-top: -42px;
+                    margin-left: -21px;
                     z-index: 1000;
                     pointer-events: none;
                     transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -246,21 +299,24 @@ fun InteractiveMapPickerDialog(
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 14px;
-                    height: 6px;
-                    margin-top: -3px;
-                    margin-left: -7px;
-                    background: rgba(0,0,0,0.3);
+                    width: 16px;
+                    height: 8px;
+                    margin-top: -4px;
+                    margin-left: -8px;
+                    background: rgba(0,0,0,0.35);
                     border-radius: 50%;
                     z-index: 999;
                     pointer-events: none;
+                    transition: transform 0.15s ease-out;
                 }
                 .leaflet-control-attribution { display: none !important; }
+                .leaflet-bar { border-radius: 8px !important; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important; border: none !important; }
+                .leaflet-bar a { background-color: #ffffff !important; color: #1e293b !important; border-bottom: 1px solid #e2e8f0 !important; width: 34px !important; height: 34px !important; line-height: 34px !important; font-size: 16px !important; }
             </style>
         </head>
         <body>
             <div id="map"></div>
-            <div class="pin-shadow"></div>
+            <div class="pin-shadow" id="pinShadow"></div>
             <svg class="center-pin" id="centerPin" viewBox="0 0 24 24" fill="#EF4444">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
             </svg>
@@ -268,11 +324,38 @@ fun InteractiveMapPickerDialog(
             <script>
                 var initialLat = -6.200000;
                 var initialLng = 106.816666;
-                var map = L.map('map', { zoomControl: false }).setView([initialLat, initialLng], 16);
 
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    maxZoom: 19
-                }).addTo(map);
+                var map = L.map('map', {
+                    center: [initialLat, initialLng],
+                    zoom: 16,
+                    zoomControl: false,
+                    dragging: true,
+                    tap: false,
+                    touchZoom: true
+                });
+
+                // Add zoom control at top-right
+                L.control.zoom({ position: 'topright' }).addTo(map);
+
+                // Google Maps Road layer
+                var googleRoadLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                    maxZoom: 20,
+                    subdomains: ['0', '1', '2', '3']
+                });
+
+                // CartoDB Voyager as fallback
+                var cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 19,
+                    subdomains: 'abcd'
+                });
+
+                googleRoadLayer.addTo(map);
+
+                googleRoadLayer.on('tileerror', function() {
+                    if (!map.hasLayer(cartoLayer)) {
+                        cartoLayer.addTo(map);
+                    }
+                });
 
                 function updateLocation() {
                     var center = map.getCenter();
@@ -281,20 +364,29 @@ fun InteractiveMapPickerDialog(
                     }
                 }
 
-                map.on('moveend', updateLocation);
-
                 map.on('movestart', function() {
-                    document.getElementById('centerPin').style.transform = 'translateY(-10px) scale(1.1)';
+                    document.getElementById('centerPin').style.transform = 'translateY(-14px) scale(1.15)';
+                    document.getElementById('pinShadow').style.transform = 'scale(0.7)';
                 });
 
                 map.on('moveend', function() {
                     document.getElementById('centerPin').style.transform = 'translateY(0px) scale(1.0)';
+                    document.getElementById('pinShadow').style.transform = 'scale(1.0)';
                     updateLocation();
                 });
 
                 function setCenter(lat, lng, zoom) {
-                    map.setView([lat, lng], zoom || 16);
+                    if (map) {
+                        map.setView([lat, lng], zoom || 16, { animate: true });
+                        setTimeout(function() { map.invalidateSize(); }, 100);
+                    }
                 }
+
+                // Ensure Leaflet calculates dimensions correctly
+                setTimeout(function() { if (map) map.invalidateSize(); }, 250);
+                setTimeout(function() { if (map) map.invalidateSize(); }, 600);
+                setTimeout(function() { if (map) map.invalidateSize(); }, 1200);
+                window.addEventListener('resize', function() { if (map) map.invalidateSize(); });
             </script>
         </body>
         </html>
@@ -310,7 +402,7 @@ fun InteractiveMapPickerDialog(
             color = MaterialTheme.colorScheme.background
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top Header & Search Bar (WhatsApp style)
+                // Top Header & Search Bar
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 4.dp,
@@ -366,6 +458,8 @@ fun InteractiveMapPickerDialog(
                                     }
                                 },
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { searchPlace(searchQuery) }),
                                 modifier = Modifier
                                     .weight(1f)
                                     .testTag("input_search_location"),
@@ -385,34 +479,6 @@ fun InteractiveMapPickerDialog(
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Quick City Chips
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            items(listOf(
-                                "Jakarta" to Pair(-6.200000, 106.816666),
-                                "Bandung" to Pair(-6.917464, 107.619123),
-                                "Surabaya" to Pair(-7.257472, 112.752088),
-                                "Yogyakarta" to Pair(-7.795580, 110.369490),
-                                "Bali" to Pair(-8.670458, 115.212629),
-                                "Medan" to Pair(-3.595196, 98.672223),
-                                "Makassar" to Pair(-5.147665, 119.432732),
-                                "Semarang" to Pair(-6.966667, 110.416664)
-                            )) { (cityName, coords) ->
-                                AssistChip(
-                                    onClick = {
-                                        selectedLat = coords.first
-                                        selectedLng = coords.second
-                                        webViewRef.value?.evaluateJavascript("setCenter(${coords.first}, ${coords.second}, 15)", null)
-                                    },
-                                    label = { Text(cityName, fontSize = 11.sp) }
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -422,34 +488,95 @@ fun InteractiveMapPickerDialog(
                         .weight(1f)
                         .fillMaxWidth()
                 ) {
-                    @SuppressLint("SetJavaScriptEnabled")
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.useWideViewPort = true
-                                settings.loadWithOverviewMode = true
-                                webViewClient = object : WebViewClient() {
-                                    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                        try {
-                                            view?.destroy()
-                                        } catch (_: Exception) {}
-                                        return true
-                                    }
+                    if (isRendererCrashed) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text("Peta perlu dimuat ulang", style = MaterialTheme.typography.bodyMedium)
+                                Button(onClick = { isRendererCrashed = false }) {
+                                    Text("Muat Ulang Peta")
                                 }
-                                addJavascriptInterface(LocationBridge { lat, lng ->
-                                    scope.launch(Dispatchers.Main) {
-                                        selectedLat = lat
-                                        selectedLng = lng
-                                    }
-                                }, "AndroidLocationPicker")
-                                loadDataWithBaseURL("https://openstreetmap.org", htmlContent, "text/html", "UTF-8", null)
-                                webViewRef.value = this
                             }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                        }
+                    } else {
+                        @SuppressLint("SetJavaScriptEnabled")
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    // Use Software layer to prevent GPU crashes on emulators/virtual devices
+                                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.useWideViewPort = true
+                                    settings.loadWithOverviewMode = true
+                                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 InChat/1.0"
+
+                                    isClickable = true
+                                    isFocusable = true
+                                    isFocusableInTouchMode = true
+
+                                    // Disallow parent Compose dialog/scaffold from intercepting drag touch events
+                                    setOnTouchListener { v, event ->
+                                        when (event.action) {
+                                            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                                v.parent?.requestDisallowInterceptTouchEvent(true)
+                                            }
+                                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                                            }
+                                        }
+                                        false
+                                    }
+
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                                            try {
+                                                (view?.parent as? ViewGroup)?.removeView(view)
+                                                view?.destroy()
+                                            } catch (_: Exception) {}
+                                            webViewRef.value = null
+                                            isRendererCrashed = true
+                                            return true
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            view?.evaluateJavascript("setCenter($selectedLat, $selectedLng, 16);", null)
+                                        }
+                                    }
+
+                                    addJavascriptInterface(LocationBridge { lat, lng ->
+                                        scope.launch(Dispatchers.Main) {
+                                            selectedLat = lat
+                                            selectedLng = lng
+                                        }
+                                    }, "AndroidLocationPicker")
+
+                                    loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                                    webViewRef.value = this
+                                }
+                            },
+                            onRelease = { wv ->
+                                try {
+                                    wv.stopLoading()
+                                    wv.webViewClient = WebViewClient()
+                                    wv.loadUrl("about:blank")
+                                    (wv.parent as? ViewGroup)?.removeView(wv)
+                                    wv.destroy()
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
                     // Floating Action Button: Snap to Real Device GPS Location
                     SmallFloatingActionButton(

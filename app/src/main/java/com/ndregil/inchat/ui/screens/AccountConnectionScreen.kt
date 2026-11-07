@@ -1117,6 +1117,7 @@ fun AccountConnectionScreen(
                             AndroidView(
                                 factory = { ctx ->
                                     WebView(ctx).apply {
+                                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                                         layoutParams = ViewGroup.LayoutParams(
                                             ViewGroup.LayoutParams.MATCH_PARENT,
                                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -1142,8 +1143,12 @@ fun AccountConnectionScreen(
                                         }
                                         webViewClient = object : WebViewClient() {
                                             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                                try { view?.destroy() } catch (_: Exception) {}
+                                                try {
+                                                    (view?.parent as? ViewGroup)?.removeView(view)
+                                                    view?.destroy()
+                                                } catch (_: Exception) {}
                                                 isLoadingWeb = false
+                                                webViewInstance = null
                                                 return true
                                             }
 
@@ -1176,6 +1181,15 @@ fun AccountConnectionScreen(
                                 },
                                 update = { view ->
                                     webViewInstance = view
+                                },
+                                onRelease = { wv ->
+                                    try {
+                                        wv.stopLoading()
+                                        wv.webViewClient = WebViewClient()
+                                        wv.loadUrl("about:blank")
+                                        (wv.parent as? ViewGroup)?.removeView(wv)
+                                        wv.destroy()
+                                    } catch (_: Exception) {}
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -1394,6 +1408,7 @@ fun AccountConnectionScreen(
                             AndroidView(
                                 factory = { ctx ->
                                     WebView(ctx).apply {
+                                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                                         layoutParams = ViewGroup.LayoutParams(
                                             ViewGroup.LayoutParams.MATCH_PARENT,
                                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -1419,8 +1434,12 @@ fun AccountConnectionScreen(
                                         }
                                         webViewClient = object : WebViewClient() {
                                             override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                                try { view?.destroy() } catch (_: Exception) {}
+                                                try {
+                                                    (view?.parent as? ViewGroup)?.removeView(view)
+                                                    view?.destroy()
+                                                } catch (_: Exception) {}
                                                 isLoadingWeb = false
+                                                webViewInstance = null
                                                 return true
                                             }
 
@@ -1453,6 +1472,15 @@ fun AccountConnectionScreen(
                                 },
                                 update = { view ->
                                     webViewInstance = view
+                                },
+                                onRelease = { wv ->
+                                    try {
+                                        wv.stopLoading()
+                                        wv.webViewClient = WebViewClient()
+                                        wv.loadUrl("about:blank")
+                                        (wv.parent as? ViewGroup)?.removeView(wv)
+                                        wv.destroy()
+                                    } catch (_: Exception) {}
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )

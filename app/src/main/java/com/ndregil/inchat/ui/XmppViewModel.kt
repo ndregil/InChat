@@ -1367,5 +1367,39 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         loadRoomAffiliations(roomJid)
     }
     fun kickParticipant(roomJid: String, nickname: String, reason: String?) = viewModelScope.launch { repository.kickParticipant(roomJid, nickname, reason) }
+
+    // --- Stories / Status (WhatsApp style) ---
+    val stories: StateFlow<List<com.ndregil.inchat.data.model.UserStory>> = repository.stories.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val isPublishingStory = MutableStateFlow(false)
+    val storyPublishError = MutableStateFlow<String?>(null)
+
+    fun publishStory(text: String, mediaUri: android.net.Uri? = null, backgroundColorHex: String = "#0284C7") {
+        viewModelScope.launch {
+            isPublishingStory.value = true
+            storyPublishError.value = null
+            val result = repository.publishStory(text, mediaUri, backgroundColorHex)
+            if (result.isFailure) {
+                storyPublishError.value = result.exceptionOrNull()?.message ?: "Gagal membagikan story"
+            }
+            isPublishingStory.value = false
+        }
+    }
+
+    fun markStoryViewed(storyId: String) {
+        viewModelScope.launch {
+            repository.markStoryViewed(storyId)
+        }
+    }
+
+    fun deleteStory(storyId: String) {
+        viewModelScope.launch {
+            repository.deleteStory(storyId)
+        }
+    }
 }
 

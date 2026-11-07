@@ -39,6 +39,7 @@ import org.jivesoftware.smackx.delay.DelayInformationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -617,6 +618,41 @@ class XmppRepository(
 
             // Skip standard MUC groupchat stanzas (handled by MultiUserChat listeners)
             if (message.type == org.jivesoftware.smack.packet.Message.Type.groupchat) {
+                return@addAsyncStanzaListener
+            }
+
+            // Intercept Story updates from contacts
+            if (message.subject == "INCHAT_STORY" || bodyText.startsWith("[STORY_UPDATE]")) {
+                val jsonStr = bodyText.removePrefix("[STORY_UPDATE]").trim()
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val json = org.json.JSONObject(jsonStr)
+                        val storyId = json.optString("id", java.util.UUID.randomUUID().toString())
+                        val senderName = json.optString("senderName", fromBareJid.substringBefore("@"))
+                        val text = json.optString("text", "")
+                        val mediaUrl = json.optString("mediaUrl", "").takeIf { it.isNotBlank() }
+                        val mediaType = json.optString("mediaType", "TEXT")
+                        val bgColor = json.optString("bgColor", "#0284C7")
+                        val timestamp = json.optLong("timestamp", System.currentTimeMillis())
+
+                        val storyEntity = com.ndregil.inchat.data.local.entity.StoryEntity(
+                            id = storyId,
+                            senderJid = fromBareJid,
+                            senderName = senderName,
+                            text = text,
+                            mediaUrl = mediaUrl,
+                            mediaType = mediaType,
+                            backgroundColorHex = bgColor,
+                            timestamp = timestamp,
+                            isMine = false,
+                            isViewed = false
+                        )
+                        database.storyDao().insertOrUpdateStory(storyEntity)
+                        Log.i("XmppRepository", "Saved incoming story update from $fromBareJid")
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Failed to parse incoming story update: ${e.message}")
+                    }
+                }
                 return@addAsyncStanzaListener
             }
 
@@ -1778,6 +1814,109 @@ class XmppRepository(
 
     suspend fun acceptSubscriptionRequest(jid: String): Result<Unit> {
         return smackRosterManager.acceptSubscriptionRequest(jid)
+    }
+
+    // --- STORIES / STATUS (WhatsApp-style ephemeral updates) ---
+    val stories: Flow<List<com.ndregil.inchat.data.model.UserStory>> = database.storyDao().getActiveStories(
+        System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+    ).map { entities ->
+        entities.map { entity ->
+            val avatar = smackAvatarManager.getAvatar(entity.senderJid)
+            entity.toModel(avatar)
+        }
+    }
+
+    suspend fun publishStory(
+        text: String,
+        mediaUri: android.net.Uri? = null,
+        backgroundColorHex: String = "#0284C7"
+    ): Result<com.ndregil.inchat.data.model.UserStory> = withContext(Dispatchers.IO) {
+        try {
+            val myJid = currentAccount.value.jid
+            val myNick = currentAccount.value.nickname.ifBlank { myJid.substringBefore("@") }
+            val storyId = java.util.UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+
+            var mediaUrl: String? = null
+            var mediaType = com.ndregil.inchat.data.model.StoryMediaType.TEXT
+
+            if (mediaUri != null) {
+                val conn = smackConnectionManager.getRawConnection()
+                if (conn != null && smackConnectionManager.isConnected()) {
+                    val fileName = "story_${System.currentTimeMillis()}.jpg"
+                    val uploadResult = smackFileUploadManager.uploadFile(conn, mediaUri, fileName, 1024L, "image/jpeg")
+                    mediaUrl = uploadResult.getOrNull()
+                    if (mediaUrl != null) {
+                        mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
+                    }
+                }
+            }
+
+            val story = com.ndregil.inchat.data.model.UserStory(
+                id = storyId,
+                senderJid = myJid,
+                senderName = myNick,
+                text = text,
+                mediaUrl = mediaUrl,
+                mediaType = mediaType,
+                backgroundColorHex = backgroundColorHex,
+                timestamp = now,
+                isMine = true,
+                isViewed = true
+            )
+
+            // Save to local database
+            database.storyDao().insertOrUpdateStory(
+                com.ndregil.inchat.data.local.entity.StoryEntity.fromModel(story)
+            )
+
+            // Also broadcast presence status message if text is present
+            if (text.isNotBlank()) {
+                updateUserPresence(userPresence.value, text)
+            }
+
+            // Broadcast story announcement to online roster contacts via XMPP Message
+            val conn = smackConnectionManager.getRawConnection()
+            if (conn != null && smackConnectionManager.isConnected()) {
+                val storyJson = org.json.JSONObject().apply {
+                    put("id", storyId)
+                    put("senderName", myNick)
+                    put("text", text)
+                    if (mediaUrl != null) put("mediaUrl", mediaUrl)
+                    put("mediaType", mediaType.name)
+                    put("bgColor", backgroundColorHex)
+                    put("timestamp", now)
+                }.toString()
+
+                val contacts = rosterContacts.value
+                contacts.forEach { contact ->
+                    try {
+                        val msg = org.jivesoftware.smack.packet.Message(
+                            org.jxmpp.jid.impl.JidCreate.from(contact.jid),
+                            org.jivesoftware.smack.packet.Message.Type.chat
+                        )
+                        msg.subject = "INCHAT_STORY"
+                        msg.body = "[STORY_UPDATE]$storyJson"
+                        conn.sendStanza(msg)
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Could not send story to ${contact.jid}: ${e.message}")
+                    }
+                }
+            }
+
+            Result.success(story)
+        } catch (e: Exception) {
+            Log.e("XmppRepository", "Failed to publish story: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun markStoryViewed(storyId: String) {
+        database.storyDao().markStoryViewed(storyId)
+    }
+
+    suspend fun deleteStory(storyId: String) {
+        database.storyDao().deleteStory(storyId)
     }
 
     suspend fun rejectSubscriptionRequest(jid: String): Result<Unit> {
