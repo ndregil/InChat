@@ -86,7 +86,7 @@ fun CustomThemeScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 12.dp)
+            contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp)
         ) {
             item {
                 Text(
