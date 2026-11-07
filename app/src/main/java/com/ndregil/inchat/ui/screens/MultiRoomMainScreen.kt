@@ -2377,9 +2377,43 @@ fun ChatInputBar(
                                     )
                                 }
 
+                                val textFieldValue = remember(inputText) {
+                                    androidx.compose.ui.text.input.TextFieldValue(
+                                        text = inputText,
+                                        selection = androidx.compose.ui.text.TextRange(inputText.length)
+                                    )
+                                }
+
+                                var previousInputText by remember { mutableStateOf(inputText) }
+                                val actualTextFieldValue = remember(inputText) {
+                                    val newCursor = if (inputText != previousInputText) {
+                                        previousInputText = inputText
+                                        val replyPrefixRegex = Regex("^@[^ ]+\\s*")
+                                        val quotePrefixRegex = Regex("^@[^ ]+\\s*\\([^)]+\\)\\s*\"[^\"]*\"\\s*")
+                                        when {
+                                            inputText.startsWith("@") && replyPrefixRegex.containsMatchIn(inputText) && !inputText.contains("\"") -> {
+                                                replyPrefixRegex.find(inputText)?.range?.endInclusive?.plus(1) ?: inputText.length
+                                            }
+                                            inputText.startsWith("@") && quotePrefixRegex.containsMatchIn(inputText) -> {
+                                                quotePrefixRegex.find(inputText)?.range?.endInclusive?.plus(1) ?: inputText.length
+                                            }
+                                            else -> inputText.length
+                                        }
+                                    } else {
+                                        inputText.length
+                                    }
+                                    androidx.compose.ui.text.input.TextFieldValue(
+                                        text = inputText,
+                                        selection = androidx.compose.ui.text.TextRange(newCursor.coerceAtMost(inputText.length))
+                                    )
+                                }
+
                                 BasicTextField(
-                                    value = inputText,
-                                    onValueChange = onInputChange,
+                                    value = actualTextFieldValue,
+                                    onValueChange = { newVal ->
+                                        previousInputText = newVal.text
+                                        onInputChange(newVal.text)
+                                    },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .testTag("chat_input_field"),

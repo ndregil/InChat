@@ -774,6 +774,13 @@ class XmppRepository(
 
     private suspend fun processIncomingMessage(msg: XmppMessage) {
         try {
+            // Deduplication: Check if message already exists locally (as a sent message)
+            val existing = database.messageDao().findRecentMessage(msg.roomJid, msg.body, msg.isMine)
+            if (existing != null && Math.abs(existing.timestamp - msg.timestamp) < 5000) {
+                Log.d("XmppRepository", "Deduplicating message: ${msg.id}")
+                return
+            }
+
             // 0. Ensure room exists in database so it appears in Chat list
             if (database.roomDao().getRoomByJid(msg.roomJid) == null) {
                 val isGroup = msg.messageType == MessageType.GROUPCHAT || isMucJid(msg.roomJid)
@@ -1372,7 +1379,7 @@ class XmppRepository(
         val cleanJidJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
 
         var isSentSuccessfully = false
-        val stanzaId = java.util.UUID.randomUUID().toString()
+        var stanzaId = java.util.UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
 
         Log.d("XmppRepository", "Sending message to $cleanJid (isUrl=$isUrl)")
@@ -1382,10 +1389,11 @@ class XmppRepository(
             try {
                 if (isUrl) {
                     engine.sendGroupFile(cleanJid, text, "File", "image/jpeg", 0L, myNickname)
+                    isSentSuccessfully = true
                 } else {
                     smackMucManager.sendMessage(cleanJid, text)
+                    isSentSuccessfully = true
                 }
-                isSentSuccessfully = true
                 Log.i("XmppRepository", "Sent MUC message to $cleanJid via Smack")
             } catch (e: Exception) {
                 Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${e.message}")

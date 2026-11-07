@@ -232,38 +232,8 @@ fun MessageBubble(
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        // Incoming Avatar
         if (!isMine) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(senderColor.copy(alpha = 0.2f))
-                    .border(1.dp, senderColor, CircleShape)
-                    .combinedClickable(
-                        onClick = { onReplyClick(message) },
-                        onLongClick = { showCapsDialog = true }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (message.senderAvatar != null) {
-                    coil.compose.AsyncImage(
-                        model = message.senderAvatar,
-                        contentDescription = "Avatar ${message.senderNickname}",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = senderColor
-                    )
-                }
-            }
+            IncomingAvatar(message, senderColor, onReplyClick, { showCapsDialog = true })
             Spacer(modifier = Modifier.width(8.dp))
         }
 
@@ -447,39 +417,9 @@ fun MessageBubble(
             }
         }
 
-        // Outgoing Avatar
         if (isMine) {
             Spacer(modifier = Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(senderColor.copy(alpha = 0.2f))
-                    .border(1.dp, senderColor, CircleShape)
-                    .combinedClickable(
-                        onClick = { onReplyClick(message) },
-                        onLongClick = { showCapsDialog = true }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (message.senderAvatar != null) {
-                    coil.compose.AsyncImage(
-                        model = message.senderAvatar,
-                        contentDescription = "Avatar ${message.senderNickname}",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = senderColor
-                    )
-                }
-            }
+            OutgoingAvatar(message, senderColor, onReplyClick, { showCapsDialog = true })
         }
     }
 
@@ -894,3 +834,82 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun IncomingAvatar(
+    message: XmppMessage,
+    senderColor: Color,
+    onClick: (XmppMessage) -> Unit,
+    onLongClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(senderColor.copy(alpha = 0.2f))
+            .border(1.dp, senderColor, CircleShape)
+            .combinedClickable(
+                onClick = { onClick(message) },
+                onLongClick = onLongClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (message.senderAvatar != null) {
+            coil.compose.AsyncImage(
+                model = message.senderAvatar,
+                contentDescription = "Avatar ${message.senderNickname}",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        } else {
+            Text(
+                text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = senderColor
+            )
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun OutgoingAvatar(
+    message: XmppMessage,
+    senderColor: Color,
+    onClick: (XmppMessage) -> Unit,
+    onLongClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(senderColor.copy(alpha = 0.2f))
+            .border(1.dp, senderColor, CircleShape)
+            .combinedClickable(
+                onClick = { onClick(message) },
+                onLongClick = onLongClick
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (message.senderAvatar != null) {
+            coil.compose.AsyncImage(
+                model = message.senderAvatar,
+                contentDescription = "Avatar ${message.senderNickname}",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        } else {
+            Text(
+                text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = senderColor
+            )
+        }
+    }
+}

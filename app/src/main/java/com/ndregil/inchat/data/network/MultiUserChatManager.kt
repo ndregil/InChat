@@ -512,7 +512,7 @@ class MultiUserChatManager(
      */
     suspend fun sendMessage(roomJid: String, body: String): Result<Unit> = withContext(Dispatchers.IO) {
         val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
-            IllegalStateException("Room $roomJid is not joined.")
+            IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
         try {
             muc.sendMessage(body)
