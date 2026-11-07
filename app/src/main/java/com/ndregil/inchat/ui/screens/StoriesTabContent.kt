@@ -425,16 +425,17 @@ fun StoriesTabContent(
 
     // Modal Dialog: Create Media Story with Caption
     if (showCreateMediaDialog && selectedMediaUri != null) {
+        val targetMediaUri = selectedMediaUri!!
         CreateMediaStoryDialog(
-            imageUri = selectedMediaUri!!,
+            imageUri = targetMediaUri,
             onDismiss = {
                 showCreateMediaDialog = false
                 selectedMediaUri = null
             },
             onPublish = { caption ->
-                onPublishStory(caption, selectedMediaUri, "#0284C7")
                 showCreateMediaDialog = false
                 selectedMediaUri = null
+                onPublishStory(caption, targetMediaUri, "#0284C7")
             },
             isPublishing = isPublishing
         )

@@ -1841,14 +1841,46 @@ class XmppRepository(
             var mediaType = com.ndregil.inchat.data.model.StoryMediaType.TEXT
 
             if (mediaUri != null) {
-                val conn = smackConnectionManager.getRawConnection()
-                if (conn != null && smackConnectionManager.isConnected()) {
-                    val fileName = "story_${System.currentTimeMillis()}.jpg"
-                    val uploadResult = smackFileUploadManager.uploadFile(conn, mediaUri, fileName, 1024L, "image/jpeg")
-                    mediaUrl = uploadResult.getOrNull()
-                    if (mediaUrl != null) {
-                        mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
+                // 1. Always copy to persistent internal app storage so it can be viewed locally even if offline or if server upload fails/lacks XEP-0363
+                try {
+                    val storiesDir = java.io.File(context.filesDir, "stories").apply { mkdirs() }
+                    val localFile = java.io.File(storiesDir, "story_${storyId}.jpg")
+                    context.contentResolver.openInputStream(mediaUri)?.use { input ->
+                        localFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    if (localFile.exists() && localFile.length() > 0) {
+                        mediaUrl = localFile.absolutePath
+                        mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
+                        Log.i("XmppRepository", "Saved local story image to: ${localFile.absolutePath} (${localFile.length()} bytes)")
+                    }
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Failed saving local story image copy: ${e.message}")
+                }
+
+                // 2. Try uploading via XEP-0363 HTTP File Upload so remote contacts can view it
+                try {
+                    val conn = smackConnectionManager.getRawConnection()
+                    if (conn != null && smackConnectionManager.isConnected()) {
+                        val fileName = "story_${storyId}.jpg"
+                        val localFile = java.io.File(context.filesDir, "stories/story_${storyId}.jpg")
+                        val fileSize = if (localFile.exists()) localFile.length() else 1024L
+                        val uploadResult = smackFileUploadManager.uploadFile(conn, mediaUri, fileName, fileSize, "image/jpeg")
+                        val remoteUrl = uploadResult.getOrNull()
+                        if (!remoteUrl.isNullOrBlank()) {
+                            mediaUrl = remoteUrl
+                            mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
+                            Log.i("XmppRepository", "Uploaded story image via XEP-0363: $remoteUrl")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "XEP-0363 remote upload for story failed or not supported: ${e.message}")
+                }
+
+                // If mediaUrl is still set (either local or remote), it is an IMAGE story
+                if (mediaUrl != null) {
+                    mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
                 }
             }
 
