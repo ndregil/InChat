@@ -80,6 +80,9 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
@@ -227,6 +230,9 @@ fun MultiRoomMainScreen(
     val isTopicModalOpen by viewModel.isTopicModalOpen.collectAsStateWithLifecycle()
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
+
+    val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
+    val roomPagerState = rememberPagerState(initialPage = 0) { displayedRooms.size + 1 }
 
 
     val rosterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -659,613 +665,724 @@ fun MultiRoomMainScreen(
             when (activeNavIndex) {
                 0 -> {
                     // Multi-Room Chat View with dynamic horizontal multi-room switcher tabs
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Multi-Room Channel Switcher Tabs with integrated Bookmark Filter Toggle
-                        MultiRoomTabHeader(
-                            rooms = if (showOnlySavedRooms) viewModel.savedRooms.collectAsStateWithLifecycle().value else viewModel.filteredRooms.collectAsStateWithLifecycle().value,
-                            selectedRoomJid = activeRoom?.jid,
-                            showOnlySavedRooms = showOnlySavedRooms,
-                            onToggleSavedOnly = { showOnlySavedRooms = !showOnlySavedRooms },
-                            onSelectRoom = { jid -> viewModel.selectRoom(jid) },
-                            onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true }
-                        )
-
-                        // Room Occupancy and Capabilities Indicator
-                        RoomOccupantsCapsBar(
-                            occupants = occupants,
-                            onOccupantClick = { occ -> 
-                                selectedCapsOccupant = occ
-                                viewModel.setWhisperTarget(occ)
-                            },
-                            onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
-                        )
-
-                        // Message Feed (Maximized space for leluasa group chat view)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                        ) {
-                            com.ndregil.inchat.ui.components.WallpaperBackground(
-                                wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
-                                customWallpaperUri = themePrefs.customWallpaperUri,
-                                opacity = themePrefs.wallpaperOpacity
-                            )
-
-                            if (messages.isEmpty()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Forum,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Text(
-                                        text = "Belum ada pesan di ruang ${activeRoom?.name ?: ""}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Kirim pesan pertama untuk memulai obrolan dengan seluruh partisipan.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            } else {
-                                LazyColumn(
-                                    state = listState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    items(messages, key = { it.id }) { msg ->
-                                        MessageBubble(
-                                            message = msg,
-                                            myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
-                                            onSenderClick = { senderNick ->
-                                                val found = occupants.find { it.nickname == senderNick }
-                                                viewModel.setWhisperTarget(found)
-                                            },
-                                            onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
-                                            onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
-                                            onMentionClick = { nick -> viewModel.insertMention(nick) },
-                                            onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
-                                            bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
-                                            isDark = isDarkMode,
-                                            themePrefs = themePrefs
-                                        )
-                                    }
-                                }
+                    // Page 0 = Room List, Page 1..N = Active Rooms
+                    
+                    LaunchedEffect(activeRoom?.jid, displayedRooms) {
+                        val index = displayedRooms.indexOfFirst { it.jid == activeRoom?.jid }
+                        if (index >= 0) {
+                            if (roomPagerState.currentPage != index + 1) {
+                                roomPagerState.animateScrollToPage(index + 1)
                             }
                         }
+                    }
 
-                        // Whisper Target Banner (if whispering)
-                        AnimatedVisibility(visible = whisperTarget != null) {
-                            whisperTarget?.let { target ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                    LaunchedEffect(roomPagerState.currentPage) {
+                        if (roomPagerState.currentPage > 0) {
+                            val room = displayedRooms.getOrNull(roomPagerState.currentPage - 1)
+                            if (room != null && room.jid != activeRoom?.jid) {
+                                viewModel.selectRoom(room.jid)
+                            }
+                        }
+                    }
+
+                    if (roomPagerState.currentPage > 0) {
+                        BackHandler {
+                            coroutineScope.launch { roomPagerState.animateScrollToPage(0) }
+                        }
+                    }
+
+                    HorizontalPager(
+                        state = roomPagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = true
+                    ) { page ->
+                        if (page == 0) {
+                            // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shadowElevation = 2.dp
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Lock,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        ClientCapsIcon(
-                                            platform = target.clientCaps.platform,
-                                            clientCaps = target.clientCaps,
-                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            modifier = Modifier
-                                                .size(15.dp)
-                                                .clickable { selectedCapsOccupant = target }
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
+                                    Column(modifier = Modifier.padding(16.dp)) {
                                         Text(
-                                            text = "Mode Bisikan ke @${target.nickname} (${target.clientCaps.clientName})",
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            fontSize = 12.sp,
+                                            text = "Ruang Obrolan",
+                                            style = MaterialTheme.typography.titleLarge,
                                             fontWeight = FontWeight.Bold
                                         )
-                                    }
-
-                                    IconButton(
-                                        onClick = { viewModel.setWhisperTarget(null) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Batalkan Bisikan",
-                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // Input Bar (Compact, Auto-expanding, Voice Note & Camera Photo Support)
-                        ChatInputBar(
-                            inputText = currentInput,
-                            onInputChange = { viewModel.currentInputText.value = it },
-                            onSendMessage = { viewModel.sendMessage(it) },
-                            onAttachClick = { filePicker.launch("*/*") },
-                            onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
-                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
-                            onCallClick = { viewModel.initiateCall(it) },
-                            whisperTarget = whisperTarget,
-                            replyingToMessage = replyingToMessage,
-                            onCancelReply = { viewModel.clearReplyMessage() },
-                            onSendVoice = { audioFile, durationSeconds ->
-                                viewModel.sendVoiceMessage(audioFile, durationSeconds)
-                            }
-                        )
-                    }
-                }
-
-                1 -> {
-                    // Direct Chats (1-on-1) View - Dual Mode (List View / Active Conversation Screen)
-                    val directChats by viewModel.filteredDirectChats.collectAsStateWithLifecycle()
-                    val savedDirects by viewModel.savedDirectChats.collectAsStateWithLifecycle()
-                    var showOnlySavedDirects by remember { mutableStateOf(false) }
-                    var searchDirectQuery by remember { mutableStateOf("") }
-
-                    val isDirectActive = isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
-
-                    if (!isDirectActive) {
-                        // MODE A: Direct Chat List View
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.background)
-                        ) {
-                            // Top Bar Header for Direct Chats List with Status Bar Inset
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .statusBarsPadding(),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 2.dp
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = "Chat Pribadi",
-                                                style = MaterialTheme.typography.titleLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = "Pesan 1-on-1 & Obrolan Langsung",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-
-                                        // Button to Start New Chat from Roster
-                                        Button(
-                                            onClick = {
-                                                activeNavIndex = 2
-                                                viewModel.refreshRoster()
-                                            },
-                                            shape = RoundedCornerShape(12.dp),
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Add,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Chat Baru", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    // Search Field for Direct Chats
-                                    OutlinedTextField(
-                                        value = searchDirectQuery,
-                                        onValueChange = { searchDirectQuery = it },
-                                        placeholder = { Text("Cari obrolan atau kontak...", fontSize = 13.5.sp) },
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                        trailingIcon = {
-                                            if (searchDirectQuery.isNotEmpty()) {
-                                                IconButton(onClick = { searchDirectQuery = "" }) {
-                                                    Icon(Icons.Default.Close, contentDescription = "Bersihkan", modifier = Modifier.size(16.dp))
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-
-                                    Spacer(modifier = Modifier.height(8.dp))
-
-                                    // Filter Chips (Semua / Favorit)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        FilterChip(
-                                            selected = !showOnlySavedDirects,
-                                            onClick = { showOnlySavedDirects = false },
-                                            label = { Text("Semua Chat (${directChats.size})", fontSize = 12.sp) }
-                                        )
-                                        FilterChip(
-                                            selected = showOnlySavedDirects,
-                                            onClick = { showOnlySavedDirects = true },
-                                            label = { Text("Favorit (${savedDirects.size})", fontSize = 12.sp) },
-                                            leadingIcon = {
-                                                Icon(
-                                                    Icons.Default.Star,
-                                                    contentDescription = null,
-                                                    tint = if (showOnlySavedDirects) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(15.dp)
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            val displayedList = (if (showOnlySavedDirects) savedDirects else directChats).filter {
-                                searchDirectQuery.isBlank() || it.name.contains(searchDirectQuery, ignoreCase = true) || it.jid.contains(searchDirectQuery, ignoreCase = true)
-                            }
-
-                            if (displayedList.isEmpty()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(32.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(72.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = if (searchDirectQuery.isNotBlank()) "Tidak Ada Chat yang Cocok" else "Belum Ada Chat Pribadi",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = if (searchDirectQuery.isNotBlank()) "Coba kata kunci lain untuk mencari kontak." else "Mulai obrolan 1-on-1 dengan memilih kontak dari daftar kontak Anda.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                    )
-                                    Spacer(modifier = Modifier.height(20.dp))
-                                    Button(
-                                        onClick = {
-                                            activeNavIndex = 2
-                                            viewModel.refreshRoster()
-                                        },
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Pilih Kontak")
-                                    }
-                                }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 20.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    items(displayedList, key = { it.jid }) { room ->
-                                        val avatar = viewModel.repository.getRoomAvatar(room.jid)
-                                        RoomItemCard(
-                                            room = room,
-                                            isSelected = activeRoom?.jid == room.jid,
-                                            onClick = {
-                                                viewModel.selectRoom(room.jid)
-                                                isDirectConversationOpen = true
-                                            },
-                                            roomAvatar = avatar,
-                                            themePrefs = themePrefs
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // MODE B: Active Direct Conversation Screen
-                        val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
-                        val roomAvatar = remember(activeRoom?.jid) { activeRoom?.let { viewModel.repository.getRoomAvatar(it.jid) } }
-                        var showDirectMenu by remember { mutableStateOf(false) }
-
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            // Top Bar Header for Active Direct Conversation with Status Bar Inset
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .statusBarsPadding(),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 3.dp
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Back Button to return to Direct Chat List
-                                    IconButton(
-                                        onClick = { isDirectConversationOpen = false },
-                                        modifier = Modifier.testTag("btn_back_to_direct_list")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Kembali ke Daftar Chat Pribadi"
-                                        )
-                                    }
-
-                                    // Avatar & Presence Indicator
-                                    Box(contentAlignment = Alignment.BottomEnd) {
-                                        if (roomAvatar != null) {
-                                            coil.compose.AsyncImage(
-                                                model = roomAvatar,
-                                                contentDescription = null,
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                        } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.primaryContainer),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = (activeRoom?.name ?: "?").take(1).uppercase(Locale.getDefault()),
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 18.sp,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
-
-                                        if (activeContact != null) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(12.dp)
-                                                    .clip(CircleShape)
-                                                    .background(MaterialTheme.colorScheme.surface)
-                                                    .padding(1.5.dp)
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .clip(CircleShape)
-                                                        .background(
-                                                            when (activeContact.presence) {
-                                                                UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
-                                                                UserPresence.AWAY, UserPresence.XA -> AwayAmber
-                                                                UserPresence.DND -> DndRed
-                                                                else -> OfflineGray
-                                                            }
-                                                        )
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.width(10.dp))
-
-                                    // Name & Presence Status
-                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = activeRoom?.name ?: "",
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            color = if (themePrefs.isCustomThemeEnabled) {
-                                                try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
-                                            } else {
-                                                Color.Unspecified
-                                            }
+                                            text = "Grup Chat & Diskusi Publik",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                        Text(
-                                            text = if (activeContact != null) {
-                                                val presText = activeContact.presence.name.lowercase(Locale.getDefault()).replaceFirstChar { it.uppercase() }
-                                                if (activeContact.statusMessage.isNotBlank()) "${activeContact.statusMessage} • $presText" else presText
-                                            } else {
-                                                activeRoom?.jid ?: "Chat 1-on-1"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = if (themePrefs.isCustomThemeEnabled) {
-                                                try { Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurfaceVariant }
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    // Action Buttons
-                                    IconButton(
-                                        onClick = { viewModel.initiateCall("Audio") },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Call,
-                                            contentDescription = "Panggilan Audio",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-
-                                    IconButton(
-                                        onClick = { viewModel.initiateCall("Video") },
-                                        modifier = Modifier.size(36.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.VideoCall,
-                                            contentDescription = "Panggilan Video",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-
-                                    Box {
-                                        IconButton(
-                                            onClick = { showDirectMenu = true },
-                                            modifier = Modifier.size(36.dp)
+                                        
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
-                                        }
-
-                                        DropdownMenu(
-                                            expanded = showDirectMenu,
-                                            onDismissRequest = { showDirectMenu = false }
-                                        ) {
-                                            val isCurrentBookmarked = activeRoom?.isBookmarked == true
-                                            DropdownMenuItem(
-                                                text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
+                                            FilterChip(
+                                                selected = !showOnlySavedRooms,
+                                                onClick = { showOnlySavedRooms = false },
+                                                label = { Text("Semua (${viewModel.groupRooms.collectAsStateWithLifecycle().value.size})", fontSize = 12.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = showOnlySavedRooms,
+                                                onClick = { showOnlySavedRooms = true },
+                                                label = { Text("Favorit (${savedRooms.size})", fontSize = 12.sp) },
                                                 leadingIcon = {
-                                                    Icon(
-                                                        imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                                        contentDescription = null
-                                                    )
-                                                },
-                                                onClick = {
-                                                    showDirectMenu = false
-                                                    activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Warna Chat & Wallpaper") },
-                                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                                                onClick = {
-                                                    showDirectMenu = false
-                                                    viewModel.isThemeWallpaperDialogOpen.value = true
-                                                }
-                                            )
-                                             DropdownMenuItem(
-                                                text = { Text("Bersihkan Riwayat Chat") },
-                                                leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
-                                                onClick = {
-                                                    showDirectMenu = false
-                                                    activeRoom?.let { room ->
-                                                        viewModel.clearRoomChatHistory(room.jid)
-                                                        if (!room.isGroupChat) {
-                                                            isDirectConversationOpen = false
-                                                        }
-                                                    }
-                                                }
-                                            )
-                                            DropdownMenuItem(
-                                                text = { Text("Tutup Conversation") },
-                                                leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
-                                                onClick = {
-                                                    showDirectMenu = false
-                                                    activeRoom?.let { room ->
-                                                        viewModel.closeConversation(room.jid)
-                                                    }
-                                                    isDirectConversationOpen = false
+                                                    Icon(Icons.Default.Bookmark, null, modifier = Modifier.size(14.dp))
                                                 }
                                             )
                                         }
                                     }
                                 }
-                            }
-
-                            // Message Feed (Direct Chat)
-                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                com.ndregil.inchat.ui.components.WallpaperBackground(
-                                    wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
-                                    customWallpaperUri = themePrefs.customWallpaperUri,
-                                    opacity = themePrefs.wallpaperOpacity
-                                )
-
-                                if (messages.isEmpty()) {
+                                
+                                if (displayedRooms.isEmpty()) {
                                     Column(
                                         modifier = Modifier.fillMaxSize().padding(32.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
                                     ) {
-                                        Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Kirim pesan pertama untuk memulai obrolan langsung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Icon(Icons.Default.Forum, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text("Belum Ada Ruangan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text("Cari atau buat ruangan baru di tab Discover atau tekan tombol tambah.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                        Spacer(modifier = Modifier.height(24.dp))
+                                        Button(onClick = { viewModel.isJoinCreateDialogOpen.value = true }) {
+                                            Icon(Icons.Default.Add, null)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Buat / Gabung Room")
+                                        }
                                     }
                                 } else {
-                                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        items(messages, key = { it.id }) { msg ->
-                                            MessageBubble(
-                                                message = msg,
-                                                myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
-                                                onSenderClick = { },
-                                                onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
-                                                onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
-                                                onMentionClick = { nick -> viewModel.insertMention(nick) },
-                                                onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
-                                                bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
-                                                isDark = isDarkMode,
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        items(displayedRooms, key = { it.jid }) { room ->
+                                            RoomItemCard(
+                                                room = room,
+                                                isSelected = activeRoom?.jid == room.jid,
+                                                onClick = { 
+                                                    viewModel.selectRoom(room.jid)
+                                                    coroutineScope.launch {
+                                                        val index = displayedRooms.indexOfFirst { it.jid == room.jid }
+                                                        if (index >= 0) roomPagerState.animateScrollToPage(index + 1)
+                                                    }
+                                                },
+                                                roomAvatar = viewModel.repository.getRoomAvatar(room.jid),
                                                 themePrefs = themePrefs
                                             )
                                         }
                                     }
                                 }
                             }
+                        } else {
+                            // Page 1..N: Individual Chat Room Content
+                            val room = displayedRooms.getOrNull(page - 1)
+                            if (room != null) {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    // Multi-Room Channel Switcher Tabs (Keeps context while in room)
+                                    MultiRoomTabHeader(
+                                        rooms = displayedRooms,
+                                        selectedRoomJid = room.jid,
+                                        showOnlySavedRooms = showOnlySavedRooms,
+                                        onToggleSavedOnly = { showOnlySavedRooms = !showOnlySavedRooms },
+                                        onSelectRoom = { jid -> 
+                                            viewModel.selectRoom(jid)
+                                            coroutineScope.launch {
+                                                val idx = displayedRooms.indexOfFirst { it.jid == jid }
+                                                if (idx >= 0) roomPagerState.animateScrollToPage(idx + 1)
+                                            }
+                                        },
+                                        onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true }
+                                    )
 
-                            // Chat Input Bar
-                            ChatInputBar(
-                                inputText = currentInput,
-                                onInputChange = { viewModel.currentInputText.value = it },
-                                onSendMessage = { viewModel.sendMessage(it) },
-                                onAttachClick = { filePicker.launch("*/*") },
-                                onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
-                                onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
-                                onCallClick = { viewModel.initiateCall(it) },
-                                whisperTarget = null,
-                                replyingToMessage = replyingToMessage,
-                                onCancelReply = { viewModel.clearReplyMessage() },
-                                onSendVoice = { audioFile, durationSeconds ->
-                                    viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                                    // Room Occupancy and Capabilities Indicator
+                                    RoomOccupantsCapsBar(
+                                        occupants = occupants,
+                                        onOccupantClick = { occ -> 
+                                            selectedCapsOccupant = occ
+                                            viewModel.setWhisperTarget(occ)
+                                        },
+                                        onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
+                                    )
+
+                                    // Message Feed
+                                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                        com.ndregil.inchat.ui.components.WallpaperBackground(
+                                            wallpaperStyle = room.wallpaperStyle ?: "default",
+                                            customWallpaperUri = themePrefs.customWallpaperUri,
+                                            opacity = themePrefs.wallpaperOpacity
+                                        )
+
+                                        if (messages.isEmpty()) {
+                                            Column(
+                                                modifier = Modifier.fillMaxSize().padding(32.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(Icons.Default.Forum, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Text("Belum ada pesan di ruang ${room.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                                Text("Kirim pesan pertama untuk memulai obrolan.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        } else {
+                                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                items(messages, key = { it.id }) { msg ->
+                                                    MessageBubble(
+                                                        message = msg,
+                                                        myNickname = room.myNickname ?: currentAccount.nickname,
+                                                        onSenderClick = { senderNick ->
+                                                            val found = occupants.find { it.nickname == senderNick }
+                                                            viewModel.setWhisperTarget(found)
+                                                        },
+                                                        onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
+                                                        onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
+                                                        onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                        onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
+                                                        bubbleTheme = room.bubbleTheme ?: "dregil-theme",
+                                                        isDark = isDarkMode,
+                                                        themePrefs = themePrefs
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Whisper Target Banner
+                                    AnimatedVisibility(visible = whisperTarget != null) {
+                                        whisperTarget?.let { target ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    ClientCapsIcon(
+                                                        platform = target.clientCaps.platform,
+                                                        clientCaps = target.clientCaps,
+                                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                        modifier = Modifier.size(15.dp).clickable { selectedCapsOccupant = target }
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "Mode Bisikan ke @${target.nickname}",
+                                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                                IconButton(onClick = { viewModel.setWhisperTarget(null) }, modifier = Modifier.size(24.dp)) {
+                                                    Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Input Bar
+                                    ChatInputBar(
+                                        inputText = currentInput,
+                                        onInputChange = { viewModel.currentInputText.value = it },
+                                        onSendMessage = { viewModel.sendMessage(it) },
+                                        onAttachClick = { filePicker.launch("*/*") },
+                                        onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
+                                        onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                        onCallClick = { viewModel.initiateCall(it) },
+                                        whisperTarget = whisperTarget,
+                                        replyingToMessage = replyingToMessage,
+                                        onCancelReply = { viewModel.clearReplyMessage() },
+                                        onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) }
+                                    )
                                 }
-                            )
+                            }
+                        }
+                    }
+                }
+
+                1 -> {
+                    // Direct Chats (1-on-1) View - Swipeable Dual Mode (List View / Active Conversation Screen)
+                    val directChats by viewModel.filteredDirectChats.collectAsStateWithLifecycle()
+                    val savedDirects by viewModel.savedDirectChats.collectAsStateWithLifecycle()
+                    var showOnlySavedDirects by remember { mutableStateOf(false) }
+                    var searchDirectQuery by remember { mutableStateOf("") }
+
+                    val isDirectActive = isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
+                    
+                    val chatPagerState = rememberPagerState(initialPage = if (isDirectActive) 1 else 0) { 2 }
+                    
+                    LaunchedEffect(isDirectActive) {
+                        chatPagerState.animateScrollToPage(if (isDirectActive) 1 else 0)
+                    }
+                    
+                    LaunchedEffect(chatPagerState.currentPage) {
+                        if (chatPagerState.currentPage == 0 && isDirectActive) {
+                            isDirectConversationOpen = false
+                        }
+                    }
+
+                    if (isDirectActive && chatPagerState.currentPage == 1) {
+                        BackHandler {
+                            coroutineScope.launch { chatPagerState.animateScrollToPage(0) }
+                        }
+                    }
+
+                    HorizontalPager(
+                        state = chatPagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = true
+                    ) { page ->
+                        if (page == 0) {
+                            // MODE A: Direct Chat List View
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
+                            ) {
+                                // Top Bar Header for Direct Chats List with Status Bar Inset
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .statusBarsPadding(),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shadowElevation = 2.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = "Chat Pribadi",
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                    text = "Pesan 1-on-1 & Obrolan Langsung",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+
+                                            // Button to Start New Chat from Roster
+                                            Button(
+                                                onClick = {
+                                                    activeNavIndex = 2
+                                                    viewModel.refreshRoster()
+                                                },
+                                                shape = RoundedCornerShape(12.dp),
+                                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Add,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Chat Baru", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        // Search Field for Direct Chats
+                                        OutlinedTextField(
+                                            value = searchDirectQuery,
+                                            onValueChange = { searchDirectQuery = it },
+                                            placeholder = { Text("Cari obrolan atau kontak...", fontSize = 13.5.sp) },
+                                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                            trailingIcon = {
+                                                if (searchDirectQuery.isNotEmpty()) {
+                                                    IconButton(onClick = { searchDirectQuery = "" }) {
+                                                        Icon(Icons.Default.Close, contentDescription = "Bersihkan", modifier = Modifier.size(16.dp))
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // Filter Chips (Semua / Favorit)
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            FilterChip(
+                                                selected = !showOnlySavedDirects,
+                                                onClick = { showOnlySavedDirects = false },
+                                                label = { Text("Semua Chat (${directChats.size})", fontSize = 12.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = showOnlySavedDirects,
+                                                onClick = { showOnlySavedDirects = true },
+                                                label = { Text("Favorit (${savedDirects.size})", fontSize = 12.sp) },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = if (showOnlySavedDirects) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                val displayedList = (if (showOnlySavedDirects) savedDirects else directChats).filter {
+                                    searchDirectQuery.isBlank() || it.name.contains(searchDirectQuery, ignoreCase = true) || it.jid.contains(searchDirectQuery, ignoreCase = true)
+                                }
+
+                                if (displayedList.isEmpty()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(32.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(72.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = if (searchDirectQuery.isNotBlank()) "Tidak Ada Chat yang Cocok" else "Belum Ada Chat Pribadi",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = if (searchDirectQuery.isNotBlank()) "Coba kata kunci lain untuk mencari kontak." else "Mulai obrolan 1-on-1 dengan memilih kontak dari daftar kontak Anda.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                        Spacer(modifier = Modifier.height(20.dp))
+                                        Button(
+                                            onClick = {
+                                                activeNavIndex = 2
+                                                viewModel.refreshRoster()
+                                            },
+                                            shape = RoundedCornerShape(12.dp)
+                                        ) {
+                                            Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Pilih Kontak")
+                                        }
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 20.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        items(displayedList, key = { it.jid }) { room ->
+                                            val avatar = viewModel.repository.getRoomAvatar(room.jid)
+                                            RoomItemCard(
+                                                room = room,
+                                                isSelected = activeRoom?.jid == room.jid,
+                                                onClick = {
+                                                    viewModel.selectRoom(room.jid)
+                                                    isDirectConversationOpen = true
+                                                },
+                                                roomAvatar = avatar,
+                                                themePrefs = themePrefs
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // MODE B: Active Direct Conversation Screen
+                            val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
+                            val roomAvatar = remember(activeRoom?.jid) { activeRoom?.let { viewModel.repository.getRoomAvatar(it.jid) } }
+                            var showDirectMenu by remember { mutableStateOf(false) }
+
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Top Bar Header for Active Direct Conversation with Status Bar Inset
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .statusBarsPadding(),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shadowElevation = 3.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Back Button to return to Direct Chat List
+                                        IconButton(
+                                            onClick = { isDirectConversationOpen = false },
+                                            modifier = Modifier.testTag("btn_back_to_direct_list")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                contentDescription = "Kembali ke Daftar Chat Pribadi"
+                                            )
+                                        }
+
+                                        // Avatar & Presence Indicator
+                                        Box(contentAlignment = Alignment.BottomEnd) {
+                                            if (roomAvatar != null) {
+                                                coil.compose.AsyncImage(
+                                                    model = roomAvatar,
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primaryContainer),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = (activeRoom?.name ?: "?").take(1).uppercase(Locale.getDefault()),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 18.sp,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                }
+                                            }
+
+                                            if (activeContact != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(12.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.surface)
+                                                        .padding(1.5.dp)
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .clip(CircleShape)
+                                                            .background(
+                                                                when (activeContact.presence) {
+                                                                    UserPresence.ONLINE, UserPresence.CHAT -> OnlineGreen
+                                                                    UserPresence.AWAY, UserPresence.XA -> AwayAmber
+                                                                    UserPresence.DND -> DndRed
+                                                                    else -> OfflineGray
+                                                                }
+                                                            )
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(10.dp))
+
+                                        // Name & Presence Status
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = activeRoom?.name ?: "",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = if (themePrefs.isCustomThemeEnabled) {
+                                                    try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
+                                                } else {
+                                                    Color.Unspecified
+                                                }
+                                            )
+                                            Text(
+                                                text = if (activeContact != null) {
+                                                    val presText = activeContact.presence.name.lowercase(Locale.getDefault()).replaceFirstChar { it.uppercase() }
+                                                    if (activeContact.statusMessage.isNotBlank()) "${activeContact.statusMessage} • $presText" else presText
+                                                } else {
+                                                    activeRoom?.jid ?: "Chat 1-on-1"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = if (themePrefs.isCustomThemeEnabled) {
+                                                    try { Color(android.graphics.Color.parseColor(themePrefs.presenceOnlineColorHex)) } catch (e: Exception) { MaterialTheme.colorScheme.onSurfaceVariant }
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        // Action Buttons
+                                        IconButton(
+                                            onClick = { viewModel.initiateCall("Audio") },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Call,
+                                                contentDescription = "Panggilan Audio",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.initiateCall("Video") },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.VideoCall,
+                                                contentDescription = "Panggilan Video",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        Box {
+                                            IconButton(
+                                                onClick = { showDirectMenu = true },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
+                                            }
+
+                                            DropdownMenu(
+                                                expanded = showDirectMenu,
+                                                onDismissRequest = { showDirectMenu = false }
+                                            ) {
+                                                val isCurrentBookmarked = activeRoom?.isBookmarked == true
+                                                DropdownMenuItem(
+                                                    text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                                            contentDescription = null
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showDirectMenu = false
+                                                        activeRoom?.let { viewModel.toggleSaveRoom(it.jid) }
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Warna Chat & Wallpaper") },
+                                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                                    onClick = {
+                                                        showDirectMenu = false
+                                                        viewModel.isThemeWallpaperDialogOpen.value = true
+                                                    }
+                                                )
+                                                 DropdownMenuItem(
+                                                    text = { Text("Bersihkan Riwayat Chat") },
+                                                    leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
+                                                    onClick = {
+                                                        showDirectMenu = false
+                                                        activeRoom?.let { room ->
+                                                            viewModel.clearRoomChatHistory(room.jid)
+                                                            if (!room.isGroupChat) {
+                                                                isDirectConversationOpen = false
+                                                            }
+                                                        }
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("Tutup Conversation") },
+                                                    leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
+                                                    onClick = {
+                                                        showDirectMenu = false
+                                                        activeRoom?.let { room ->
+                                                            viewModel.closeConversation(room.jid)
+                                                        }
+                                                        isDirectConversationOpen = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Message Feed (Direct Chat)
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                    com.ndregil.inchat.ui.components.WallpaperBackground(
+                                        wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
+                                        customWallpaperUri = themePrefs.customWallpaperUri,
+                                        opacity = themePrefs.wallpaperOpacity
+                                    )
+
+                                    if (messages.isEmpty()) {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize().padding(32.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("Kirim pesan pertama untuk memulai obrolan langsung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    } else {
+                                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            items(messages, key = { it.id }) { msg ->
+                                                MessageBubble(
+                                                    message = msg,
+                                                    myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
+                                                    onSenderClick = { },
+                                                    onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
+                                                    onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
+                                                    onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                    onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
+                                                    bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
+                                                    isDark = isDarkMode,
+                                                    themePrefs = themePrefs
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Chat Input Bar
+                                ChatInputBar(
+                                    inputText = currentInput,
+                                    onInputChange = { viewModel.currentInputText.value = it },
+                                    onSendMessage = { viewModel.sendMessage(it) },
+                                    onAttachClick = { filePicker.launch("*/*") },
+                                    onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
+                                    onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                    onCallClick = { viewModel.initiateCall(it) },
+                                    whisperTarget = null,
+                                    replyingToMessage = replyingToMessage,
+                                    onCancelReply = { viewModel.clearReplyMessage() },
+                                    onSendVoice = { audioFile, durationSeconds ->
+                                        viewModel.sendVoiceMessage(audioFile, durationSeconds)
+                                    }
+                                )
+                            }
                         }
                     }
                 }

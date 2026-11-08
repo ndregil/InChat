@@ -656,6 +656,33 @@ class XmppRepository(
                 return@addAsyncStanzaListener
             }
 
+            // Intercept Story view notifications from contacts
+            if (message.subject == "INCHAT_STORY_VIEW" || bodyText.startsWith("[STORY_VIEWED]")) {
+                val jsonStr = bodyText.removePrefix("[STORY_VIEWED]").trim()
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val json = org.json.JSONObject(jsonStr)
+                        val storyId = json.getString("storyId")
+                        val viewerJid = json.getString("viewerJid")
+                        val viewerName = json.optString("viewerName", viewerJid.substringBefore("@"))
+                        val timestamp = json.optLong("timestamp", System.currentTimeMillis())
+
+                        val viewerEntity = com.ndregil.inchat.data.local.entity.StoryViewerEntity(
+                            id = java.util.UUID.randomUUID().toString(),
+                            storyId = storyId,
+                            viewerJid = viewerJid,
+                            viewerName = viewerName,
+                            viewedAt = timestamp
+                        )
+                        database.storyDao().insertOrUpdateViewer(viewerEntity)
+                        Log.i("XmppRepository", "Saved incoming story view notification for story $storyId from $viewerJid")
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Failed to parse incoming story view notification: ${e.message}")
+                    }
+                }
+                return@addAsyncStanzaListener
+            }
+
             val resourcePart = (fromJid as? org.jxmpp.jid.FullJid)?.resourcepart?.toString()
                 ?: fromStr.substringAfterLast("/").takeIf { fromStr.contains("/") && !it.equals(fromBareJid, ignoreCase = true) }
 
@@ -750,25 +777,35 @@ class XmppRepository(
                 }
 
                 // CASE 2: 1-on-1 Direct Chat message from a contact or non-contact JID
-                if (fromBareJid.equals(myBareJid, ignoreCase = true)) {
+                val isSentByMe = fromBareJid.equals(myBareJid, ignoreCase = true)
+                val targetRoomJid = if (isSentByMe) {
+                    message.to?.asBareJid()?.toString()
+                } else {
+                    fromBareJid
+                }
+
+                if (targetRoomJid == null || targetRoomJid.equals(myBareJid, ignoreCase = true)) {
                     return@launch
                 }
 
-                val contactMatch = rosterContacts.value.find { it.jid.equals(fromBareJid, ignoreCase = true) }
-                val senderNick = contactMatch?.name?.takeIf { it.isNotBlank() }
-                    ?: fromBareJid.substringBefore("@")
+                val contactMatch = rosterContacts.value.find { it.jid.equals(targetRoomJid, ignoreCase = true) }
+                val senderNick = if (isSentByMe) {
+                    currentAccount.value.nickname.ifBlank { currentAccount.value.username }
+                } else {
+                    contactMatch?.name?.takeIf { it.isNotBlank() } ?: targetRoomJid.substringBefore("@")
+                }
 
-                val avatar = smackAvatarManager.getAvatar(fromBareJid)
+                val avatar = smackAvatarManager.getAvatar(targetRoomJid)
 
                 val xmppMsg = XmppMessage(
                     id = stanzaId ?: java.util.UUID.randomUUID().toString(),
-                    roomJid = fromBareJid,
+                    roomJid = targetRoomJid,
                     senderNickname = senderNick,
-                    senderJid = fromBareJid,
+                    senderJid = if (isSentByMe) myJid else targetRoomJid,
                     senderAvatar = avatar,
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
-                    isMine = false,
+                    isMine = isSentByMe,
                     messageType = when {
                         isVoice -> MessageType.VOICE
                         isImage -> MessageType.FILE
@@ -786,7 +823,7 @@ class XmppRepository(
                     voiceDurationSeconds = voiceDuration
                 )
 
-                Log.i("XmppRepository", "Received 1-on-1 direct message from [$fromBareJid] ('$senderNick'): $bodyText (isImage=$isImage)")
+                Log.i("XmppRepository", "Received 1-on-1 direct message (isMine=$isSentByMe) for [$targetRoomJid]: $bodyText (isImage=$isImage)")
                 processIncomingMessage(xmppMsg)
             }
         }, filter)
@@ -810,10 +847,19 @@ class XmppRepository(
 
     private suspend fun processIncomingMessage(msg: XmppMessage) {
         try {
-            // Deduplication: Check if message already exists locally (as a sent message)
+            // Deduplication by ID
+            if (msg.id.isNotBlank()) {
+                val byId = database.messageDao().getMessageByIdSync(msg.id)
+                if (byId != null) {
+                    Log.d("XmppRepository", "Deduplicating message by ID: ${msg.id}")
+                    return
+                }
+            }
+
+            // Deduplication by recent message content/timestamp
             val existing = database.messageDao().findRecentMessage(msg.roomJid, msg.body, msg.isMine)
-            if (existing != null && Math.abs(existing.timestamp - msg.timestamp) < 5000) {
-                Log.d("XmppRepository", "Deduplicating message: ${msg.id}")
+            if (existing != null && Math.abs(existing.timestamp - msg.timestamp) < 60000) {
+                Log.d("XmppRepository", "Deduplicating message by content/time: ${msg.id}")
                 return
             }
 
@@ -857,8 +903,11 @@ class XmppRepository(
             // Only increment unread if NOT mine AND NOT history
             val unreadIncrement = if (msg.isMine || msg.isHistory) 0 else 1
             
-            // Use specialized update query to avoid fetching full RoomEntity
-            database.roomDao().updateLastMessage(msg.roomJid, lastText, msg.timestamp, unreadIncrement)
+            // Use specialized update query to avoid overwriting lastMessageTime if older history
+            val updatedRows = database.roomDao().updateLastMessage(msg.roomJid, lastText, msg.timestamp, unreadIncrement)
+            if (updatedRows == 0 && unreadIncrement > 0) {
+                database.roomDao().incrementUnreadCount(msg.roomJid, unreadIncrement)
+            }
 
             // 3. Conditional Notification (Skip history, skip system messages)
             if (!msg.isMine && !msg.isHistory &&
@@ -1817,12 +1866,47 @@ class XmppRepository(
     }
 
     // --- STORIES / STATUS (WhatsApp-style ephemeral updates) ---
-    val stories: Flow<List<com.ndregil.inchat.data.model.UserStory>> = database.storyDao().getActiveStories(
-        System.currentTimeMillis() - 24 * 60 * 60 * 1000L
-    ).map { entities ->
+    val stories: Flow<List<com.ndregil.inchat.data.model.UserStory>> = combine(
+        database.storyDao().getActiveStories(System.currentTimeMillis() - 24 * 60 * 60 * 1000L),
+        database.storyDao().getAllStoryViewers(),
+        smackAvatarManager.avatarUpdates.onStart { emit("") }
+    ) { entities, allViewers, _ ->
         entities.map { entity ->
             val avatar = smackAvatarManager.getAvatar(entity.senderJid)
-            entity.toModel(avatar)
+            val viewers = allViewers.filter { it.storyId == entity.id }.map { it.toModel() }
+            entity.toModel(avatar, viewers)
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Sends a notification to the story owner that the user has viewed their status update.
+     */
+    suspend fun sendStoryViewedNotification(story: com.ndregil.inchat.data.model.UserStory) = withContext(Dispatchers.IO) {
+        try {
+            val conn = smackConnectionManager.getRawConnection() ?: return@withContext
+            if (!smackConnectionManager.isConnected()) return@withContext
+
+            val myJid = currentAccount.value.jid
+            val myNick = currentAccount.value.nickname.ifBlank { myJid.substringBefore("@") }
+
+            val viewJson = org.json.JSONObject().apply {
+                put("storyId", story.id)
+                put("viewerJid", myJid)
+                put("viewerName", myNick)
+                put("timestamp", System.currentTimeMillis())
+            }.toString()
+
+            val msg = org.jivesoftware.smack.packet.Message(
+                org.jxmpp.jid.impl.JidCreate.from(story.senderJid),
+                org.jivesoftware.smack.packet.Message.Type.chat
+            ).apply {
+                subject = "INCHAT_STORY_VIEW"
+                body = "[STORY_VIEWED] $viewJson"
+            }
+            conn.sendStanza(msg)
+            Log.i("XmppRepository", "Sent story viewed notification to ${story.senderJid} for story ${story.id}")
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Failed to send story viewed notification: ${e.message}")
         }
     }
 

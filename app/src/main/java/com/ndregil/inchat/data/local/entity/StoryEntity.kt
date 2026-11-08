@@ -25,7 +25,7 @@ data class StoryEntity(
     val isMine: Boolean,
     val isViewed: Boolean = false
 ) {
-    fun toModel(avatar: ByteArray? = null): UserStory {
+    fun toModel(avatar: ByteArray? = null, viewers: List<com.ndregil.inchat.data.model.StoryViewer> = emptyList()): UserStory {
         return UserStory(
             id = id,
             senderJid = senderJid,
@@ -37,7 +37,8 @@ data class StoryEntity(
             backgroundColorHex = backgroundColorHex,
             timestamp = timestamp,
             isMine = isMine,
-            isViewed = isViewed
+            isViewed = isViewed,
+            viewers = viewers
         )
     }
 

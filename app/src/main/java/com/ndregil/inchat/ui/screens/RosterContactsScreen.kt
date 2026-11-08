@@ -1,5 +1,9 @@
 package com.ndregil.inchat.ui.screens
 
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -120,7 +124,9 @@ fun RosterContactsScreen(
     themePrefs: ThemePreferences = ThemePreferences(),
     modifier: Modifier = Modifier
 ) {
-    var selectedSubTab by remember { mutableIntStateOf(0) } // 0 = Stories, 1 = Kontak, 2 = Grup Chat
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val pagerState = rememberPagerState(initialPage = 0) { 3 }
+    val selectedSubTab = pagerState.currentPage
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
     val isRosterLoading by viewModel.isRosterLoading.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
@@ -249,7 +255,7 @@ fun RosterContactsScreen(
                 ) {
                     androidx.compose.material3.Tab(
                         selected = selectedSubTab == 0,
-                        onClick = { selectedSubTab = 0 },
+                        onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
                         text = {
                             val unseenCount = remember(stories, currentAccount.jid) {
                                 stories.filter { !it.isMine && !it.senderJid.equals(currentAccount.jid, ignoreCase = true) && !it.isViewed }
@@ -273,12 +279,12 @@ fun RosterContactsScreen(
                     )
                     androidx.compose.material3.Tab(
                         selected = selectedSubTab == 1,
-                        onClick = { selectedSubTab = 1 },
+                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
                         text = { Text("Kontak") }
                     )
                     androidx.compose.material3.Tab(
                         selected = selectedSubTab == 2,
-                        onClick = { selectedSubTab = 2 },
+                        onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
                         text = { Text("Grup Chat") }
                     )
                 }
@@ -312,209 +318,215 @@ fun RosterContactsScreen(
             }
         }
     ) { paddingValues ->
-        when (selectedSubTab) {
-            0 -> {
-                // Stories / Status Tab Content (WhatsApp-style)
-                StoriesTabContent(
-                    stories = stories,
-                    contacts = contacts,
-                    myAvatar = myAvatar,
-                    myNickname = currentAccount.nickname.ifBlank { currentAccount.jid.substringBefore("@") },
-                    myJid = currentAccount.jid,
-                    onPublishStory = { text, mediaUri, bgColor ->
-                        viewModel.publishStory(text, mediaUri, bgColor)
-                    },
-                    onDeleteStory = { storyId ->
-                        viewModel.deleteStory(storyId)
-                    },
-                    onMarkViewed = { storyId ->
-                        viewModel.markStoryViewed(storyId)
-                    },
-                    onStartDirectChat = onStartDirectChat,
-                    isPublishing = isPublishingStory,
-                    paddingValues = paddingValues
-                )
-            }
-            1 -> {
-                // Kontak Tab Content
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .padding(horizontal = 16.dp)
-                ) {
-                    val avatarPickerLauncher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetContent()
-                    ) { uri: android.net.Uri? ->
-                        uri?.let { viewModel.updateAvatar(it) }
-                    }
-
-                    // User Presence Status & Broadcast Card
-                    UserPresenceControlCard(
-                        currentPresence = myPresence,
-                        statusMessage = myStatusMessage,
-                        currentAccount = currentAccount,
-                        contactsCount = contacts.size,
-                        roomsCount = allRooms.size,
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1
+        ) { page ->
+            when (page) {
+                0 -> {
+                    // Stories / Status Tab Content (WhatsApp-style)
+                    StoriesTabContent(
+                        stories = stories,
+                        contacts = contacts,
                         myAvatar = myAvatar,
-                        onUpdateAvatarClick = { avatarPickerLauncher.launch("image/*") },
-                        onPresenceChange = { newPresence, newStatusMsg ->
-                            viewModel.updateMyPresence(newPresence, newStatusMsg)
+                        myNickname = currentAccount.nickname.ifBlank { currentAccount.jid.substringBefore("@") },
+                        myJid = currentAccount.jid,
+                        onPublishStory = { text, mediaUri, bgColor ->
+                            viewModel.publishStory(text, mediaUri, bgColor)
                         },
-                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        onDeleteStory = { storyId ->
+                            viewModel.deleteStory(storyId)
+                        },
+                        onMarkViewed = { storyId ->
+                            viewModel.markStoryViewed(storyId)
+                        },
+                        onStartDirectChat = onStartDirectChat,
+                        isPublishing = isPublishingStory,
+                        paddingValues = paddingValues
                     )
+                }
+                1 -> {
+                    // Kontak Tab Content
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        val avatarPickerLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.GetContent()
+                        ) { uri: android.net.Uri? ->
+                            uri?.let { viewModel.updateAvatar(it) }
+                        }
 
-                    // Search Input
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari berdasarkan nama, JID, atau grup...") },
-                        leadingIcon = {
-                            Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                        },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(imageVector = Icons.Default.Clear, contentDescription = "Hapus teks")
+                        // User Presence Status & Broadcast Card
+                        UserPresenceControlCard(
+                            currentPresence = myPresence,
+                            statusMessage = myStatusMessage,
+                            currentAccount = currentAccount,
+                            contactsCount = contacts.size,
+                            roomsCount = allRooms.size,
+                            myAvatar = myAvatar,
+                            onUpdateAvatarClick = { avatarPickerLauncher.launch("image/*") },
+                            onPresenceChange = { newPresence, newStatusMsg ->
+                                viewModel.updateMyPresence(newPresence, newStatusMsg)
+                            },
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        )
+
+                        // Search Input
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Cari berdasarkan nama, JID, atau grup...") },
+                            leadingIcon = {
+                                Icon(imageVector = Icons.Default.Search, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Hapus teks")
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .testTag("roster_search_input")
+                        )
+
+                        // Granular Presence Filter Chips
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = selectedFilter == "ALL",
+                                    onClick = { selectedFilter = "ALL" },
+                                    label = { Text("Semua (${contacts.size})") },
+                                    modifier = Modifier.testTag("filter_all_contacts")
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = selectedFilter == "ONLINE",
+                                    onClick = { selectedFilter = "ONLINE" },
+                                    label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
+                                    modifier = Modifier.testTag("filter_online_contacts")
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = selectedFilter == "AWAY",
+                                    onClick = { selectedFilter = "AWAY" },
+                                    label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
+                                    modifier = Modifier.testTag("filter_away_contacts")
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = selectedFilter == "DND",
+                                    onClick = { selectedFilter = "DND" },
+                                    label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
+                                    modifier = Modifier.testTag("filter_dnd_contacts")
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = selectedFilter == "OFFLINE",
+                                    onClick = { selectedFilter = "OFFLINE" },
+                                    label = { Text("Offline (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
+                                    modifier = Modifier.testTag("filter_offline_contacts")
+                                )
+                            }
+                        }
+
+                        // Contact List or Empty State
+                        if (filteredContacts.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(56.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = if (searchQuery.isNotBlank()) "Kontak tidak ditemukan" else "Belum ada kontak di Roster",
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
-                        },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                            .testTag("roster_search_input")
-                    )
-
-                    // Granular Presence Filter Chips
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = selectedFilter == "ALL",
-                                onClick = { selectedFilter = "ALL" },
-                                label = { Text("Semua (${contacts.size})") },
-                                modifier = Modifier.testTag("filter_all_contacts")
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = selectedFilter == "ONLINE",
-                                onClick = { selectedFilter = "ONLINE" },
-                                label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
-                                modifier = Modifier.testTag("filter_online_contacts")
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = selectedFilter == "AWAY",
-                                onClick = { selectedFilter = "AWAY" },
-                                label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
-                                modifier = Modifier.testTag("filter_away_contacts")
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = selectedFilter == "DND",
-                                onClick = { selectedFilter = "DND" },
-                                label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
-                                modifier = Modifier.testTag("filter_dnd_contacts")
-                            )
-                        }
-                        item {
-                            FilterChip(
-                                selected = selectedFilter == "OFFLINE",
-                                onClick = { selectedFilter = "OFFLINE" },
-                                label = { Text("Offline (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
-                                modifier = Modifier.testTag("filter_offline_contacts")
-                            )
-                        }
-                    }
-
-                    // Contact List or Empty State
-                    if (filteredContacts.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(24.dp)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .weight(1f)
+                                    .testTag("roster_contact_list")
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(56.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = if (searchQuery.isNotBlank()) "Kontak tidak ditemukan" else "Belum ada kontak di Roster",
-                                    fontWeight = FontWeight.SemiBold,
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .weight(1f)
-                                .testTag("roster_contact_list")
-                        ) {
-                            items(filteredContacts, key = { it.jid }) { contact ->
-                                RosterContactListItem(
-                                    contact = contact,
-                                    onChatClick = {
-                                        if (onStartDirectChat != null) {
-                                            onStartDirectChat(contact.jid, contact.displayName)
-                                        } else {
-                                            viewModel.startDirectChat(contact.jid, contact.displayName)
-                                        }
-                                    },
-                                    onRenameClick = { contactToRename = contact },
-                                    onDeleteClick = { contactToDelete = contact },
-                                    onCapsClick = { selectedCapsContact = contact },
-                                    onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Voice") },
-                                    onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
-                                    onSendFileClick = {
-                                        selectedFileTargetJid = contact.jid
-                                        filePickerLauncher.launch("*/*")
-                                    },
-                                    themePrefs = themePrefs
-                                )
+                                items(filteredContacts, key = { it.jid }) { contact ->
+                                    RosterContactListItem(
+                                        contact = contact,
+                                        onChatClick = {
+                                            if (onStartDirectChat != null) {
+                                                onStartDirectChat(contact.jid, contact.displayName)
+                                            } else {
+                                                viewModel.startDirectChat(contact.jid, contact.displayName)
+                                            }
+                                        },
+                                        onRenameClick = { contactToRename = contact },
+                                        onDeleteClick = { contactToDelete = contact },
+                                        onCapsClick = { selectedCapsContact = contact },
+                                        onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Voice") },
+                                        onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
+                                        onSendFileClick = {
+                                            selectedFileTargetJid = contact.jid
+                                            filePickerLauncher.launch("*/*")
+                                        },
+                                        themePrefs = themePrefs
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            2 -> {
-                // Grup Chat (Room Favorit) Tab Content
-                SavedRoomsInternalContent(
-                    savedRooms = savedRooms,
-                    onSelectRoom = { jid -> onRoomClick?.invoke(jid) },
-                    onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
-                    onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
-                    onSyncBookmarks = { viewModel.syncBookmarks() },
-                    isSyncing = isSyncingBookmarks,
-                    getRoomAvatar = { jid -> viewModel.repository.getRoomAvatar(jid) },
-                    onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
-                    onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
-                    themePrefs = themePrefs,
-                    paddingValues = paddingValues
-                )
+                2 -> {
+                    // Grup Chat (Room Favorit) Tab Content
+                    SavedRoomsInternalContent(
+                        savedRooms = savedRooms,
+                        onSelectRoom = { jid -> onRoomClick?.invoke(jid) },
+                        onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
+                        onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
+                        onSyncBookmarks = { viewModel.syncBookmarks() },
+                        isSyncing = isSyncingBookmarks,
+                        getRoomAvatar = { jid -> viewModel.repository.getRoomAvatar(jid) },
+                        onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
+                        onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
+                        themePrefs = themePrefs,
+                        paddingValues = paddingValues
+                    )
+                }
             }
         }
     }

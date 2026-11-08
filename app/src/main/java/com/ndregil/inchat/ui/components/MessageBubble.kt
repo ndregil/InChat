@@ -1,6 +1,11 @@
 package com.ndregil.inchat.ui.components
 
+import android.annotation.SuppressLint
+import android.view.View
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
@@ -803,6 +808,19 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Map Preview
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.LightGray.copy(alpha = 0.3f))
+        ) {
+            StaticMapPreview(lat = lat, lng = lng)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = Color(0xFFEF4444).copy(alpha = 0.15f),
@@ -832,6 +850,92 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
             }
         }
     }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun StaticMapPreview(lat: Double, lng: Double) {
+    val htmlContent = remember(lat, lng) {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+            <style>
+                html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #cbd5e1; }
+                .leaflet-control-attribution { display: none !important; }
+            </style>
+        </head>
+        <body>
+            <div id="map"></div>
+            <script>
+                try {
+                    var map = L.map('map', {
+                        center: [$lat, $lng],
+                        zoom: 15,
+                        zoomControl: false,
+                        dragging: false,
+                        touchZoom: false,
+                        scrollWheelZoom: false,
+                        doubleClickZoom: false,
+                        boxZoom: false,
+                        tap: false
+                    });
+                    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { crossOrigin: true }).addTo(map);
+                    L.marker([$lat, $lng]).addTo(map);
+                    setTimeout(function() { map.invalidateSize(); }, 300);
+                } catch(e) { console.error(e); }
+            </script>
+        </body>
+        </html>
+        """.trimIndent()
+    }
+
+    var hasCrashed by remember { mutableStateOf(false) }
+
+    if (hasCrashed) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Error, contentDescription = null, tint = Color.Gray)
+        }
+        return
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                // Use software layer for many small instances to reduce memory pressure
+                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                
+                webViewClient = object : WebViewClient() {
+                    override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                        hasCrashed = true
+                        return true
+                    }
+                }
+                
+                setOnTouchListener { _, _ -> true }
+                loadDataWithBaseURL("https://www.openstreetmap.org", htmlContent, "text/html", "UTF-8", null)
+            }
+        },
+        onRelease = { wv ->
+            try {
+                wv.stopLoading()
+                wv.destroy()
+            } catch (_: Exception) {}
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

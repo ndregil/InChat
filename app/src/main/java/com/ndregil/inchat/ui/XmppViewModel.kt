@@ -532,6 +532,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         _selectedRoomJid.value = jid
         viewModelScope.launch {
             repository.markRoomAsRead(jid)
+            try {
+                repository.syncMamHistory(jid)
+            } catch (e: Exception) {
+                Log.w("XmppViewModel", "MAM sync failed on selectRoom for $jid: ${e.message}")
+            }
         }
     }
 
@@ -1392,7 +1397,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun markStoryViewed(storyId: String) {
         viewModelScope.launch {
+            val story = stories.value.find { it.id == storyId }
             repository.markStoryViewed(storyId)
+            if (story != null && !story.isMine) {
+                repository.sendStoryViewedNotification(story)
+            }
         }
     }
 

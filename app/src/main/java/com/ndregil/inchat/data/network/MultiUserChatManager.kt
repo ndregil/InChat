@@ -1572,10 +1572,9 @@ class MultiUserChatManager(
             val conn = connectionManager.getRawConnection() ?: return@withContext Result.failure(Exception("Not connected"))
             val bareJid = JidCreate.entityBareFrom(roomJid)
             val mamManager = MamManager.getInstanceFor(conn, bareJid)
-            val queryArgs = MamManager.MamQueryArgs.builder()
+            val queryArgsBuilder = MamManager.MamQueryArgs.builder()
                 .setResultPageSize(limit)
-                .build()
-            val query = mamManager.queryArchive(queryArgs)
+            val query = mamManager.queryArchive(queryArgsBuilder.build())
             Result.success(query.messages)
         } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
             if (e.stanzaError?.condition == org.jivesoftware.smack.packet.StanzaError.Condition.feature_not_implemented) {

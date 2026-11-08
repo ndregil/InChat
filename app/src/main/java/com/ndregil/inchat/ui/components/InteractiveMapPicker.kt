@@ -50,10 +50,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-class LocationBridge(private val onLocationChanged: (Double, Double) -> Unit) {
+class LocationBridge(
+    private val callback: (Double, Double) -> Unit,
+    private val onLog: (String) -> Unit
+) {
     @JavascriptInterface
     fun onLocationChanged(lat: Double, lng: Double) {
-        onLocationChanged(lat, lng)
+        callback(lat, lng)
+    }
+
+    @JavascriptInterface
+    fun logError(error: String) {
+        onLog(error)
     }
 }
 
@@ -258,135 +266,89 @@ fun InteractiveMapPickerDialog(
         <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
             <style>
-                * { box-sizing: border-box; }
-                html, body {
-                    margin: 0;
-                    padding: 0;
-                    width: 100%;
-                    height: 100%;
-                    overflow: hidden;
-                    background: #f1f5f9;
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                    -webkit-user-select: none;
-                    user-select: none;
-                }
-                #map {
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    width: 100%;
-                    height: 100%;
-                    z-index: 1;
-                }
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                html, body, #map { width: 100%; height: 100%; overflow: hidden; background: #cbd5e1; }
                 .center-pin {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 42px;
-                    height: 42px;
-                    margin-top: -42px;
-                    margin-left: -21px;
+                    width: 44px;
+                    height: 44px;
+                    margin-top: -44px;
+                    margin-left: -22px;
                     z-index: 1000;
                     pointer-events: none;
-                    transition: transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
                 }
                 .pin-shadow {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    width: 16px;
-                    height: 8px;
-                    margin-top: -4px;
-                    margin-left: -8px;
-                    background: rgba(0,0,0,0.35);
+                    width: 12px;
+                    height: 6px;
+                    margin-top: -3px;
+                    margin-left: -6px;
+                    background: rgba(0,0,0,0.25);
                     border-radius: 50%;
                     z-index: 999;
                     pointer-events: none;
-                    transition: transform 0.15s ease-out;
                 }
                 .leaflet-control-attribution { display: none !important; }
-                .leaflet-bar { border-radius: 8px !important; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important; border: none !important; }
-                .leaflet-bar a { background-color: #ffffff !important; color: #1e293b !important; border-bottom: 1px solid #e2e8f0 !important; width: 34px !important; height: 34px !important; line-height: 34px !important; font-size: 16px !important; }
             </style>
         </head>
         <body>
             <div id="map"></div>
             <div class="pin-shadow" id="pinShadow"></div>
-            <svg class="center-pin" id="centerPin" viewBox="0 0 24 24" fill="#EF4444">
+            <svg class="center-pin" id="centerPin" viewBox="0 0 24 24" fill="#ef4444">
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
             </svg>
-
+ 
             <script>
-                var initialLat = -6.200000;
-                var initialLng = 106.816666;
+                var map;
+                function initMap() {
+                    try {
+                        map = L.map('map', {
+                            center: [-6.200000, 106.816666],
+                            zoom: 16,
+                            zoomControl: false,
+                            dragging: true,
+                            tap: false,
+                            touchZoom: true
+                        });
+                        L.control.zoom({ position: 'topright' }).addTo(map);
 
-                var map = L.map('map', {
-                    center: [initialLat, initialLng],
-                    zoom: 16,
-                    zoomControl: false,
-                    dragging: true,
-                    tap: false,
-                    touchZoom: true
-                });
+                        // Direct OSM Tile Server
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            maxZoom: 19,
+                            crossOrigin: true
+                        }).addTo(map);
 
-                // Add zoom control at top-right
-                L.control.zoom({ position: 'topright' }).addTo(map);
+                        map.on('moveend', function() {
+                            var center = map.getCenter();
+                            if (window.AndroidLocationPicker) {
+                                window.AndroidLocationPicker.onLocationChanged(center.lat, center.lng);
+                            }
+                        });
 
-                // Google Maps Road layer
-                var googleRoadLayer = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-                    maxZoom: 20,
-                    subdomains: ['0', '1', '2', '3']
-                });
-
-                // CartoDB Voyager as fallback
-                var cartoLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19,
-                    subdomains: 'abcd'
-                });
-
-                googleRoadLayer.addTo(map);
-
-                googleRoadLayer.on('tileerror', function() {
-                    if (!map.hasLayer(cartoLayer)) {
-                        cartoLayer.addTo(map);
-                    }
-                });
-
-                function updateLocation() {
-                    var center = map.getCenter();
-                    if (window.AndroidLocationPicker) {
-                        window.AndroidLocationPicker.onLocationChanged(center.lat, center.lng);
+                        setTimeout(function() { map.invalidateSize(); }, 500);
+                        console.log('Map Initialized');
+                    } catch (e) {
+                        console.error('Init error: ' + e.message);
                     }
                 }
-
-                map.on('movestart', function() {
-                    document.getElementById('centerPin').style.transform = 'translateY(-14px) scale(1.15)';
-                    document.getElementById('pinShadow').style.transform = 'scale(0.7)';
-                });
-
-                map.on('moveend', function() {
-                    document.getElementById('centerPin').style.transform = 'translateY(0px) scale(1.0)';
-                    document.getElementById('pinShadow').style.transform = 'scale(1.0)';
-                    updateLocation();
-                });
-
+                window.onload = initMap;
                 function setCenter(lat, lng, zoom) {
                     if (map) {
-                        map.setView([lat, lng], zoom || 16, { animate: true });
+                        map.setView([lat, lng], zoom || 16);
                         setTimeout(function() { map.invalidateSize(); }, 100);
                     }
                 }
-
-                // Ensure Leaflet calculates dimensions correctly
-                setTimeout(function() { if (map) map.invalidateSize(); }, 250);
-                setTimeout(function() { if (map) map.invalidateSize(); }, 600);
-                setTimeout(function() { if (map) map.invalidateSize(); }, 1200);
-                window.addEventListener('resize', function() { if (map) map.invalidateSize(); });
+                window.onerror = function(msg) {
+                    if (window.AndroidLocationPicker) window.AndroidLocationPicker.logError(msg);
+                };
             </script>
         </body>
         </html>
@@ -427,12 +389,6 @@ fun InteractiveMapPickerDialog(
                                     text = "Kirim Lokasi",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Geser peta untuk menentukan titik lokasi presisi",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp
                                 )
                             }
                         }
@@ -509,8 +465,8 @@ fun InteractiveMapPickerDialog(
                         AndroidView(
                             factory = { ctx ->
                                 WebView(ctx).apply {
-                                    // Use Software layer to prevent GPU crashes on emulators/virtual devices
-                                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                                    // Hardware acceleration is generally better for map rendering
+                                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
                                     settings.javaScriptEnabled = true
                                     settings.domStorageEnabled = true
@@ -550,18 +506,32 @@ fun InteractiveMapPickerDialog(
 
                                         override fun onPageFinished(view: WebView?, url: String?) {
                                             super.onPageFinished(view, url)
-                                            view?.evaluateJavascript("setCenter($selectedLat, $selectedLng, 16);", null)
+                                            // Ensure map renders correctly on first load
+                                            view?.evaluateJavascript("setTimeout(function(){ if(map) { map.invalidateSize(); setCenter($selectedLat, $selectedLng, 16); } }, 300);", null)
                                         }
                                     }
 
-                                    addJavascriptInterface(LocationBridge { lat, lng ->
-                                        scope.launch(Dispatchers.Main) {
-                                            selectedLat = lat
-                                            selectedLng = lng
+                                    addJavascriptInterface(LocationBridge(
+                                        callback = { lat, lng ->
+                                            scope.launch(Dispatchers.Main) {
+                                                selectedLat = lat
+                                                selectedLng = lng
+                                            }
+                                        },
+                                        onLog = { error ->
+                                            android.util.Log.e("WebViewJS", error)
                                         }
-                                    }, "AndroidLocationPicker")
+                                    ), "AndroidLocationPicker")
 
-                                    loadDataWithBaseURL("https://localhost", htmlContent, "text/html", "UTF-8", null)
+                                    webChromeClient = object : android.webkit.WebChromeClient() {
+                                        override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+                                            android.util.Log.d("WebViewConsole", "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
+                                            return true
+                                        }
+                                    }
+
+                                    // Use a valid origin to avoid security restrictions for tile loading
+                                    loadDataWithBaseURL("https://www.openstreetmap.org", htmlContent, "text/html", "UTF-8", null)
                                     webViewRef.value = this
                                 }
                             },
@@ -574,7 +544,9 @@ fun InteractiveMapPickerDialog(
                                     wv.destroy()
                                 } catch (_: Exception) {}
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White)
                         )
                     }
 

@@ -83,9 +83,10 @@ class Converters {
         RoomConfigEntity::class,
         ContactEntity::class,
         com.ndregil.inchat.data.local.entity.AvatarEntity::class,
-        com.ndregil.inchat.data.local.entity.StoryEntity::class
+        com.ndregil.inchat.data.local.entity.StoryEntity::class,
+        com.ndregil.inchat.data.local.entity.StoryViewerEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

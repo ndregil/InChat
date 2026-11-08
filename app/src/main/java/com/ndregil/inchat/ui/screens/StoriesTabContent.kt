@@ -198,28 +198,37 @@ fun StoriesTabContent(
                                     }
                                 }
                         ) {
-                            if (myAvatar != null) {
-                                val bmp = remember(myAvatar) {
-                                    BitmapFactory.decodeByteArray(myAvatar, 0, myAvatar.size)
-                                }
-                                if (bmp != null) {
-                                    Image(
-                                        bitmap = bmp.asImageBitmap(),
-                                        contentDescription = "Avatar Saya",
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(CircleShape)
-                                            .then(
-                                                if (myStories.isNotEmpty()) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                                                else Modifier
-                                            ),
-                                        contentScale = ContentScale.Crop
+                            val latestStory = myStories.firstOrNull()
+                            if (latestStory != null) {
+                                // Show story thumbnail as requested by user
+                                StoryThumbnail(
+                                    story = latestStory,
+                                    modifier = Modifier.then(
+                                        if (myStories.isNotEmpty()) Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                        else Modifier
                                     )
-                                } else {
-                                    DefaultAvatar(name = myNickname, hasStories = myStories.isNotEmpty())
-                                }
+                                )
                             } else {
-                                DefaultAvatar(name = myNickname, hasStories = myStories.isNotEmpty())
+                                // No stories: Show normal avatar
+                                if (myAvatar != null) {
+                                    val bmp = remember(myAvatar) {
+                                        BitmapFactory.decodeByteArray(myAvatar, 0, myAvatar.size)
+                                    }
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = "Avatar Saya",
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        DefaultAvatar(name = myNickname, hasStories = false)
+                                    }
+                                } else {
+                                    DefaultAvatar(name = myNickname, hasStories = false)
+                                }
                             }
 
                             // Green '+' badge if no stories or to add more
@@ -518,6 +527,49 @@ fun ContactStoryRowItem(
                 text = formatStoryTime(group.lastUpdated),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun StoryThumbnail(
+    story: com.ndregil.inchat.data.model.UserStory,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(CircleShape)
+            .background(
+                if (story.mediaType == com.ndregil.inchat.data.model.StoryMediaType.TEXT) {
+                    try {
+                        Color(android.graphics.Color.parseColor(story.backgroundColorHex))
+                    } catch (_: Exception) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    }
+                } else {
+                    Color.LightGray
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (story.mediaType == com.ndregil.inchat.data.model.StoryMediaType.IMAGE && story.mediaUrl != null) {
+            AsyncImage(
+                model = story.mediaUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else if (story.mediaType == com.ndregil.inchat.data.model.StoryMediaType.TEXT) {
+            Text(
+                text = story.text.take(1).uppercase(),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black
+                ),
+                color = Color.White,
+                textAlign = TextAlign.Center
             )
         }
     }
@@ -1035,14 +1087,51 @@ fun StoryViewerDialog(
                     }
                 }
 
-                // Bottom Reply Bar (if viewing a contact's story)
-                if (!currentStory.isMine && onReplyClick != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp)
-                    ) {
+                // Bottom Reply Bar (if viewing a contact's story) OR "Seen by" info (if viewing own story)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                ) {
+                    if (currentStory.isMine) {
+                        // "Seen by" info
+                        Surface(
+                            shape = RoundedCornerShape(24.dp),
+                            color = Color.Black.copy(alpha = 0.65f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Dilihat oleh ${currentStory.viewers.size} orang",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                                currentStory.viewers.forEach { viewer ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = viewer.viewerName,
+                                            color = Color.White.copy(alpha = 0.9f),
+                                            fontSize = 12.sp
+                                        )
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Text(
+                                            text = formatStoryTime(viewer.viewedAt),
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (onReplyClick != null) {
+                        // Reply bar
                         Button(
                             onClick = { onReplyClick(storyGroup.jid, storyGroup.name) },
                             modifier = Modifier

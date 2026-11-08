@@ -35,4 +35,20 @@ interface StoryDao {
 
     @Query("DELETE FROM stories")
     suspend fun clearAllStories()
+
+    // --- Story Viewers ---
+    @Query("SELECT * FROM story_viewers WHERE storyId = :storyId ORDER BY viewedAt DESC")
+    fun getViewersForStory(storyId: String): Flow<List<com.ndregil.inchat.data.local.entity.StoryViewerEntity>>
+
+    @Query("SELECT * FROM story_viewers WHERE storyId = :storyId ORDER BY viewedAt DESC")
+    suspend fun getViewersForStoryList(storyId: String): List<com.ndregil.inchat.data.local.entity.StoryViewerEntity>
+
+    @Query("SELECT * FROM story_viewers ORDER BY viewedAt DESC")
+    fun getAllStoryViewers(): Flow<List<com.ndregil.inchat.data.local.entity.StoryViewerEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdateViewer(viewer: com.ndregil.inchat.data.local.entity.StoryViewerEntity)
+
+    @Query("DELETE FROM story_viewers WHERE storyId = :storyId")
+    suspend fun deleteViewersForStory(storyId: String)
 }
