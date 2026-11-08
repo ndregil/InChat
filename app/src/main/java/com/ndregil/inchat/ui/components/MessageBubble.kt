@@ -245,28 +245,41 @@ fun MessageBubble(
 
         Column(
             horizontalAlignment = if (isMine) Alignment.End else Alignment.Start,
-            modifier = Modifier.widthIn(max = 290.dp)
+            modifier = Modifier.widthIn(max = if (isWhisper) 310.dp else 290.dp)
         ) {
             // Sender name & Client Caps
             if (!isMine || isWhisper) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(bottom = 2.dp, start = if (!isMine) 4.dp else 0.dp)
+                    modifier = Modifier.padding(bottom = 3.dp, start = if (!isMine) 4.dp else 0.dp, end = if (isMine) 4.dp else 0.dp)
                 ) {
                     if (isWhisper) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Private Whisper",
-                            tint = Color(0xFFC084FC),
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Text(
-                            text = if (isMine) "Bisikan ke @${message.recipientNickname ?: "user"}" else "Bisikan dari ${message.senderNickname}",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFC084FC)
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF7C3AED).copy(alpha = 0.15f),
+                            border = BorderStroke(0.8.dp, Color(0xFFA78BFA).copy(alpha = 0.4f)),
+                            modifier = Modifier.padding(end = 2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Pesan Bisikan",
+                                    tint = Color(0xFFA78BFA),
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = if (isMine) "Bisikan ke @${message.recipientNickname ?: "user"}" else "Bisikan dari ${message.senderNickname}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFA78BFA)
+                                )
+                            }
+                        }
                     } else {
                         Text(
                             text = message.senderNickname,
@@ -295,27 +308,27 @@ fun MessageBubble(
 
                     // Reply Button
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onReplyClick(message) }
                             .testTag("btn_reply_msg_${message.id}")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Reply,
                                 contentDescription = "Balas Pesan",
-                                modifier = Modifier.size(11.dp),
+                                modifier = Modifier.size(10.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.width(2.dp))
                             Text(
                                 text = "Reply",
-                                fontSize = 9.sp,
+                                fontSize = 8.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -324,65 +337,67 @@ fun MessageBubble(
 
                     // Quote Button
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onQuoteClick(message) }
                             .testTag("btn_quote_msg_${message.id}")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
                                 contentDescription = "Kutip Pesan",
-                                modifier = Modifier.size(11.dp),
+                                modifier = Modifier.size(10.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
                             Spacer(modifier = Modifier.width(2.dp))
                             Text(
                                 text = "Quote",
-                                fontSize = 9.sp,
+                                fontSize = 8.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
 
-                    // Private Message / Whisper Button (Pesan Pribadi)
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
-                        border = BorderStroke(0.7.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onWhisperClick(message) }
-                            .testTag("btn_whisper_msg_${message.id}")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                    // Private Message / Whisper Button (only for other's messages and not already whisper)
+                    if (!isMine && !isWhisper) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
+                            border = BorderStroke(0.6.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onWhisperClick(message) }
+                                .testTag("btn_whisper_msg_${message.id}")
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = "Pesan Pribadi / Bisikan",
-                                modifier = Modifier.size(10.dp),
-                                tint = Color(0xFFA855F7)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Pribadi",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFA855F7)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Pesan Pribadi",
+                                    modifier = Modifier.size(9.dp),
+                                    tint = Color(0xFFA855F7)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Pribadi",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFA855F7)
+                                )
+                            }
                         }
                     }
                 }
             } else {
-                // For own messages, show quick quote / reply options as well
+                // For own standard messages, show quick quote / reply options
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -399,26 +414,26 @@ fun MessageBubble(
                     )
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(8.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .clickable { onQuoteClick(message) }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
                                 contentDescription = "Kutip Pesan Sendiri",
-                                modifier = Modifier.size(11.dp),
+                                modifier = Modifier.size(10.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
                             Spacer(modifier = Modifier.width(2.dp))
                             Text(
                                 text = "Quote",
-                                fontSize = 9.sp,
+                                fontSize = 8.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.secondary
                             )
@@ -432,6 +447,14 @@ fun MessageBubble(
                 modifier = Modifier
                     .clip(bubbleShape)
                     .background(bubbleBg)
+                    .then(
+                        if (isWhisper) {
+                            Modifier.border(
+                                BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.5f)),
+                                bubbleShape
+                            )
+                        } else Modifier
+                    )
                     .combinedClickable(
                         onClick = { onReplyClick(message) },
                         onLongClick = { onQuoteClick(message) }
