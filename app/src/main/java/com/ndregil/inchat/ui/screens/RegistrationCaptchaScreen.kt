@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
 import coil.compose.AsyncImage
 import com.ndregil.inchat.data.network.CaptchaChallengeData
 
@@ -89,18 +90,31 @@ fun RegistrationCaptchaScreen(
             value = captchaInputText,
             onValueChange = { captchaInputText = it },
             label = { Text("Jawaban CAPTCHA") },
-            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Ketik kode yang tertera di gambar") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("input_captcha_answer"),
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
         )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(12.dp)) {
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .testTag("btn_cancel_captcha"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text("Batal")
             }
             Button(
                 onClick = { onSolveCaptcha(captchaInputText) },
-                modifier = Modifier.weight(1f).height(52.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .testTag("btn_submit_captcha"),
                 enabled = captchaInputText.isNotBlank(),
                 shape = RoundedCornerShape(12.dp)
             ) {

@@ -43,7 +43,6 @@ sealed class RegistrationState {
     data class Success(val jid: String, val autoLoggingIn: Boolean) : RegistrationState()
     data class Error(val message: String) : RegistrationState()
     data class CaptchaChallengeRequired(val challenge: com.ndregil.inchat.data.network.CaptchaChallengeData) : RegistrationState()
-    data class RedirectRequired(val url: String, val message: String) : RegistrationState()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -910,8 +909,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                         is com.ndregil.inchat.data.network.CaptchaRequiredException -> {
                             _registrationState.value = RegistrationState.CaptchaChallengeRequired(error.challenge)
                         }
-                        is com.ndregil.inchat.data.network.RegistrationRedirectException -> {
-                            _registrationState.value = RegistrationState.RedirectRequired(error.url, error.message)
+                        is com.ndregil.inchat.data.network.RegistrationNotAllowedException -> {
+                            _registrationState.value = RegistrationState.Error(
+                                error.message.ifBlank { "Pendaftaran langsung (In-Band) ditolak server. Silakan coba server lain seperti xmpp.jp." }
+                            )
                         }
                         else -> {
                             _registrationState.value = RegistrationState.Error(

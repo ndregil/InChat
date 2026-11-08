@@ -30,6 +30,7 @@ import com.ndregil.inchat.data.network.RosterManager
 import kotlinx.coroutines.flow.flowOn
 import com.ndregil.inchat.data.network.ServiceDiscoveryManager
 import com.ndregil.inchat.data.network.XmppConnectionManager
+import com.ndregil.inchat.data.network.XmppConnectionService
 import com.ndregil.inchat.data.network.XmppProtocolEngine
 import com.ndregil.inchat.data.network.fcm.FcmPushManager
 import com.ndregil.inchat.data.network.fcm.PushMessagePayload
@@ -90,6 +91,7 @@ class XmppRepository(
     val jabberSearchManager = com.ndregil.inchat.data.network.JabberNetworkSearchManager()
     val backupManager = com.ndregil.inchat.data.local.backup.ChatBackupManager(context, database)
     val themePreferencesManager = com.ndregil.inchat.data.local.ThemePreferencesManager(context)
+    val connectionService = XmppConnectionService(context, this, scope)
 
     val themePreferences: Flow<com.ndregil.inchat.data.model.ThemePreferences> = themePreferencesManager.themePreferences
     suspend fun updateThemePreferences(prefs: com.ndregil.inchat.data.model.ThemePreferences) {
@@ -535,6 +537,7 @@ class XmppRepository(
 
     suspend fun disconnect() {
         try {
+            connectionService.release()
             smackRosterManager.release()
         } catch (_: Exception) {}
         try {
@@ -548,6 +551,7 @@ class XmppRepository(
 
     suspend fun signOut() {
         try {
+            connectionService.release()
             smackRosterManager.release()
         } catch (_: Exception) {}
         try {
@@ -562,6 +566,7 @@ class XmppRepository(
 
     suspend fun exitApp() {
         try {
+            connectionService.release()
             smackRosterManager.release()
         } catch (_: Exception) {}
         try {

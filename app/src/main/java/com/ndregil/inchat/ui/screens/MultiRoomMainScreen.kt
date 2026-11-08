@@ -694,7 +694,7 @@ fun MultiRoomMainScreen(
                     HorizontalPager(
                         state = roomPagerState,
                         modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = true
+                        userScrollEnabled = roomPagerState.currentPage == 0
                     ) { page ->
                         if (page == 0) {
                             // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
@@ -938,7 +938,7 @@ fun MultiRoomMainScreen(
                     HorizontalPager(
                         state = chatPagerState,
                         modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = true
+                        userScrollEnabled = chatPagerState.currentPage == 0
                     ) { page ->
                         if (page == 0) {
                             // MODE A: Direct Chat List View
@@ -2041,6 +2041,15 @@ fun MultiRoomTabHeader(
     onSelectRoom: (String) -> Unit,
     onAddRoomClick: () -> Unit
 ) {
+    val tabListState = rememberLazyListState()
+
+    androidx.compose.runtime.LaunchedEffect(selectedRoomJid, rooms) {
+        val index = rooms.indexOfFirst { it.jid == selectedRoomJid }
+        if (index >= 0) {
+            tabListState.animateScrollToItem(index)
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
@@ -2083,6 +2092,7 @@ fun MultiRoomTabHeader(
                 }
             } else {
                 LazyRow(
+                    state = tabListState,
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically

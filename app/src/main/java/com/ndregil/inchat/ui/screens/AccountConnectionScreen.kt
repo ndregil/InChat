@@ -7,12 +7,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
-import android.view.ViewGroup
-import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebChromeClient
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -49,7 +43,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -63,58 +56,7 @@ import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
 import com.ndregil.inchat.ui.theme.OnlineGreen
 
-data class XmppWebRegistrationProvider(
-    val name: String,
-    val domain: String,
-    val registrationUrl: String,
-    val badge: String,
-    val description: String
-)
 
-val POPULAR_REGISTRATION_SERVERS = listOf(
-    XmppWebRegistrationProvider(
-        name = "Conversations.im",
-        domain = "conversations.im",
-        registrationUrl = "https://conversations.im/account/",
-        badge = "Utama & Resmi",
-        description = "Server standar resmi Conversations, cepat, aman & push notification optimal."
-    ),
-    XmppWebRegistrationProvider(
-        name = "XMPP.jp",
-        domain = "xmpp.jp",
-        registrationUrl = "https://xmpp.jp/signup",
-        badge = "Alternatif",
-        description = "Layanan XMPP internasional gratis dengan uptime tinggi."
-    ),
-    XmppWebRegistrationProvider(
-        name = "Trashserver.net",
-        domain = "trashserver.net",
-        registrationUrl = "https://trashserver.net/register/",
-        badge = "Jerman",
-        description = "Server Jerman ramah privasi dengan formulir pendaftaran praktis."
-    ),
-    XmppWebRegistrationProvider(
-        name = "XMPP.today",
-        domain = "xmpp.today",
-        registrationUrl = "https://xmpp.today/",
-        badge = "Komunitas",
-        description = "Server ramah komunitas bebas digunakan."
-    ),
-    XmppWebRegistrationProvider(
-        name = "Dismail.de",
-        domain = "dismail.de",
-        registrationUrl = "https://dismail.de/server.html",
-        badge = "Privasi",
-        description = "Server Jerman ramah privasi dengan standar enkripsi tinggi."
-    ),
-    XmppWebRegistrationProvider(
-        name = "Jabber.at",
-        domain = "jabber.at",
-        registrationUrl = "https://jabber.at/account/register",
-        badge = "Austria",
-        description = "Server publik Austria terkemuka via Web Portal."
-    )
-)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -165,30 +107,15 @@ fun AccountConnectionScreen(
     var statusMsgInput by remember(currentAccount) { mutableStateOf(currentAccount.statusMessage) }
 
     var regUsername by remember { mutableStateOf("") }
-    var regDomain by remember { mutableStateOf("conversations.im") }
+    var regDomain by remember { mutableStateOf("jabber.de") }
     var regPassword by remember { mutableStateOf("") }
     var regConfirmPassword by remember { mutableStateOf("") }
     var regNickname by remember { mutableStateOf("") }
     var regEmail by remember { mutableStateOf("") }
-    var regHost by remember { mutableStateOf("conversations.im") }
+    var regHost by remember { mutableStateOf("jabber.de") }
     var regPort by remember { mutableStateOf("5222") }
     var regUseTls by remember { mutableStateOf(true) }
     var regValidationError by remember { mutableStateOf<String?>(null) }
-    var regSubTabMode by remember { mutableIntStateOf(0) }
-
-    // Direct Browser Registration states
-    var selectedRegServer by remember { mutableStateOf(POPULAR_REGISTRATION_SERVERS[0]) }
-    var browserUrl by remember { mutableStateOf(POPULAR_REGISTRATION_SERVERS[0].registrationUrl) }
-    var customUrlInput by remember { mutableStateOf("") }
-    var showCustomUrlDialog by remember { mutableStateOf(false) }
-    var isFullScreenBrowser by remember { mutableStateOf(false) }
-    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
-    var canGoBack by remember { mutableStateOf(false) }
-    var canGoForward by remember { mutableStateOf(false) }
-    var isLoadingWeb by remember { mutableStateOf(false) }
-    var webProgress by remember { mutableFloatStateOf(0f) }
-    var postRegUsername by remember { mutableStateOf("") }
-    var showLegacyXep0077 by remember { mutableStateOf(false) }
 
     var backupPassphrase by remember { mutableStateOf("") }
 
@@ -216,30 +143,16 @@ fun AccountConnectionScreen(
         uri?.let { onUpdateAvatar(it) }
     }
 
-    LaunchedEffect(registrationState) {
-        if (registrationState is RegistrationState.RedirectRequired) {
-            browserUrl = registrationState.url
-            val foundServer = POPULAR_REGISTRATION_SERVERS.find {
-                it.registrationUrl.equals(registrationState.url, ignoreCase = true)
-            }
-            if (foundServer != null) {
-                selectedRegServer = foundServer
-            }
-            if (regUsername.isNotBlank()) {
-                postRegUsername = regUsername
-            }
-            activeTabMode = 2 // Auto-switch to Tab 2 (Daftar Baru)
-            regSubTabMode = 1 // Auto-switch to Sub-Tab 1 (Portal Web Server)
-        }
-    }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 8.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Spacer(modifier = Modifier.height(6.dp))
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 8.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(6.dp))
 
         // Profile Card (When connected)
         if (connectionStatus == ConnectionStatus.CONNECTED) {
@@ -524,975 +437,284 @@ fun AccountConnectionScreen(
                 }
             }
         } else if (activeTabMode == 2) {
-            // Direct In-App XMPP Account Registration (XEP-0077) & Web Portal Fallback
+            // Direct In-App XMPP Account Registration (XEP-0077)
             SettingsCategoryHeader("Pendaftaran Akun Baru XMPP", Icons.Default.PersonAdd)
 
-            // Sub-Tab Switcher inside Registration Tab
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
             ) {
-                Row(modifier = Modifier.padding(4.dp)) {
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { regSubTabMode = 0 },
-                        color = if (regSubTabMode == 0) MaterialTheme.colorScheme.primary else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    var isServerDropdownExpanded by remember { mutableStateOf(false) }
+
+                    ExposedDropdownMenuBox(
+                        expanded = isServerDropdownExpanded,
+                        onExpandedChange = { isServerDropdownExpanded = !isServerDropdownExpanded },
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.FlashOn,
-                                contentDescription = null,
-                                tint = if (regSubTabMode == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Daftar Langsung (In-App)",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (regSubTabMode == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { regSubTabMode = 1 },
-                        color = if (regSubTabMode == 1) MaterialTheme.colorScheme.primary else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Language,
-                                contentDescription = null,
-                                tint = if (regSubTabMode == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Portal Web Server",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (regSubTabMode == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (regSubTabMode == 0) {
-                // =============================================================
-                // SUB-TAB 0: DIRECT IN-APP REGISTRATION (XEP-0077)
-                // =============================================================
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            "Pilih Server XMPP Publik",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Text(
-                            "Pilih salah satu server gratis teruji berikut yang mendukung pendaftaran langsung (In-Band Registration XEP-0077) tanpa captcha:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        val directServers = listOf(
-                            Pair("conversations.im", "Utama & Resmi"),
-                            Pair("xmpp.jp", "Alternatif"),
-                            Pair("trashserver.net", "Jerman"),
-                            Pair("xmpp.today", "Komunitas"),
-                            Pair("dismail.de", "Privasi"),
-                            Pair("jabber.de", "Populer")
-                        )
-
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            directServers.forEach { (srvDomain, badgeLabel) ->
-                                val isSelected = regDomain.equals(srvDomain, ignoreCase = true)
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        regDomain = srvDomain
-                                        regHost = srvDomain
-                                        regValidationError = null
-                                        if (badgeLabel == "Web Portal") {
-                                            regSubTabMode = 1
-                                            val found = POPULAR_REGISTRATION_SERVERS.find { it.domain.equals(srvDomain, ignoreCase = true) }
-                                            if (found != null) {
-                                                selectedRegServer = found
-                                                browserUrl = found.registrationUrl
-                                            } else {
-                                                browserUrl = "https://$srvDomain"
-                                            }
-                                        }
-                                    },
-                                    label = { Text("$srvDomain ($badgeLabel)", fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                                    leadingIcon = if (isSelected) {
-                                        { Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp)) }
-                                    } else null,
-                                    shape = RoundedCornerShape(10.dp)
-                                )
-                            }
-                        }
-
-                        Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-
-                        Text(
-                            "Formulir Registrasi Akun Baru",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-
                         OutlinedTextField(
                             value = regDomain,
-                            onValueChange = { regDomain = it; regHost = it },
-                            label = { Text("Domain Server XMPP") },
-                            placeholder = { Text("contoh: trashserver.net") },
-                            leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        OutlinedTextField(
-                            value = regUsername,
-                            onValueChange = { regUsername = it; regValidationError = null },
-                            label = { Text("Username Baru") },
-                            placeholder = { Text("contoh: pengguna_baru") },
-                            leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
-                            trailingIcon = {
-                                Text(
-                                    if (regDomain.isNotBlank()) "@${regDomain.trim()}" else "",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(end = 10.dp)
-                                )
+                            onValueChange = {
+                                regDomain = it
+                                regHost = it
+                                regValidationError = null
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Pilih Server XMPP (Kategori A)") },
+                            placeholder = { Text("Pilih dari daftar atau ketik domain...") },
+                            leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isServerDropdownExpanded) },
+                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
                         )
 
-                        OutlinedTextField(
-                            value = regPassword,
-                            onValueChange = { regPassword = it; regValidationError = null },
-                            label = { Text("Kata Sandi") },
-                            leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                        ExposedDropdownMenu(
+                            expanded = isServerDropdownExpanded,
+                            onDismissRequest = { isServerDropdownExpanded = false }
+                        ) {
+                            PROVIDERS_A_INBAND.forEach { item ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(item.domain, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Spacer(Modifier.width(16.dp))
+                                            Text(
+                                                text = item.description,
+                                                fontSize = 11.sp,
+                                                color = if (item.requiresCaptcha) MaterialTheme.colorScheme.onSurfaceVariant else OnlineGreen
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        regDomain = item.domain
+                                        regHost = item.domain
+                                        regValidationError = null
+                                        isServerDropdownExpanded = false
+                                    },
+                                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                                )
+                            }
+                        }
+                    }
 
-                        OutlinedTextField(
-                            value = regConfirmPassword,
-                            onValueChange = { regConfirmPassword = it; regValidationError = null },
-                            label = { Text("Konfirmasi Kata Sandi") },
-                            leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                    OutlinedTextField(
+                        value = regUsername,
+                        onValueChange = { regUsername = it; regValidationError = null },
+                        label = { Text("Username Baru") },
+                        placeholder = { Text("contoh: pengguna_baru") },
+                        leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
+                        trailingIcon = {
+                            Text(
+                                if (regDomain.isNotBlank()) "@${regDomain.trim()}" else "",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 10.dp)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
 
-                        OutlinedTextField(
-                            value = regNickname,
-                            onValueChange = { regNickname = it },
-                            label = { Text("Nama Panggilan (Nickname Opsional)") },
-                            leadingIcon = { Icon(Icons.Default.Badge, null, tint = MaterialTheme.colorScheme.primary) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp)
-                        )
+                    OutlinedTextField(
+                        value = regPassword,
+                        onValueChange = { regPassword = it; regValidationError = null },
+                        label = { Text("Kata Sandi") },
+                        leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
 
-                        regValidationError?.let { err ->
+                    OutlinedTextField(
+                        value = regConfirmPassword,
+                        onValueChange = { regConfirmPassword = it; regValidationError = null },
+                        label = { Text("Konfirmasi Kata Sandi") },
+                        leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = regNickname,
+                        onValueChange = { regNickname = it },
+                        label = { Text("Nama Panggilan (Nickname Opsional)") },
+                        leadingIcon = { Icon(Icons.Default.Badge, null, tint = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    regValidationError?.let { err ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                        ) {
+                            Text(
+                                text = err,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (regUsername.isBlank()) {
+                                regValidationError = "Username tidak boleh kosong"
+                                return@Button
+                            }
+                            if (regPassword.length < 4) {
+                                regValidationError = "Kata sandi minimal 4 karakter"
+                                return@Button
+                            }
+                            if (regPassword != regConfirmPassword) {
+                                regValidationError = "Konfirmasi kata sandi tidak cocok"
+                                return@Button
+                            }
+                            if (regDomain.isBlank()) {
+                                regValidationError = "Domain server tidak boleh kosong"
+                                return@Button
+                            }
+                            if (!Regex("""^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""").matches(regDomain.trim())) {
+                                regValidationError = "Format domain tidak valid"
+                                return@Button
+                            }
+                            if (regEmail.isNotBlank() && !android.util.Patterns.EMAIL_ADDRESS.matcher(regEmail.trim()).matches()) {
+                                regValidationError = "Format email tidak valid"
+                                return@Button
+                            }
+
+                            regValidationError = null
+                            onRegisterAccount(
+                                regUsername.trim(),
+                                regPassword.trim(),
+                                regDomain.trim(),
+                                regHost.trim().ifBlank { regDomain.trim() },
+                                regPort.toIntOrNull() ?: 5222,
+                                regNickname.trim().ifBlank { regUsername.trim() },
+                                regEmail.trim(),
+                                regUseTls
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        enabled = registrationState !is RegistrationState.Registering,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (registrationState is RegistrationState.Registering) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Mendaftarkan Akun Ke Server...", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.PersonAdd, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Daftar Akun Baru & Langsung Masuk", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    when (registrationState) {
+                        is RegistrationState.Success -> {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                                shape = RoundedCornerShape(12.dp),
+                                color = OnlineGreen.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, OnlineGreen.copy(alpha = 0.4f))
                             ) {
-                                Text(
-                                    text = err,
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(10.dp)
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                if (regUsername.isBlank()) {
-                                    regValidationError = "Username tidak boleh kosong"
-                                    return@Button
-                                }
-                                if (regPassword.length < 4) {
-                                    regValidationError = "Kata sandi minimal 4 karakter"
-                                    return@Button
-                                }
-                                if (regPassword != regConfirmPassword) {
-                                    regValidationError = "Konfirmasi kata sandi tidak cocok"
-                                    return@Button
-                                }
-                                if (regDomain.isBlank()) {
-                                    regValidationError = "Domain server tidak boleh kosong"
-                                    return@Button
-                                }
-                                if (!Regex("""^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""").matches(regDomain.trim())) {
-                                    regValidationError = "Format domain tidak valid"
-                                    return@Button
-                                }
-                                if (regEmail.isNotBlank() && !android.util.Patterns.EMAIL_ADDRESS.matcher(regEmail.trim()).matches()) {
-                                    regValidationError = "Format email tidak valid"
-                                    return@Button
-                                }
-
-                                regValidationError = null
-                                onRegisterAccount(
-                                    regUsername.trim(),
-                                    regPassword.trim(),
-                                    regDomain.trim(),
-                                    regHost.trim().ifBlank { regDomain.trim() },
-                                    regPort.toIntOrNull() ?: 5222,
-                                    regNickname.trim().ifBlank { regUsername.trim() },
-                                    regEmail.trim(),
-                                    regUseTls
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = registrationState !is RegistrationState.Registering,
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            if (registrationState is RegistrationState.Registering) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Mendaftarkan Akun Ke Server...", fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Default.PersonAdd, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Daftar Akun Baru & Langsung Masuk", fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        when (registrationState) {
-                            is RegistrationState.Success -> {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = OnlineGreen.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, OnlineGreen.copy(alpha = 0.4f))
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.CheckCircle, null, tint = OnlineGreen)
-                                        Spacer(Modifier.width(10.dp))
-                                        Column {
-                                            Text(
-                                                "Pendaftaran Akun Berhasil!",
-                                                fontWeight = FontWeight.Bold,
-                                                color = OnlineGreen
-                                            )
-                                            Text(
-                                                "JID: ${registrationState.jid}\nMenghubungkan otomatis ke server...",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            is RegistrationState.Error -> {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = DndRed.copy(alpha = 0.12f),
-                                    border = BorderStroke(1.dp, DndRed.copy(alpha = 0.4f))
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Error, null, tint = DndRed)
-                                            Spacer(Modifier.width(10.dp))
-                                            Text(
-                                                "Pendaftaran Gagal",
-                                                fontWeight = FontWeight.Bold,
-                                                color = DndRed
-                                            )
-                                        }
-                                        Spacer(Modifier.height(4.dp))
+                                    Icon(Icons.Default.CheckCircle, null, tint = OnlineGreen)
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
                                         Text(
-                                            text = registrationState.message,
+                                            "Pendaftaran Akun Berhasil!",
+                                            fontWeight = FontWeight.Bold,
+                                            color = OnlineGreen
+                                        )
+                                        Text(
+                                            "JID: ${registrationState.jid}\nMenghubungkan otomatis ke server...",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        Spacer(Modifier.height(10.dp))
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            val targetWebUrl = if (regDomain.contains("conversations.im", ignoreCase = true)) {
-                                                "https://conversations.im/account/"
-                                            } else if (regDomain.contains("trashserver.net", ignoreCase = true)) {
-                                                "https://trashserver.net/register/"
-                                            } else {
-                                                "https://${regDomain.trim()}"
-                                            }
-
-                                            Button(
+                                    }
+                                }
+                            }
+                        }
+                        is RegistrationState.Error -> {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = DndRed.copy(alpha = 0.12f),
+                                border = BorderStroke(1.dp, DndRed.copy(alpha = 0.4f))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Error, null, tint = DndRed)
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            "Pendaftaran Gagal",
+                                            fontWeight = FontWeight.Bold,
+                                            color = DndRed
+                                        )
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = registrationState.message,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (!regDomain.equals("xmpp.jp", ignoreCase = true)) {
+                                            OutlinedButton(
                                                 onClick = {
-                                                    regSubTabMode = 1
-                                                    browserUrl = targetWebUrl
-                                                    val found = POPULAR_REGISTRATION_SERVERS.find { it.domain.equals(regDomain.trim(), ignoreCase = true) }
-                                                    if (found != null) selectedRegServer = found
+                                                    regDomain = "xmpp.jp"
+                                                    regHost = "xmpp.jp"
+                                                    onResetRegistrationState()
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                                 shape = RoundedCornerShape(8.dp)
                                             ) {
-                                                Icon(Icons.Default.Language, null, modifier = Modifier.size(14.dp))
+                                                Icon(Icons.Default.FlashOn, null, modifier = Modifier.size(14.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text("Buka Web Portal ${regDomain.trim()}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                Text("Coba xmpp.jp (Stabil & Direct)", fontSize = 11.sp)
                                             }
+                                        }
 
-                                            if (!regDomain.equals("xmpp.jp", ignoreCase = true)) {
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        regDomain = "xmpp.jp"
-                                                        regHost = "xmpp.jp"
-                                                        onResetRegistrationState()
-                                                    },
-                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Icon(Icons.Default.FlashOn, null, modifier = Modifier.size(14.dp))
-                                                    Spacer(Modifier.width(4.dp))
-                                                    Text("Coba xmpp.jp (Direct OK)", fontSize = 11.sp)
-                                                }
-                                            }
-
-                                            TextButton(
-                                                onClick = onResetRegistrationState,
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                            ) {
-                                                Text("Coba Lagi", fontSize = 11.sp)
-                                            }
+                                        TextButton(
+                                            onClick = onResetRegistrationState,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("Coba Lagi", fontSize = 11.sp)
                                         }
                                     }
                                 }
                             }
-                            else -> {}
                         }
-                    }
-                }
-            } else {
-                // =============================================================
-                // SUB-TAB 1: IN-APP BROWSER REGISTRATION FOR CAPTCHA WEB SERVERS
-                // =============================================================
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Language, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                            }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "Web Portal Server Browser",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                "Server seperti Conversations.im memerlukan registrasi via Web Portal karena proteksi anti-bot captcha. Selesaikan pendaftaran di situs resmi server berikut tanpa keluar aplikasi.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 16.sp
-                            )
-                        }
-                    }
-                }
-
-                // Server Selection Chips
-                Text(
-                    "Pilih Web Portal Server:",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
-                )
-
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    POPULAR_REGISTRATION_SERVERS.forEach { provider ->
-                        val isSelected = selectedRegServer == provider
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = {
-                                selectedRegServer = provider
-                                browserUrl = provider.registrationUrl
-                                webViewInstance?.loadUrl(provider.registrationUrl)
-                            },
-                            label = {
-                                Text(provider.name, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                            },
-                            leadingIcon = if (isSelected) {
-                                { Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp)) }
-                            } else null,
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-
-                    FilterChip(
-                        selected = false,
-                        onClick = { showCustomUrlDialog = true },
-                        label = { Text("+ URL Kustom", fontSize = 12.sp) },
-                        leadingIcon = { Icon(Icons.Default.AddLink, null, modifier = Modifier.size(16.dp)) },
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                }
-
-                // Selected Server Description badge
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "${selectedRegServer.badge}: ${selectedRegServer.description}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                // Browser Frame Container
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
-                    elevation = CardDefaults.cardElevation(2.dp)
-                ) {
-                    Column {
-                        // Browser Top Chrome
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(
-                                    onClick = { webViewInstance?.goBack() },
-                                    enabled = canGoBack,
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowBack, contentDescription = "Kembali", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(
-                                    onClick = { webViewInstance?.goForward() },
-                                    enabled = canGoForward,
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.ArrowForward, contentDescription = "Maju", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(
-                                    onClick = { webViewInstance?.reload() },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = "Muat Ulang", modifier = Modifier.size(18.dp))
-                                }
-
-                                // Address Bar Pill
-                                Surface(
-                                    modifier = Modifier.weight(1f).height(34.dp).padding(horizontal = 4.dp),
-                                    shape = RoundedCornerShape(17.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Lock, null, tint = OnlineGreen, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            text = browserUrl.replace("https://", ""),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-
-                                IconButton(
-                                    onClick = { isFullScreenBrowser = true },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.Fullscreen, contentDescription = "Layar Penuh", modifier = Modifier.size(20.dp))
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    },
-                                    modifier = Modifier.size(34.dp)
-                                ) {
-                                    Icon(Icons.Default.OpenInBrowser, contentDescription = "Buka di Browser Luar", modifier = Modifier.size(18.dp))
-                                }
-                            }
-                        }
-
-                        // Progress bar
-                        if (isLoadingWeb) {
-                            LinearProgressIndicator(
-                                progress = { webProgress },
-                                modifier = Modifier.fillMaxWidth().height(2.5.dp),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Spacer(Modifier.height(2.5.dp))
-                        }
-
-                        // The WebView itself inside inline container
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(480.dp)
-                        ) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                        layoutParams = ViewGroup.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        settings.apply {
-                                            javaScriptEnabled = true
-                                            domStorageEnabled = true
-                                            databaseEnabled = true
-                                            javaScriptCanOpenWindowsAutomatically = true
-                                            loadWithOverviewMode = true
-                                            useWideViewPort = true
-                                            builtInZoomControls = true
-                                            displayZoomControls = false
-                                            setSupportZoom(true)
-                                            allowContentAccess = true
-                                            allowFileAccess = true
-                                            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                            userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                                        }
-                                        android.webkit.CookieManager.getInstance().let { cm ->
-                                            cm.setAcceptCookie(true)
-                                            cm.setAcceptThirdPartyCookies(this, true)
-                                        }
-                                        webViewClient = object : WebViewClient() {
-                                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                                try {
-                                                    (view?.parent as? ViewGroup)?.removeView(view)
-                                                    view?.destroy()
-                                                } catch (_: Exception) {}
-                                                isLoadingWeb = false
-                                                webViewInstance = null
-                                                return true
-                                            }
-
-                                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                                super.onPageStarted(view, url, favicon)
-                                                if (url != null) browserUrl = url
-                                                isLoadingWeb = true
-                                                canGoBack = view?.canGoBack() == true
-                                                canGoForward = view?.canGoForward() == true
-                                            }
-
-                                            override fun onPageFinished(view: WebView?, url: String?) {
-                                                super.onPageFinished(view, url)
-                                                if (url != null) browserUrl = url
-                                                isLoadingWeb = false
-                                                canGoBack = view?.canGoBack() == true
-                                                canGoForward = view?.canGoForward() == true
-                                            }
-                                        }
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                super.onProgressChanged(view, newProgress)
-                                                webProgress = newProgress / 100f
-                                                if (newProgress >= 100) isLoadingWeb = false
-                                            }
-                                        }
-                                        loadUrl(browserUrl)
-                                        webViewInstance = this
-                                    }
-                                },
-                                update = { view ->
-                                    webViewInstance = view
-                                },
-                                onRelease = { wv ->
-                                    try {
-                                        wv.stopLoading()
-                                        wv.webViewClient = WebViewClient()
-                                        wv.loadUrl("about:blank")
-                                        (wv.parent as? ViewGroup)?.removeView(wv)
-                                        wv.destroy()
-                                    } catch (_: Exception) {}
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(14.dp))
-
-                // Post-Registration Quick Login Bridge
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, null, tint = OnlineGreen, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Sudah Selesai Mendaftar di Web?", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                        }
-                        Text(
-                            "Ketik username baru Anda untuk langsung menuju ke halaman login:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedTextField(
-                                value = postRegUsername,
-                                onValueChange = { postRegUsername = it },
-                                label = { Text("Username Baru") },
-                                placeholder = { Text("contoh: budi") },
-                                trailingIcon = {
-                                    Text(
-                                        "@${selectedRegServer.domain}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(end = 10.dp)
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-
-                            Button(
-                                onClick = {
-                                    val cleanUser = postRegUsername.trim().substringBefore("@")
-                                    val fullJid = if (cleanUser.isNotBlank()) "$cleanUser@${selectedRegServer.domain}" else "@${selectedRegServer.domain}"
-                                    jidInput = fullJid
-                                    hostInput = selectedRegServer.domain
-                                    activeTabMode = 1 // Switch to Masuk Tab
-                                },
-                                enabled = postRegUsername.isNotBlank(),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.height(54.dp)
-                            ) {
-                                Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Masuk", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Native CAPTCHA Challenge Screen (XEP-0158 / XEP-0231 Bits of Binary)
-            if (registrationState is RegistrationState.CaptchaChallengeRequired) {
-                RegistrationCaptchaScreen(
-                    challenge = registrationState.challenge,
-                    onSolveCaptcha = { answer -> onSolveCaptcha(registrationState.challenge, answer) },
-                    onCancel = onResetRegistrationState
-                )
-            }
-
-            // Custom URL Dialog
-            if (showCustomUrlDialog) {
-                AlertDialog(
-                    onDismissRequest = { showCustomUrlDialog = false },
-                    title = { Text("Buka URL Registrasi Kustom") },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Masukkan alamat web portal server XMPP Anda:", style = MaterialTheme.typography.bodySmall)
-                            OutlinedTextField(
-                                value = customUrlInput,
-                                onValueChange = { customUrlInput = it },
-                                placeholder = { Text("https://example.org/register") },
-                                label = { Text("URL Web") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(onClick = {
-                            var targetUrl = customUrlInput.trim()
-                            if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-                                targetUrl = "https://$targetUrl"
-                            }
-                            browserUrl = targetUrl
-                            webViewInstance?.loadUrl(targetUrl)
-                            showCustomUrlDialog = false
-                        }) {
-                            Text("Buka di Browser")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showCustomUrlDialog = false }) { Text("Batal") }
-                    }
-                )
-            }
-
-            // Full Screen In-App Browser Dialog
-            if (isFullScreenBrowser) {
-                Dialog(
-                    onDismissRequest = { isFullScreenBrowser = false },
-                    properties = DialogProperties(usePlatformDefaultWidth = false)
-                ) {
-                    BackHandler {
-                        if (webViewInstance?.canGoBack() == true) {
-                            webViewInstance?.goBack()
-                        } else {
-                            isFullScreenBrowser = false
-                        }
-                    }
-
-                    Scaffold(
-                        topBar = {
-                            TopAppBar(
-                                title = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Lock, null, tint = OnlineGreen, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(8.dp))
-                                        Column {
-                                            Text(selectedRegServer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text(browserUrl.replace("https://", ""), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }
-                                },
-                                navigationIcon = {
-                                    IconButton(onClick = { isFullScreenBrowser = false }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Tutup Layar Penuh")
-                                    }
-                                },
-                                actions = {
-                                    IconButton(onClick = { webViewInstance?.goBack() }, enabled = canGoBack) {
-                                        Icon(Icons.Default.ArrowBack, contentDescription = "Kembali")
-                                    }
-                                    IconButton(onClick = { webViewInstance?.goForward() }, enabled = canGoForward) {
-                                        Icon(Icons.Default.ArrowForward, contentDescription = "Maju")
-                                    }
-                                    IconButton(onClick = { webViewInstance?.reload() }) {
-                                        Icon(Icons.Default.Refresh, contentDescription = "Muat Ulang")
-                                    }
-                                    IconButton(onClick = {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(browserUrl))
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {}
-                                    }) {
-                                        Icon(Icons.Default.OpenInBrowser, contentDescription = "Buka di Browser Eksternal")
-                                    }
-                                }
-                            )
-                        },
-                        bottomBar = {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                tonalElevation = 6.dp,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = postRegUsername,
-                                        onValueChange = { postRegUsername = it },
-                                        placeholder = { Text("Username Baru") },
-                                        trailingIcon = { Text("@${selectedRegServer.domain}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp)) },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    Button(
-                                        onClick = {
-                                            val cleanUser = postRegUsername.trim().substringBefore("@")
-                                            val fullJid = if (cleanUser.isNotBlank()) "$cleanUser@${selectedRegServer.domain}" else "@${selectedRegServer.domain}"
-                                            jidInput = fullJid
-                                            hostInput = selectedRegServer.domain
-                                            isFullScreenBrowser = false
-                                            activeTabMode = 1 // Switch to Masuk Tab
-                                        },
-                                        enabled = postRegUsername.isNotBlank(),
-                                        shape = RoundedCornerShape(12.dp)
-                                    ) {
-                                        Text("Selesai & Masuk", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                        ) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
-                                        layoutParams = ViewGroup.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        settings.apply {
-                                            javaScriptEnabled = true
-                                            domStorageEnabled = true
-                                            databaseEnabled = true
-                                            javaScriptCanOpenWindowsAutomatically = true
-                                            loadWithOverviewMode = true
-                                            useWideViewPort = true
-                                            builtInZoomControls = true
-                                            displayZoomControls = false
-                                            setSupportZoom(true)
-                                            allowContentAccess = true
-                                            allowFileAccess = true
-                                            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                            userAgentString = "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-                                        }
-                                        android.webkit.CookieManager.getInstance().let { cm ->
-                                            cm.setAcceptCookie(true)
-                                            cm.setAcceptThirdPartyCookies(this, true)
-                                        }
-                                        webViewClient = object : WebViewClient() {
-                                            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
-                                                try {
-                                                    (view?.parent as? ViewGroup)?.removeView(view)
-                                                    view?.destroy()
-                                                } catch (_: Exception) {}
-                                                isLoadingWeb = false
-                                                webViewInstance = null
-                                                return true
-                                            }
-
-                                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                                super.onPageStarted(view, url, favicon)
-                                                if (url != null) browserUrl = url
-                                                isLoadingWeb = true
-                                                canGoBack = view?.canGoBack() == true
-                                                canGoForward = view?.canGoForward() == true
-                                            }
-
-                                            override fun onPageFinished(view: WebView?, url: String?) {
-                                                super.onPageFinished(view, url)
-                                                if (url != null) browserUrl = url
-                                                isLoadingWeb = false
-                                                canGoBack = view?.canGoBack() == true
-                                                canGoForward = view?.canGoForward() == true
-                                            }
-                                        }
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                                super.onProgressChanged(view, newProgress)
-                                                webProgress = newProgress / 100f
-                                                if (newProgress >= 100) isLoadingWeb = false
-                                            }
-                                        }
-                                        loadUrl(browserUrl)
-                                        webViewInstance = this
-                                    }
-                                },
-                                update = { view ->
-                                    webViewInstance = view
-                                },
-                                onRelease = { wv ->
-                                    try {
-                                        wv.stopLoading()
-                                        wv.webViewClient = WebViewClient()
-                                        wv.loadUrl("about:blank")
-                                        (wv.parent as? ViewGroup)?.removeView(wv)
-                                        wv.destroy()
-                                    } catch (_: Exception) {}
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            if (isLoadingWeb) {
-                                LinearProgressIndicator(
-                                    progress = { webProgress },
-                                    modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.TopCenter),
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
+                        else -> {}
                     }
                 }
             }
@@ -1523,6 +745,21 @@ fun AccountConnectionScreen(
             }
         }
         Spacer(Modifier.height(40.dp))
+        }
+        
+        // Native CAPTCHA Challenge Screen (XEP-0158 / XEP-0231 Bits of Binary)
+        if (registrationState is RegistrationState.CaptchaChallengeRequired) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+            ) {
+                RegistrationCaptchaScreen(
+                    challenge = registrationState.challenge,
+                    onSolveCaptcha = { answer -> onSolveCaptcha(registrationState.challenge, answer) },
+                    onCancel = onResetRegistrationState
+                )
+            }
+        }
     }
 }
 
@@ -1551,3 +788,44 @@ fun SplashBrandHeader(title: String, subtitle: String) {
         Column { Text(title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
     }
 }
+
+data class XmppCategoryAProvider(
+    val domain: String,
+    val requiresCaptcha: Boolean,
+    val description: String
+)
+
+val PROVIDERS_A_INBAND = listOf(
+    // Bebas Captcha (11 Servers)
+    XmppCategoryAProvider("jabber.de", false, "Jerman • Bebas Captcha"),
+    XmppCategoryAProvider("jabber.fr", false, "Prancis • Bebas Captcha"),
+    XmppCategoryAProvider("yax.im", false, "Populer • Bebas Captcha"),
+    XmppCategoryAProvider("carnetnoir.fr", false, "Prancis • Bebas Captcha"),
+    XmppCategoryAProvider("chat.between-us.online", false, "Global • Bebas Captcha"),
+    XmppCategoryAProvider("jabber-germany.de", false, "Jerman • Bebas Captcha"),
+    XmppCategoryAProvider("jabber.foo", false, "Global • Bebas Captcha"),
+    XmppCategoryAProvider("jabber.vg", false, "Global • Bebas Captcha"),
+    XmppCategoryAProvider("jabber.world", false, "Global • Bebas Captcha"),
+    XmppCategoryAProvider("lain.rocks", false, "Komunitas • Bebas Captcha"),
+    XmppCategoryAProvider("xmpp.party", false, "Komunitas • Bebas Captcha"),
+
+    // Captcha Native (18 Servers)
+    XmppCategoryAProvider("xmpp.jp", true, "Jepang • Captcha Native"),
+    XmppCategoryAProvider("conversations.im", true, "Resmi • Captcha Native"),
+    XmppCategoryAProvider("07f.de", true, "Jerman • Captcha Native"),
+    XmppCategoryAProvider("chapril.org", true, "Prancis • Captcha Native"),
+    XmppCategoryAProvider("chalec.org", true, "Prancis • Captcha Native"),
+    XmppCategoryAProvider("chatterboxtown.us", true, "AS • Captcha Native"),
+    XmppCategoryAProvider("hookipa.net", true, "Jerman • Captcha Native"),
+    XmppCategoryAProvider("jabbxi.de", true, "Jerman • Captcha Native"),
+    XmppCategoryAProvider("jabjab.de", true, "Jerman • Captcha Native"),
+    XmppCategoryAProvider("magicbroccoli.de", true, "Jerman • Captcha Native"),
+    XmppCategoryAProvider("nixnet.services", true, "Global • Captcha Native"),
+    XmppCategoryAProvider("og.im", true, "Privasi • Captcha Native"),
+    XmppCategoryAProvider("openim.nl", true, "Belanda • Captcha Native"),
+    XmppCategoryAProvider("priv.vc", true, "Privasi • Captcha Native"),
+    XmppCategoryAProvider("projectsegfau.lt", true, "Komunitas • Captcha Native"),
+    XmppCategoryAProvider("rows.im", true, "Privasi • Captcha Native"),
+    XmppCategoryAProvider("step.im", true, "Global • Captcha Native"),
+    XmppCategoryAProvider("yourdata.forsale", true, "Privasi • Captcha Native")
+)

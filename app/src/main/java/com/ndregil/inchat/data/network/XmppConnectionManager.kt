@@ -23,10 +23,17 @@ import org.jivesoftware.smackx.iqversion.VersionManager
 import org.jxmpp.jid.impl.JidCreate
 import org.jxmpp.jid.parts.Resourcepart
 import org.jivesoftware.smackx.iqregister.AccountManager
+import org.jivesoftware.smackx.xdata.packet.DataForm
 import org.jivesoftware.smack.XMPPException
+import org.jivesoftware.smack.packet.StanzaError
+import org.jivesoftware.smackx.iqregister.packet.Registration
+import org.jivesoftware.smack.packet.IQ
 import org.jxmpp.jid.parts.Localpart
 import java.net.InetAddress
 import android.os.Build
+import org.jivesoftware.smack.sasl.SASLErrorException
+
+import org.jivesoftware.smack.SmackConfiguration
 
 /**
  * Credentials model for XMPP authentication and server connection.
@@ -116,12 +123,18 @@ data class XmppCredentials(
 }
 
 /**
- * Manager class responsible for initializing, establishing, and managing TCP socket connections
- * and authentication with an XMPP server using the Smack library.
+ * Manager class responsible for initializing, establishing, and managing XMPP connections
+ * and authentication using the Smack library.
  */
 class XmppConnectionManager(
     initialCredentials: XmppCredentials = XmppCredentials()
 ) {
+    init {
+        try {
+            SmackConfiguration.DEBUG = true
+        } catch (_: Exception) {}
+    }
+
     companion object {
         private const val TAG = "XmppConnectionManager"
         private const val DEFAULT_CONNECT_TIMEOUT_MS = 15000
@@ -131,7 +144,6 @@ class XmppConnectionManager(
         fun sanitizeJid(rawJid: String): String = XmppCredentials.sanitizeJid(rawJid)
     }
 
-    // State flows for connection status and current credentials
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
 
@@ -142,19 +154,15 @@ class XmppConnectionManager(
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
-    // Underlying Smack XMPP TCP connection
     @Volatile
     private var tcpConnection: XMPPTCPConnection? = null
 
-    // Multi-User Chat manager associated with current connection
     @Volatile
     private var mucManager: MultiUserChatManager? = null
 
-    // Chat manager for 1-on-1 chats
     @Volatile
     private var chatManager: org.jivesoftware.smack.chat2.ChatManager? = null
 
-    // Connection listener for Smack callbacks
     private val smackConnectionListener = object : ConnectionListener {
         override fun connected(connection: XMPPConnection) {
             Log.d(TAG, "Smack: Connected to ${connection.host}:${connection.port}")
@@ -179,45 +187,22 @@ class XmppConnectionManager(
         }
     }
 
-    /**
-     * Updates and saves login credentials in memory.
-     */
     fun setCredentials(newCredentials: XmppCredentials) {
         _credentials.value = newCredentials
     }
 
-    /**
-     * Updates credentials from an [XmppAccount] object and optional password.
-     */
     fun updateCredentialsFromAccount(account: XmppAccount, password: String = "") {
         _credentials.value = XmppCredentials.fromAccount(account, password)
     }
 
-    /**
-     * Clears credentials back to default guest values.
-     */
     fun clearCredentials() {
         _credentials.value = XmppCredentials()
     }
 
-    /**
-     * Returns true if the TCP connection is active and connected.
-     */
     fun isConnected(): Boolean = tcpConnection?.isConnected == true
-
-    /**
-     * Returns true if connection is active and user is successfully authenticated.
-     */
     fun isAuthenticated(): Boolean = tcpConnection?.isAuthenticated == true
-
-    /**
-     * Access the active [XMPPTCPConnection] instance, or null if uninitialized.
-     */
     fun getRawConnection(): XMPPTCPConnection? = tcpConnection
 
-    /**
-     * Access the [MultiUserChatManager] instance for MUC operations.
-     */
     fun getMultiUserChatManager(): MultiUserChatManager? {
         val conn = tcpConnection
         if (conn != null && conn.isAuthenticated) {
@@ -229,9 +214,6 @@ class XmppConnectionManager(
         return null
     }
 
-    /**
-     * Access the [org.jivesoftware.smack.chat2.ChatManager] instance for 1-on-1 chats.
-     */
     fun getChatManager(): org.jivesoftware.smack.chat2.ChatManager? {
         val conn = tcpConnection
         if (conn != null && conn.isAuthenticated) {
@@ -245,7 +227,7 @@ class XmppConnectionManager(
 
     /**
      * Initializes Smack configuration and establishes TCP connection + login.
-     * Runs asynchronously on [Dispatchers.IO].
+     * Implements XEP-0199 (XMPP Ping) and XEP-0184 (Message Delivery Receipts).
      */
     suspend fun connectAndLogin(
         overrideCredentials: XmppCredentials? = null
@@ -255,7 +237,6 @@ class XmppConnectionManager(
         }
         val creds = _credentials.value
 
-        // Check if already connected and authenticated with matching credentials
         val existingConn = tcpConnection
         if (existingConn != null && existingConn.isConnected && existingConn.isAuthenticated) {
             val sameUser = creds.username.isNotBlank() &&
@@ -263,7 +244,7 @@ class XmppConnectionManager(
             val sameDomain = creds.domain.isNotBlank() &&
                     creds.domain.equals(currentCredentials.domain, ignoreCase = true)
             if (sameUser && sameDomain) {
-                Log.i(TAG, "Already connected and authenticated as ${existingConn.user}. Reusing active connection.")
+                Log.i(TAG, "Already connected and authenticated. Reusing active connection.")
                 _connectionStatus.value = ConnectionStatus.CONNECTED
                 return@withContext Result.success(existingConn)
             }
@@ -272,16 +253,14 @@ class XmppConnectionManager(
         val rawDomain = creds.domain.ifBlank { creds.jid.substringAfter("@", "").substringBefore("/") }
         val cleanDomain = sanitizeDomain(rawDomain)
         val cleanHost = sanitizeHost(creds.host, cleanDomain)
-        val cleanJid = sanitizeJid(creds.jid)
 
         try {
             _connectionStatus.value = ConnectionStatus.CONNECTING
             _lastError.value = null
 
-            // Clean up any stale existing connection
             safeDisconnectInternal()
 
-            Log.i(TAG, "Initializing Smack TCP connection to $cleanHost:${creds.port} (domain=$cleanDomain)")
+            Log.i(TAG, "Initializing XMPP connection to $cleanHost:${creds.port} (domain=$cleanDomain)")
 
             val domainJid = JidCreate.domainBareFrom(cleanDomain)
             val username = creds.username.trim()
@@ -299,16 +278,14 @@ class XmppConnectionManager(
 
             if (cleanHost.isNotBlank()) {
                 configBuilder.setHost(cleanHost)
-                // Resolve host IP address if hostname is provided
                 try {
                     val address = InetAddress.getByName(cleanHost)
                     configBuilder.setHostAddress(address)
                 } catch (e: Exception) {
-                    Log.w(TAG, "DNS resolution warning for $cleanHost: ${e.message}")
+                    Log.w(TAG, "DNS resolution warning: ${e.message}")
                 }
             }
 
-            // Set username and password if provided
             if (username.isNotBlank()) {
                 configBuilder.setUsernameAndPassword(username, creds.password)
             }
@@ -316,81 +293,65 @@ class XmppConnectionManager(
             val configuration = configBuilder.build()
             val connection = XMPPTCPConnection(configuration)
 
-            // Attach connection listener
             connection.addConnectionListener(smackConnectionListener)
 
-            // Do not enable Smack automatic reconnect blindly (it triggers rapid loops on auth failure).
-            // Reconnection is managed safely at the application layer with backoff and credential validation.
+            // Setup Automatic Reconnection (XEP-0198 Stream Management compatible)
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
-            reconnectionManager.disableAutomaticReconnection()
+            reconnectionManager.enableAutomaticReconnection()
+            reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.RANDOM_INCREASING_DELAY)
 
-            // Establish TCP connection
             connection.connect()
-            Log.i(TAG, "TCP connection established successfully.")
+            Log.i(TAG, "TCP connection established.")
 
-            // Increase default reply timeout (default is 5s, which often causes NoResponseException)
-            connection.replyTimeout = 15000 
+            connection.replyTimeout = 20000 
 
-            // Authenticate if credentials are provided
             if (username.isNotBlank() && creds.password.isNotBlank()) {
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
                 val resourceWithSuffix = Resourcepart.from(resource + "-" + (1000..9999).random())
                 connection.login(username, creds.password, resourceWithSuffix)
-                Log.i(TAG, "User '$username' authenticated successfully with resource $resourceWithSuffix")
             } else if (username.isNotBlank()) {
-                // Anonymous or passwordless attempt
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
                 connection.login()
-                Log.i(TAG, "Logged in anonymously or with preconfigured credentials.")
             }
 
             tcpConnection = connection
             mucManager = MultiUserChatManager.getInstanceFor(connection)
             chatManager = org.jivesoftware.smack.chat2.ChatManager.getInstanceFor(connection)
             
-            // Enable XEP-0280: Message Carbons
+            // Enable Message Carbons (XEP-0280)
             try {
                 val carbonManager = org.jivesoftware.smackx.carbons.CarbonManager.getInstanceFor(connection)
                 if (carbonManager.isSupportedByServer) {
                     carbonManager.enableCarbons()
-                    Log.i(TAG, "Message Carbons (XEP-0280) enabled.")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to enable Message Carbons: ${e.message}")
-            }
+            } catch (e: Exception) {}
             
-            // Enable XEP-0199: XMPP Ping to prevent idle connection timeout from server
+            // Enable XMPP Ping (XEP-0199) to keep-alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
-            pingManager.pingInterval = 20 // Send ping every 20 seconds to prevent idle timeout
+            pingManager.pingInterval = 15 // Every 15 seconds
             
-            // Enable XEP-0030 & XEP-0115: Service Discovery and Entity Capabilities
-            org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
-            
-            // Enable XEP-0092: Software Version
+            // Software Version (XEP-0092)
             val versionManager = VersionManager.getInstanceFor(connection)
             versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
 
-            // Enable XEP-0184: Message Delivery Receipts
+            // Delivery Receipts (XEP-0184)
             val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
             deliveryReceiptManager.autoReceiptMode = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.AutoReceiptMode.always
             deliveryReceiptManager.autoAddDeliveryReceiptRequests()
             
             _connectionStatus.value = ConnectionStatus.CONNECTED
-
             Result.success(connection)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect and login with Smack: ${e.message}", e)
+            Log.e(TAG, "Connect/Login failed: ${e.message}")
             _connectionStatus.value = ConnectionStatus.ERROR
-            val rawMsg = e.localizedMessage ?: "XMPP connection failure"
+            val rawMsg = e.localizedMessage ?: "XMPP failure"
             val friendlyMsg = when {
-                e is org.jivesoftware.smack.sasl.SASLErrorException || rawMsg.contains("not-authorized", ignoreCase = true) ->
-                    "Autentikasi gagal: Username atau password salah (not-authorized). Silakan periksa kembali kata sandi akun Anda."
+                e is SASLErrorException || rawMsg.contains("not-authorized", ignoreCase = true) ->
+                    "Autentikasi gagal: Username atau password salah."
                 rawMsg.contains("connection refused", ignoreCase = true) ->
-                    "Koneksi ditolak oleh server. Periksa host dan port XMPP."
+                    "Koneksi ditolak oleh server."
                 rawMsg.contains("timeout", ignoreCase = true) ->
-                    "Batas waktu koneksi habis (timeout). Periksa koneksi internet atau server XMPP."
-                rawMsg.contains("NX_DOMAIN", ignoreCase = true) || rawMsg.contains("ResolutionUnsuccessfulException", ignoreCase = true) || rawMsg.contains("Could not lookup", ignoreCase = true) || rawMsg.contains("UnknownHostException", ignoreCase = true) ->
-                    "Gagal menemukan server XMPP di DNS (Domain '$rawDomain' tidak valid). Periksa ejaan domain Anda (contoh: conversations.im, xmpp.jp, trashserver.net)."
+                    "Batas waktu koneksi habis."
                 else -> rawMsg
             }
             _lastError.value = friendlyMsg
@@ -399,123 +360,65 @@ class XmppConnectionManager(
         }
     }
 
-    /**
-     * Connects socket without immediate authentication.
-     */
     suspend fun connect(): Result<XMPPTCPConnection> = withContext(Dispatchers.IO) {
         val creds = _credentials.value
         try {
             _connectionStatus.value = ConnectionStatus.CONNECTING
             _lastError.value = null
-
             safeDisconnectInternal()
 
             val domainJid = JidCreate.domainBareFrom(creds.domain.trim())
-            val resource = creds.resource.ifBlank { "Android-MUC" }
-
             val configBuilder = XMPPTCPConnectionConfiguration.builder()
                 .setXmppDomain(domainJid)
                 .setPort(creds.port)
-                .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                .setSecurityMode(
-                    if (creds.useTls) ConnectionConfiguration.SecurityMode.required
-                    else ConnectionConfiguration.SecurityMode.disabled
-                )
+                .setSecurityMode(if (creds.useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.disabled)
 
-            if (creds.host.isNotBlank()) {
-                configBuilder.setHost(creds.host.trim())
-            }
+            if (creds.host.isNotBlank()) configBuilder.setHost(creds.host.trim())
 
             val connection = XMPPTCPConnection(configBuilder.build())
             connection.addConnectionListener(smackConnectionListener)
-
             connection.connect()
             tcpConnection = connection
-            _connectionStatus.value = ConnectionStatus.CONNECTING
-
             Result.success(connection)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect: ${e.message}", e)
             _connectionStatus.value = ConnectionStatus.ERROR
-            _lastError.value = e.localizedMessage ?: "Connection error"
+            _lastError.value = e.localizedMessage
             safeDisconnectInternal()
             Result.failure(e)
         }
     }
 
-    /**
-     * Authenticates an already-connected Smack session.
-     */
     suspend fun login(passwordOverride: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
-        val conn = tcpConnection ?: return@withContext Result.failure(IllegalStateException("Connection is not established"))
+        val conn = tcpConnection ?: return@withContext Result.failure(IllegalStateException("No connection"))
         val creds = _credentials.value
         val pass = passwordOverride ?: creds.password
         val user = creds.username.trim()
-        val resource = Resourcepart.from(creds.resource.ifBlank { "Android-MUC" })
-
         try {
             _connectionStatus.value = ConnectionStatus.AUTHENTICATING
             if (user.isNotBlank() && pass.isNotBlank()) {
-                conn.login(user, pass, resource)
+                conn.login(user, pass)
             } else {
                 conn.login()
             }
-            mucManager = MultiUserChatManager.getInstanceFor(conn)
-            chatManager = org.jivesoftware.smack.chat2.ChatManager.getInstanceFor(conn)
-
-            // Enable XEP-0280: Message Carbons
-            try {
-                val carbonManager = org.jivesoftware.smackx.carbons.CarbonManager.getInstanceFor(conn)
-                if (carbonManager.isSupportedByServer) {
-                    carbonManager.enableCarbons()
-                    Log.i(TAG, "Message Carbons (XEP-0280) enabled.")
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to enable Message Carbons: ${e.message}")
-            }
-            
-            // Enable XEP-0199: XMPP Ping
-            val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(conn)
-            pingManager.pingInterval = 30
-            
-            // Enable XEP-0030 & XEP-0115: Service Discovery and Entity Capabilities
-            org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
-            
-            // Enable XEP-0092: Software Version
-            val versionManager = VersionManager.getInstanceFor(conn)
-            versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
-
-            // Enable XEP-0184: Message Delivery Receipts
-            val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(conn)
-            deliveryReceiptManager.autoReceiptMode = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.AutoReceiptMode.always
-            deliveryReceiptManager.autoAddDeliveryReceiptRequests()
-            
             _connectionStatus.value = ConnectionStatus.CONNECTED
-            _lastError.value = null
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Login failed: ${e.message}", e)
             _connectionStatus.value = ConnectionStatus.ERROR
-            _lastError.value = e.localizedMessage ?: "Authentication failed"
+            _lastError.value = e.localizedMessage
             Result.failure(e)
         }
     }
 
-    /**
-     * Broadcasts updated user presence to the server.
-     */
     suspend fun updatePresence(
         userPresence: UserPresence,
         statusMessage: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val conn = tcpConnection
-        if (conn == null || !conn.isAuthenticated) {
-            return@withContext Result.failure(IllegalStateException("Not connected or authenticated"))
-        }
+        if (conn == null || !conn.isAuthenticated) return@withContext Result.failure(IllegalStateException("Unauthenticated"))
 
         try {
-            val presenceMode = when (userPresence) {
+            val mode = when (userPresence) {
                 UserPresence.ONLINE -> Presence.Mode.available
                 UserPresence.CHAT -> Presence.Mode.chat
                 UserPresence.AWAY -> Presence.Mode.away
@@ -525,40 +428,25 @@ class XmppConnectionManager(
             }
 
             val presence = if (userPresence == UserPresence.OFFLINE) {
-                PresenceBuilder.buildPresence()
-                    .ofType(Presence.Type.unavailable)
-                    .setStatus(statusMessage ?: "Offline")
-                    .build()
+                PresenceBuilder.buildPresence().ofType(Presence.Type.unavailable).setStatus(statusMessage ?: "Offline").build()
             } else {
-                val builder = PresenceBuilder.buildPresence()
-                    .ofType(Presence.Type.available)
-                    .setStatus(statusMessage ?: "Active on InChat")
-                if (presenceMode != null) {
-                    builder.setMode(presenceMode)
-                }
+                val builder = PresenceBuilder.buildPresence().ofType(Presence.Type.available).setStatus(statusMessage ?: "Active")
+                if (mode != null) builder.setMode(mode)
                 builder.build()
             }
 
             conn.sendStanza(presence)
-            Log.d(TAG, "Sent presence update: $userPresence, status: $statusMessage")
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to update presence: ${e.message}", e)
             Result.failure(e)
         }
     }
 
-    /**
-     * Disconnects the active connection gracefully.
-     */
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         safeDisconnectInternal()
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
     }
 
-    /**
-     * Registers a new XMPP JID user account on a remote XMPP server using XEP-0077 (In-Band Registration).
-     */
     suspend fun registerAccount(
         username: String,
         password: String,
@@ -571,479 +459,197 @@ class XmppConnectionManager(
     ): Result<String> = withContext(Dispatchers.IO) {
         var tempConnection: XMPPTCPConnection? = null
         try {
-            val rawDomain = domain.trim().lowercase(Locale.getDefault())
-            val cleanDomain = when (rawDomain) {
-                "conversations.m", "conversation.im", "conversations.i" -> "conversations.im"
-                "trashserver.n", "trashserver.de" -> "trashserver.net"
-                "xmpp.j" -> "xmpp.jp"
-                else -> rawDomain
-            }
+            val cleanDomain = sanitizeDomain(domain)
             val cleanUser = username.trim()
-            val rawHost = host.trim().ifBlank { cleanDomain }
-            val cleanHost = when (rawHost.lowercase(Locale.getDefault())) {
-                "conversations.m", "conversation.im", "conversations.i" -> "conversations.im"
-                "trashserver.n", "trashserver.de" -> "trashserver.net"
-                "xmpp.j" -> "xmpp.jp"
-                else -> rawHost
-            }
-
-            Log.i(TAG, "Starting In-Band Registration (XEP-0077) for user '$cleanUser' at $cleanDomain ($cleanHost:$port)")
+            val cleanHost = host.trim().ifBlank { cleanDomain }
 
             val domainJid = JidCreate.domainBareFrom(cleanDomain)
-            val configBuilder = XMPPTCPConnectionConfiguration.builder()
+            val config = XMPPTCPConnectionConfiguration.builder()
                 .setXmppDomain(domainJid)
+                .setHost(cleanHost)
                 .setPort(port)
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                .setSecurityMode(
-                    if (useTls) ConnectionConfiguration.SecurityMode.required
-                    else ConnectionConfiguration.SecurityMode.disabled
-                )
+                .setSecurityMode(if (useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.disabled)
+                .build()
 
-            if (cleanHost.isNotBlank()) {
-                configBuilder.setHost(cleanHost)
-                try {
-                    val address = InetAddress.getByName(cleanHost)
-                    configBuilder.setHostAddress(address)
-                } catch (e: Exception) {
-                    Log.w(TAG, "DNS resolution warning for registration host $cleanHost: ${e.message}")
-                }
-            }
-
-            try {
-                val config = configBuilder.build()
-                tempConnection = XMPPTCPConnection(config)
-                tempConnection.connect()
-            } catch (connErr: Exception) {
-                Log.w(TAG, "Primary registration connection to $cleanHost:$port failed (${connErr.message}), trying fallback direct host connection...")
-                try {
-                    val fallbackBuilder = XMPPTCPConnectionConfiguration.builder()
-                        .setXmppDomain(domainJid)
-                        .setHost(cleanDomain)
-                        .setPort(port)
-                        .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                        .setSecurityMode(
-                            if (useTls) ConnectionConfiguration.SecurityMode.required
-                            else ConnectionConfiguration.SecurityMode.disabled
-                        )
-                    val fallbackConfig = fallbackBuilder.build()
-                    tempConnection = XMPPTCPConnection(fallbackConfig)
-                    tempConnection.connect()
-                } catch (fallbackErr: Exception) {
-                    throw connErr
-                }
-            }
+            tempConnection = XMPPTCPConnection(config)
+            tempConnection.connect()
 
             val accountManager = AccountManager.getInstance(tempConnection)
             accountManager.sensitiveOperationOverInsecureConnection(true)
-
-            val supportsCreation = try {
-                accountManager.supportsAccountCreation()
-            } catch (e: Exception) {
-                Log.w(TAG, "Error checking account creation support: ${e.message}")
-                true
+            
+            if (!accountManager.supportsAccountCreation()) {
+                Log.e(TAG, "Server does not support In-Band Registration")
+                throw RegistrationNotAllowedException("Server $cleanDomain menolak pendaftaran langsung. Silakan pilih server lain seperti xmpp.jp, trashserver.net, atau dismail.de.")
             }
-            val instructions = try {
-                accountManager.getAccountInstructions()
-            } catch (_: Exception) {
-                null
+
+            // Check for CAPTCHA requirements manually using IQ get packet
+            val registrationIQ = Registration()
+            registrationIQ.type = IQ.Type.get
+            registrationIQ.to = domainJid
+
+            val getCollector = tempConnection.createStanzaCollector(
+                org.jivesoftware.smack.filter.StanzaIdFilter(registrationIQ.stanzaId)
+            )
+            val response = try {
+                tempConnection.sendStanza(registrationIQ)
+                getCollector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+            } finally {
+                getCollector.cancel()
             }
-            Log.i(TAG, "Server $cleanDomain account creation support: $supportsCreation, instructions: $instructions")
 
-            val localpart = Localpart.from(cleanUser)
-            var registrationSuccess = false
+            val responseXml = response.toXML().toString()
+            Log.d(TAG, "Registration GET response stanza XML: $responseXml")
 
-            // Step 1: Query server for registration fields/form (XEP-0077)
-            val queryReg = org.jivesoftware.smackx.iqregister.packet.Registration()
-            queryReg.type = org.jivesoftware.smack.packet.IQ.Type.get
-            queryReg.to = JidCreate.from(cleanDomain)
+            val urlRegex = Regex("""(https?://[^\s<"]+)""", RegexOption.IGNORE_CASE)
+            val genericUrlMatch = urlRegex.find(responseXml)?.value
 
-            var serverDataForm: org.jivesoftware.smackx.xdata.packet.DataForm? = null
-            var oobRedirectUrl: String? = null
-            var iqResponseXml = ""
+            val dataForm = DataForm.from(response)
+            var captchaVar = "ocr"
+            var isCaptchaRequired = false
 
-            try {
-                val collector = tempConnection.createStanzaCollectorAndSend(queryReg)
-                val responseIq = collector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
-                iqResponseXml = responseIq.toXML().toString()
-
-                // Check for Out-Of-Band Data redirection (XEP-0077 <x xmlns='jabber:x:oob'>)
-                val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
-                oobRedirectUrl = oobRegex.find(iqResponseXml)?.groupValues?.get(1)?.trim()
-
-                if (responseIq is org.jivesoftware.smackx.iqregister.packet.Registration) {
-                    serverDataForm = responseIq.getExtension(org.jivesoftware.smackx.xdata.packet.DataForm::class.java)
-                        ?: org.jivesoftware.smackx.xdata.packet.DataForm.from(responseIq)
+            if (dataForm != null) {
+                for (field in dataForm.fields) {
+                    val v = field.variable?.lowercase(Locale.getDefault()) ?: ""
+                    if (v == "ocr" || v == "captcha" || v == "challenge" || v == "url-data") {
+                        captchaVar = field.variable
+                        isCaptchaRequired = true
+                    }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Query registration IQ form note: ${e.message}")
             }
 
-            if (!oobRedirectUrl.isNullOrBlank()) {
-                Log.i(TAG, "Server $cleanDomain requested OOB web registration redirect: $oobRedirectUrl")
-                try { tempConnection.disconnect() } catch (_: Exception) {}
-                return@withContext Result.failure(Exception("Server $cleanDomain mengarahkan registrasi ke Portal Web resmi (XEP-0077 OOB): $oobRedirectUrl"))
-            }
+            val bobImageBytes = XmppBobManager.extractBytesFromStanza(responseXml)
+            val captchaImageUrl = if (genericUrlMatch != null && (genericUrlMatch.endsWith(".png") || genericUrlMatch.endsWith(".jpg") || genericUrlMatch.contains("captcha", ignoreCase = true))) {
+                genericUrlMatch
+            } else null
 
-            Log.d(TAG, "Registration IQ Response XML for $cleanDomain: $iqResponseXml")
-
-            // Step 1B: Check for CAPTCHA challenge (XEP-0158) & Bits of Binary (XEP-0231 urn:xmpp:bob)
-            val captchaImageBytes = XmppBobManager.extractBytesFromStanza(iqResponseXml)
-            if (captchaImageBytes != null) {
-                Log.i(TAG, "Extracted Bits of Binary (XEP-0231) CAPTCHA image bytes: ${captchaImageBytes.size} bytes")
-            }
-
-            var captchaImageUrl: String? = null
-
-
-            if (captchaImageBytes == null) {
-                val mediaUrlRegex = Regex("""https?://[^\s<"]+(?:captcha|ocr|challenge|bob)[^\s<"]*""", RegexOption.IGNORE_CASE)
-                captchaImageUrl = mediaUrlRegex.find(iqResponseXml)?.value?.trim()
-            }
-
-            val challengeVar = if (iqResponseXml.contains("var='challenge'") || iqResponseXml.contains("var=\"challenge\"")) "challenge" else "ocr"
-
-            if (captchaImageBytes != null || !captchaImageUrl.isNullOrBlank()) {
-                val challenge = CaptchaChallengeData(
+            if (isCaptchaRequired || bobImageBytes != null || !captchaImageUrl.isNullOrBlank() || responseXml.contains("urn:xmpp:captcha", ignoreCase = true)) {
+                val captchaData = CaptchaChallengeData(
                     domain = cleanDomain,
                     username = cleanUser,
                     password = password,
                     host = cleanHost,
                     port = port,
-                    email = email,
                     nickname = nickname,
+                    email = email,
                     useTls = useTls,
-                    challengeVar = challengeVar,
-                    captchaImageBytes = captchaImageBytes,
+                    challengeVar = captchaVar,
+                    captchaImageBytes = bobImageBytes,
                     captchaImageUrl = captchaImageUrl
                 )
-                Log.i(TAG, "CAPTCHA challenge detected for domain $cleanDomain (Bits of Binary / XEP-0158). Interrupting flow for user verification.")
-                try { tempConnection.disconnect() } catch (_: Exception) {}
-                return@withContext Result.failure(CaptchaRequiredException(challenge))
+                throw CaptchaRequiredException(captchaData)
             }
 
-            // Step 2: If server returned DataForm (XEP-0077 DataForms / Conversations style), submit DataForm dynamically
-            if (serverDataForm != null) {
-                try {
-                    Log.i(TAG, "Server $cleanDomain returned DataForm for registration. Dynamically building XEP-0077 DataForm...")
-                    val submitReg = org.jivesoftware.smackx.iqregister.packet.Registration()
-                    submitReg.type = org.jivesoftware.smack.packet.IQ.Type.set
-                    submitReg.to = JidCreate.from(cleanDomain)
-
-                    val formBuilder = org.jivesoftware.smackx.xdata.packet.DataForm.builder(org.jivesoftware.smackx.xdata.packet.DataForm.Type.submit)
-
-                    // Map all fields from the server form dynamically
-                    for (field in serverDataForm.fields) {
-                        val varName = field.variable ?: continue
-                        val fB = org.jivesoftware.smackx.xdata.FormField.builder(varName)
-                        when (varName.lowercase()) {
-                            "username" -> fB.setValue(cleanUser)
-                            "password" -> fB.setValue(password)
-                            "email" -> if (email.isNotBlank()) fB.setValue(email.trim()) else { field.values.firstOrNull()?.let { fB.setValue(it) } }
-                            "name", "given", "nick", "nickname" -> if (nickname.isNotBlank()) fB.setValue(nickname.trim()) else { field.values.firstOrNull()?.let { fB.setValue(it) } }
-                            "form_type" -> fB.setValue("jabber:iq:register")
-                            else -> {
-                                for (valItem in field.values) {
-                                    fB.addValue(valItem)
-                                }
-                            }
-                        }
-                        formBuilder.addField(fB.build())
-                    }
-
-                    // Guarantee core fields if missing from server field list
-                    if (serverDataForm.getField("username") == null) {
-                        formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("username").setValue(cleanUser).build())
-                    }
-                    if (serverDataForm.getField("password") == null) {
-                        formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("password").setValue(password).build())
-                    }
-
-                    val submitForm = formBuilder.build()
-                    submitReg.addExtension(submitForm)
-
-                    val submitCollector = tempConnection.createStanzaCollectorAndSend(submitReg)
-                    submitCollector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
-                    registrationSuccess = true
-                    Log.i(TAG, "Registrasi via DataForm (XEP-0077) berhasil di server $cleanDomain")
-                } catch (dfErr: Exception) {
-                    Log.w(TAG, "DataForm registration attempt failed: ${dfErr.message}, falling back to AccountManager...")
-                }
-            }
-
-            // Step 3: Fallback to AccountManager (Try username & password first)
-            if (!registrationSuccess) {
-                val attributes = mutableMapOf<String, String>()
-                if (nickname.isNotBlank()) attributes["name"] = nickname.trim()
-                if (email.isNotBlank()) attributes["email"] = email.trim()
-
-                try {
-                    // Primary attempt: Username & Password strictly (most compatible with all XMPP servers)
-                    accountManager.createAccount(localpart, password)
-                    registrationSuccess = true
-                    Log.i(TAG, "Registrasi standar (username & password) berhasil di server $cleanDomain")
-                } catch (e: XMPPException.XMPPErrorException) {
-                    val condition = e.stanzaError?.condition?.toString()
-                    Log.w(TAG, "Standard registration with username/password returned condition: $condition")
-                    if (attributes.isNotEmpty()) {
-                        try {
-                            Log.i(TAG, "Retrying registration with extra attributes...")
-                            accountManager.createAccount(localpart, password, attributes)
-                            registrationSuccess = true
-                        } catch (_: Exception) {
-                            throw e
-                        }
-                    } else {
-                        throw e
-                    }
-                }
-            }
+            val localpart = Localpart.from(cleanUser)
+            val attributes = mutableMapOf<String, String>()
+            if (email.isNotBlank()) attributes["email"] = email
+            if (nickname.isNotBlank()) attributes["name"] = nickname
 
             try {
-                tempConnection.disconnect()
-            } catch (_: Exception) {}
-
-            val registeredJid = "$cleanUser@$cleanDomain"
-            Log.i(TAG, "Registrasi JID nyata berhasil dibuat di server: $registeredJid")
-            Result.success(registeredJid)
-        } catch (e: XMPPException.XMPPErrorException) {
-            val stanzaXml = e.stanzaError?.toXML()?.toString() ?: ""
-            val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
-            val oobUrl = oobRegex.find(stanzaXml)?.groupValues?.get(1)?.trim()
-                ?: Regex("""https?://[^\s<"]+(?:register|account|signup|verify|captcha)[^\s<"]*""", RegexOption.IGNORE_CASE).find(stanzaXml)?.value?.trim()
-            
-            val condition = e.stanzaError?.condition?.toString()
-            val descriptiveText = e.stanzaError?.descriptiveText
-
-            val redirectUrl = when {
-                !oobUrl.isNullOrBlank() -> oobUrl
-                condition == "not-allowed" || condition == "forbidden" || condition == "not-acceptable" -> {
-                    when {
-                        domain.contains("xmpp.jp", ignoreCase = true) -> "https://xmpp.jp/signup"
-                        domain.contains("conversations.im", ignoreCase = true) -> "https://conversations.im/account/"
-                        domain.contains("trashserver.net", ignoreCase = true) -> "https://trashserver.net/register/"
-                        domain.contains("jabber.at", ignoreCase = true) -> "https://jabber.at/account/register"
-                        else -> "https://$domain"
-                    }
-                }
-                else -> null
-            }
-
-            val errorMsg = when {
-                !oobUrl.isNullOrBlank() ->
-                    "Server $domain mengarahkan registrasi ke Portal Web resmi (XEP-0077 OOB): $oobUrl"
-                condition == "conflict" ->
-                    "Username '$username' sudah digunakan di server $domain. Silakan pilih username lain."
-                condition == "not-allowed" || condition == "forbidden" ->
-                    "Server $domain membatasi pendaftaran langsung via TCP (kebijakan anti-spam server). Mengalihkan ke Portal Web..."
-                condition == "not-acceptable" ->
-                    "Server $domain membutuhkan penyelesaian Captcha atau verifikasi tambahan. Mengalihkan ke Portal Web..."
-                condition == "bad-request" ->
-                    "Server $domain menolak format pendaftaran (membutuhkan verifikasi Captcha/Web atau format password tidak sesuai)."
-                condition == "resource-constraint" ->
-                    "Server $domain membatasi pendaftaran baru (rate limit IP). Coba beberapa saat lagi atau gunakan Portal Web."
-                else ->
-                    if (!descriptiveText.isNullOrBlank()) descriptiveText else "Server $domain menolak pendaftaran (Stanza error: ${condition ?: "unknown"})."
-            }
-            Log.e(TAG, "Registration failed with stanza error: $errorMsg", e)
-            try { tempConnection?.disconnect() } catch (_: Exception) {}
-
-            if (redirectUrl != null) {
-                Result.failure(RegistrationRedirectException(redirectUrl, errorMsg))
-            } else {
-                Result.failure(Exception(errorMsg))
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register JID account: ${e.message}", e)
-            try { tempConnection?.disconnect() } catch (_: Exception) {}
-            val errText = e.message ?: ""
-            val fallbackMsg = when {
-                errText.contains("NX_DOMAIN", ignoreCase = true) || errText.contains("UnknownHost", ignoreCase = true) || errText.contains("ResolutionUnsuccessfulException", ignoreCase = true) ->
-                    "Domain '$domain' tidak ditemukan di internet. Mohon periksa ejaan domain Anda (contoh: conversations.im, xmpp.jp, trashserver.net)."
-                errText.contains("EndpointConnectionException", ignoreCase = true) || errText.contains("Connection refused", ignoreCase = true) ->
-                    "Gagal terhubung ke $domain:$port. Server mungkin sedang offline atau port diblokir."
-                else ->
-                    e.localizedMessage?.ifBlank { null } ?: "Gagal terhubung ke server $domain untuk registrasi. Pastikan domain aktif dan coba server lain."
-            }
-            Result.failure(Exception(fallbackMsg))
-        }
-    }
-
-    /**
-     * Queries software version (XEP-0092) and disco info (XEP-0030) from a target JID.
-     */
-    suspend fun querySoftwareVersion(targetJid: String): Result<com.ndregil.inchat.data.model.ClientCaps> = withContext(Dispatchers.IO) {
-        val conn = tcpConnection
-        if (conn == null || !conn.isAuthenticated) {
-            return@withContext Result.failure(IllegalStateException("Koneksi XMPP belum terhubung."))
-        }
-
-        try {
-            val fullInputJid = JidCreate.from(targetJid.trim())
-            val bareJidObj = fullInputJid.asBareJid()
-            val bareJidStr = bareJidObj.toString()
-            
-            // Collect candidate JIDs:
-            // CRITICAL: If targetJid has a resource (e.g. occupant room@conf/nick or user@domain/res), ONLY query that specific full JID.
-            // DO NOT fall back to bare JID (room/server JID), because querying room JIDs returns room server info!
-            val candidateJids = mutableListOf<org.jxmpp.jid.Jid>()
-            if (fullInputJid.hasResource()) {
-                candidateJids.add(fullInputJid)
-            } else {
-                try {
-                    val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
-                    val entityBareJid = bareJidObj.asEntityBareJidIfPossible()
-                    if (entityBareJid != null) {
-                        val presences = roster.getPresences(entityBareJid)
-                        for (p in presences) {
-                            val fromJid = p.from
-                            if (fromJid != null && fromJid.hasResource()) {
-                                if (!candidateJids.contains(fromJid)) {
-                                    candidateJids.add(fromJid)
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Could not fetch presences for $targetJid: ${e.message}")
-                }
-                if (candidateJids.isEmpty()) {
-                    candidateJids.add(bareJidObj)
-                }
-            }
-
-            val versionManager = VersionManager.getInstanceFor(conn)
-            val discoManager = org.jivesoftware.smackx.disco.ServiceDiscoveryManager.getInstanceFor(conn)
-            
-            var softwareName = ""
-            var versionStr = ""
-            var osStr = ""
-            val featuresList = mutableListOf<String>()
-            var querySucceeded = false
-            var capsPair: Pair<String, String>? = null
-
-            // Try candidate JIDs for XEP-0092 and XEP-0030
-            for (jid in candidateJids) {
-                // Try XEP-0092 Version
-                try {
-                    val verPacket = versionManager.getVersion(jid)
-                    if (verPacket != null) {
-                        softwareName = verPacket.name?.trim() ?: ""
-                        versionStr = verPacket.version?.trim() ?: ""
-                        osStr = verPacket.os?.trim() ?: ""
-                        if (softwareName.isNotBlank() || versionStr.isNotBlank()) {
-                            querySucceeded = true
-                            break
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Version query failed for $jid: ${e.message}")
-                }
-
-                // Try XEP-0030 Disco Info
-                try {
-                    val info = discoManager.discoverInfo(jid)
-                    info.features.forEach { f ->
-                        if (!featuresList.contains(f.`var`)) {
-                            featuresList.add(f.`var`)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Disco info query failed for $jid: ${e.message}")
-                }
-            }
-
-            // Check presence Caps extension (XEP-0115)
-            try {
-                var presence: org.jivesoftware.smack.packet.Presence? = null
+                // Attempt 1: Minimal registration
+                Log.d(TAG, "Attempting minimal registration for $localpart")
+                accountManager.createAccount(localpart, password, mutableMapOf())
+            } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+                val errXml = e.stanzaError?.toXML()?.toString() ?: ""
+                Log.w(TAG, "Minimal registration failed. Error stanza XML: $errXml", e)
                 
-                // 1. Try Roster (for normal contacts)
-                val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
-                val entityBareJid = bareJidObj.asEntityBareJidIfPossible()
-                if (entityBareJid != null) {
-                    presence = roster.getPresence(entityBareJid)
-                }
-                
-                // 2. Try MUC (for room occupants)
-                if (presence == null && fullInputJid.hasResource()) {
-                    try {
-                        val smackMucManager = org.jivesoftware.smackx.muc.MultiUserChatManager.getInstanceFor(conn)
-                        val entityFullJid = fullInputJid.asEntityFullJidIfPossible()
-                        if (entityFullJid != null) {
-                            val muc = smackMucManager.getMultiUserChat(entityFullJid.asEntityBareJid())
-                            presence = muc.getOccupantPresence(entityFullJid)
-                        }
-                    } catch (e: Exception) {
-                        // Not a MUC or not in the room
-                    }
+                if (e.stanzaError.condition == StanzaError.Condition.not_allowed) {
+                    throw RegistrationNotAllowedException("Server $cleanDomain menolak pendaftaran langsung (In-Band Registration ditutup). Silakan coba server lain seperti xmpp.jp atau trashserver.net.")
                 }
 
-                capsPair = ClientRegistryManager.extractCapsFromPresence(presence)
-            } catch (e: Exception) {
-                Log.d(TAG, "Failed to get presence caps for $targetJid: ${e.message}")
+                // Check if error stanza contains CAPTCHA challenge
+                val errBobBytes = XmppBobManager.extractBytesFromStanza(errXml)
+                if (errBobBytes != null || errXml.contains("captcha", ignoreCase = true) || errXml.contains("ocr", ignoreCase = true)) {
+                    val captchaData = CaptchaChallengeData(
+                        domain = cleanDomain,
+                        username = cleanUser,
+                        password = password,
+                        host = cleanHost,
+                        port = port,
+                        nickname = nickname,
+                        email = email,
+                        useTls = useTls,
+                        challengeVar = captchaVar,
+                        captchaImageBytes = errBobBytes
+                    )
+                    throw CaptchaRequiredException(captchaData)
+                }
+
+                // Attempt 2: Registration with attributes
+                try {
+                    accountManager.createAccount(localpart, password, attributes)
+                } catch (e2: Exception) {
+                    Log.w(TAG, "Attribute registration failed: ${e2.message}", e2)
+                    throw e2
+                }
             }
 
-            if (!querySucceeded && softwareName.isBlank() && versionStr.isBlank()) {
-                return@withContext Result.failure(Exception("Klien tidak merespons atau tidak mengijinkan query versi (XEP-0092)."))
-            }
-
-            val nickname = if (fullInputJid.hasResource()) fullInputJid.resourceOrNull?.toString() else null
-            val finalName = if (softwareName.isNotBlank()) softwareName else (nickname ?: bareJidStr.substringBefore("@"))
-            val finalVersion = versionStr.ifBlank { "-" }
-            val finalOs = osStr.ifBlank { "-" }
-
-            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = finalName,
-                jid = targetJid,
-                node = capsPair?.first ?: "",
-                ver = capsPair?.second ?: "",
-                hash = "sha-1",
-                version = finalVersion,
-                os = finalOs
-            ).copy(
-                features = featuresList.ifEmpty { listOf() }
-            )
-
-            Log.i(TAG, "Successfully resolved client version for $targetJid: ${caps.clientName} v${caps.version} (os: ${caps.os})")
-            Result.success(caps)
+            try { tempConnection.disconnect() } catch (_: Exception) {}
+            Result.success("$cleanUser@$cleanDomain")
         } catch (e: Exception) {
-            Log.w(TAG, "Version query failed for $targetJid: ${e.message}")
+            if (e is CaptchaRequiredException || e is RegistrationNotAllowedException) {
+                Log.d(TAG, "Registration expected flow: ${e.javaClass.simpleName} - ${e.message}")
+            } else {
+                Log.e(TAG, "Registration final failure: ${e.message}", e)
+            }
+            try { tempConnection?.disconnect() } catch (_: Exception) {}
             Result.failure(e)
         }
     }
 
-    /**
-     * Submits a solved CAPTCHA challenge (XEP-0158) back to the XMPP server via DataForm.
-     */
+    suspend fun querySoftwareVersion(targetJid: String): Result<com.ndregil.inchat.data.model.ClientCaps> = withContext(Dispatchers.IO) {
+        val conn = tcpConnection ?: return@withContext Result.failure(Exception("Disconnected"))
+        try {
+            val fullJid = JidCreate.from(targetJid.trim())
+            val versionManager = VersionManager.getInstanceFor(conn)
+            val version = versionManager.getVersion(fullJid)
+            
+            if (version == null) return@withContext Result.failure(Exception("No version info"))
+            
+            val caps = com.ndregil.inchat.data.model.ClientCaps(
+                clientName = version.name ?: "Unknown",
+                version = version.version ?: "Unknown",
+                os = version.os ?: "Unknown"
+            )
+            Result.success(caps)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun submitCaptchaAnswer(
         challenge: CaptchaChallengeData,
         captchaAnswer: String
     ): Result<String> = withContext(Dispatchers.IO) {
         var tempConnection: XMPPTCPConnection? = null
         try {
-            val configBuilder = XMPPTCPConnectionConfiguration.builder()
+            val config = XMPPTCPConnectionConfiguration.builder()
                 .setXmppDomain(JidCreate.domainBareFrom(challenge.domain))
                 .setHost(challenge.host.ifBlank { challenge.domain })
                 .setPort(challenge.port)
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                .setSecurityMode(
-                    if (challenge.useTls) ConnectionConfiguration.SecurityMode.required
-                    else ConnectionConfiguration.SecurityMode.disabled
-                )
+                .setSecurityMode(if (challenge.useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.disabled)
+                .build()
 
-            val config = configBuilder.build()
             tempConnection = XMPPTCPConnection(config)
             tempConnection.connect()
 
-            val submitReg = org.jivesoftware.smackx.iqregister.packet.Registration()
+            val attributes = mutableMapOf<String, String>()
+            attributes["username"] = challenge.username
+            attributes["password"] = challenge.password
+            attributes[challenge.challengeVar] = captchaAnswer.trim()
+            if (challenge.email.isNotBlank()) attributes["email"] = challenge.email.trim()
+            if (challenge.nickname.isNotBlank()) attributes["name"] = challenge.nickname.trim()
+
+            val submitReg = org.jivesoftware.smackx.iqregister.packet.Registration(attributes)
             submitReg.type = org.jivesoftware.smack.packet.IQ.Type.set
             submitReg.to = JidCreate.from(challenge.domain)
 
             val formBuilder = org.jivesoftware.smackx.xdata.packet.DataForm.builder(org.jivesoftware.smackx.xdata.packet.DataForm.Type.submit)
-            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("FORM_TYPE").setValue("jabber:iq:register").build())
+            formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("FORM_TYPE").setValue("urn:xmpp:captcha").build())
             formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("username").setValue(challenge.username).build())
             formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("password").setValue(challenge.password).build())
             formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder(challenge.challengeVar).setValue(captchaAnswer.trim()).build())
-
             if (challenge.email.isNotBlank()) {
                 formBuilder.addField(org.jivesoftware.smackx.xdata.FormField.builder("email").setValue(challenge.email.trim()).build())
             }
@@ -1053,34 +659,48 @@ class XmppConnectionManager(
 
             submitReg.addExtension(formBuilder.build())
 
-            val collector = tempConnection.createStanzaCollectorAndSend(submitReg)
-            collector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+            val collector = tempConnection.createStanzaCollector(
+                org.jivesoftware.smack.filter.StanzaIdFilter(submitReg.stanzaId)
+            )
+            try {
+                tempConnection.sendStanza(submitReg)
+                collector.nextResultOrThrow<org.jivesoftware.smack.packet.Stanza>()
+            } catch (e: Exception) {
+                Log.w(TAG, "IQ DataForm submit failed (${e.message}), trying AccountManager with attributes", e)
+                val accountManager = AccountManager.getInstance(tempConnection)
+                accountManager.sensitiveOperationOverInsecureConnection(true)
+                try {
+                    accountManager.createAccount(Localpart.from(challenge.username), challenge.password, attributes)
+                } catch (e2: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+                    if (e2.stanzaError.condition == StanzaError.Condition.not_allowed) {
+                        throw RegistrationNotAllowedException("Server ${challenge.domain} menolak pendaftaran langsung. Silakan coba server lain seperti xmpp.jp atau trashserver.net.")
+                    }
+                    throw e2
+                }
+            } finally {
+                collector.cancel()
+            }
 
             try { tempConnection.disconnect() } catch (_: Exception) {}
-
-            val registeredJid = "${challenge.username}@${challenge.domain}"
-            Log.i(TAG, "Registrasi dengan CAPTCHA (XEP-0158) berhasil: $registeredJid")
-            Result.success(registeredJid)
+            Result.success("${challenge.username}@${challenge.domain}")
         } catch (e: Exception) {
-            Log.e(TAG, "Gagal mengirim jawaban CAPTCHA: ${e.message}", e)
+            if (e is RegistrationNotAllowedException) {
+                Log.d(TAG, "Captcha submit expected error: ${e.message}")
+            } else {
+                Log.e(TAG, "Captcha answer submission failed: ${e.message}", e)
+            }
             try { tempConnection?.disconnect() } catch (_: Exception) {}
-            Result.failure(Exception("Jawaban CAPTCHA salah atau ditolak server: ${e.localizedMessage ?: "Unknown error"}"))
+            Result.failure(e)
         }
     }
 
-    /**
-     * Internal safe cleanup of TCP socket and listeners without throwing exceptions.
-     */
     private fun safeDisconnectInternal() {
         try {
             tcpConnection?.let { conn ->
                 conn.removeConnectionListener(smackConnectionListener)
-                if (conn.isConnected) {
-                    conn.disconnect()
-                }
+                if (conn.isConnected) conn.disconnect()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Exception during Smack disconnect: ${e.message}")
         } finally {
             tcpConnection = null
             mucManager = null
@@ -1103,7 +723,5 @@ data class CaptchaChallengeData(
     val captchaImageUrl: String? = null
 )
 
-class CaptchaRequiredException(val challenge: CaptchaChallengeData) : Exception("Server ${challenge.domain} memerlukan verifikasi CAPTCHA (XEP-0158).")
-
-class RegistrationRedirectException(val url: String, override val message: String) : Exception(message)
-
+class CaptchaRequiredException(val challenge: CaptchaChallengeData) : Exception("Captcha required")
+class RegistrationNotAllowedException(override val message: String) : Exception(message)

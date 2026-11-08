@@ -98,6 +98,9 @@ class XmppKeepAliveWorker(context: Context, params: WorkerParameters) : Coroutin
                 // Keep the worker alive indefinitely until cancelled
                 delay(60 * 1000L) // check every minute
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            Log.d(TAG, "Worker cancelled: ${e.message}")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Worker interrupted", e)
             monitorJob.cancel()
