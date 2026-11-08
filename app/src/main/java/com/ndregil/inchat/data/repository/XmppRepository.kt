@@ -1607,6 +1607,11 @@ class XmppRepository(
         return smackConnectionManager.querySoftwareVersion(targetJid)
     }
 
+    suspend fun loadVCard(targetJid: String): org.jivesoftware.smackx.vcardtemp.packet.VCard? {
+        return smackConnectionManager.loadVCard(targetJid)
+    }
+
+
     suspend fun sendWhisper(roomJid: String, targetNickname: String, text: String, myNickname: String) {
         // If Smack MUC is connected and room joined, send whisper via Smack
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {

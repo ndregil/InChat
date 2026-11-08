@@ -153,6 +153,7 @@ fun MessageBubble(
     onSenderClick: (String) -> Unit = {},
     onReplyClick: (XmppMessage) -> Unit = {},
     onQuoteClick: (XmppMessage) -> Unit = {},
+    onWhisperClick: (XmppMessage) -> Unit = {},
     onMentionClick: (String) -> Unit = {},
     onQuerySoftwareVersion: ((targetJid: String, onResult: (Result<com.ndregil.inchat.data.model.ClientCaps>) -> Unit) -> Unit)? = null,
     bubbleTheme: String = "dregil-theme",
@@ -289,6 +290,140 @@ fun MessageBubble(
                             .testTag("caps_icon_msg_${message.id}"),
                         contentDescription = "Caps: ${message.senderClientCaps.clientName}"
                     )
+
+                    Spacer(modifier = Modifier.width(2.dp))
+
+                    // Reply Button
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onReplyClick(message) }
+                            .testTag("btn_reply_msg_${message.id}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Reply,
+                                contentDescription = "Balas Pesan",
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "Reply",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Quote Button
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onQuoteClick(message) }
+                            .testTag("btn_quote_msg_${message.id}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FormatQuote,
+                                contentDescription = "Kutip Pesan",
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "Quote",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+
+                    // Private Message / Whisper Button (Pesan Pribadi)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
+                        border = BorderStroke(0.7.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onWhisperClick(message) }
+                            .testTag("btn_whisper_msg_${message.id}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Pesan Pribadi / Bisikan",
+                                modifier = Modifier.size(10.dp),
+                                tint = Color(0xFFA855F7)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "Pribadi",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFA855F7)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // For own messages, show quick quote / reply options as well
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(bottom = 2.dp, end = 4.dp)
+                ) {
+                    ClientCapsIcon(
+                        platform = message.senderClientCaps.platform,
+                        clientCaps = message.senderClientCaps,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .clickable { showCapsDialog = true },
+                        contentDescription = "Caps Saya"
+                    )
+
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onQuoteClick(message) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FormatQuote,
+                                contentDescription = "Kutip Pesan Sendiri",
+                                modifier = Modifier.size(11.dp),
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "Quote",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
                 }
             }
 

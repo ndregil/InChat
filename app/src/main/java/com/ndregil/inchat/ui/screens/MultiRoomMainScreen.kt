@@ -101,6 +101,7 @@ import com.ndregil.inchat.data.model.XmppMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge as M3Badge
+import androidx.compose.material3.HorizontalDivider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -232,6 +233,9 @@ fun MultiRoomMainScreen(
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
 
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
+    var selectedOccupantForMenu by remember { mutableStateOf<RoomOccupant?>(null) }
+    var selectedProfileOccupant by remember { mutableStateOf<Pair<RoomOccupant, org.jivesoftware.smackx.vcardtemp.packet.VCard?>?>(null) }
+    var isLoadingProfile by remember { mutableStateOf(false) }
     val roomPagerState = rememberPagerState(initialPage = 0) { displayedRooms.size + 1 }
 
 
@@ -667,20 +671,13 @@ fun MultiRoomMainScreen(
                     // Multi-Room Chat View with dynamic horizontal multi-room switcher tabs
                     // Page 0 = Room List, Page 1..N = Active Rooms
                     
-                    LaunchedEffect(activeRoom?.jid, displayedRooms) {
-                        val index = displayedRooms.indexOfFirst { it.jid == activeRoom?.jid }
+                    LaunchedEffect(activeRoom?.jid, displayedRooms.map { it.jid }) {
+                        val activeJid = activeRoom?.jid ?: return@LaunchedEffect
+                        val index = displayedRooms.indexOfFirst { it.jid == activeJid }
                         if (index >= 0) {
-                            if (roomPagerState.currentPage != index + 1) {
-                                roomPagerState.animateScrollToPage(index + 1)
-                            }
-                        }
-                    }
-
-                    LaunchedEffect(roomPagerState.currentPage) {
-                        if (roomPagerState.currentPage > 0) {
-                            val room = displayedRooms.getOrNull(roomPagerState.currentPage - 1)
-                            if (room != null && room.jid != activeRoom?.jid) {
-                                viewModel.selectRoom(room.jid)
+                            val targetPage = index + 1
+                            if (roomPagerState.currentPage != targetPage) {
+                                roomPagerState.scrollToPage(targetPage)
                             }
                         }
                     }
@@ -694,7 +691,7 @@ fun MultiRoomMainScreen(
                     HorizontalPager(
                         state = roomPagerState,
                         modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = roomPagerState.currentPage == 0
+                        userScrollEnabled = false
                     ) { page ->
                         if (page == 0) {
                             // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
@@ -805,8 +802,7 @@ fun MultiRoomMainScreen(
                                     RoomOccupantsCapsBar(
                                         occupants = occupants,
                                         onOccupantClick = { occ -> 
-                                            selectedCapsOccupant = occ
-                                            viewModel.setWhisperTarget(occ)
+                                            selectedOccupantForMenu = occ
                                         },
                                         onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
                                     )
@@ -842,6 +838,12 @@ fun MultiRoomMainScreen(
                                                         },
                                                         onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
                                                         onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
+                                                        onWhisperClick = { whisperMsg ->
+                                                            val targetNick = whisperMsg.senderNickname
+                                                            val found = occupants.find { it.nickname == targetNick }
+                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = whisperMsg.senderJid)
+                                                            viewModel.setWhisperTarget(found)
+                                                        },
                                                         onMentionClick = { nick -> viewModel.insertMention(nick) },
                                                         onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
                                                         bubbleTheme = room.bubbleTheme ?: "dregil-theme",
@@ -1604,6 +1606,154 @@ fun MultiRoomMainScreen(
     }
 
     // Modal Bottom Sheets & Dialogs
+    if (selectedOccupantForMenu != null) {
+        val occ = selectedOccupantForMenu!!
+        OccupantActionDialog(
+            occupant = occ,
+            roomJid = activeRoom?.jid ?: "",
+            onDismiss = { selectedOccupantForMenu = null },
+            onMention = {
+                viewModel.insertMention(occ.nickname)
+            },
+            onWhisper = {
+                viewModel.setWhisperTarget(occ)
+            },
+            onQueryVersion = {
+                // Open ClientCapsDialog directly for this occupant
+                selectedCapsOccupant = occ
+            },
+            onViewProfile = {
+                // Resolve best JID (fullJid for MUC occupant or realJid/jid)
+                val target = occ.fullJid.ifBlank { occ.jid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/${occ.nickname}" else "" } }
+                if (target.isNotBlank()) {
+                    isLoadingProfile = true
+                    coroutineScope.launch {
+                        val profile = viewModel.repository.loadVCard(target)
+                        isLoadingProfile = false
+                        selectedProfileOccupant = Pair(occ, profile)
+                    }
+                } else {
+                    selectedProfileOccupant = Pair(occ, null)
+                }
+            }
+        )
+    }
+
+    // Loading overlay for profile fetch
+    if (isLoadingProfile) {
+        AlertDialog(
+            onDismissRequest = { isLoadingProfile = false },
+            title = { Text("Memuat Profil...") },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Text("Mengambil data vCard dari server...")
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
+    // Rich Profile Dialog
+    selectedProfileOccupant?.let { (occupant, vCard) ->
+        val effectiveJid = occupant.fullJid.ifBlank { occupant.jid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/${occupant.nickname}" else "" } }
+        val displayName = if (vCard != null) {
+            val nick = vCard.nickName ?: occupant.nickname
+            val first = vCard.firstName ?: ""
+            val last = vCard.lastName ?: ""
+            "$first $last".trim().ifBlank { nick }
+        } else {
+            occupant.nickname
+        }
+        val org = vCard?.organization ?: "-"
+        val email = vCard?.emailHome ?: vCard?.emailWork ?: "-"
+        val avatarBytes = vCard?.avatar ?: occupant.avatar
+
+        AlertDialog(
+            onDismissRequest = { selectedProfileOccupant = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarBytes != null) {
+                            coil.compose.AsyncImage(
+                                model = avatarBytes,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = occupant.nickname.take(1).uppercase(Locale.getDefault()),
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(text = displayName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(text = "@${occupant.nickname}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Status / Presence:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(occupant.statusText.ifBlank { occupant.presence.name }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Peran di Room:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${occupant.role.name} (${occupant.affiliation.name})", style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Organisasi:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(org, style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Email:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(email, style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("JID / Alamat XMPP:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(effectiveJid, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Klien Perangkat:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(occupant.clientCaps.clientName.ifBlank { occupant.clientCaps.platform.name }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { selectedProfileOccupant = null }) {
+                    Text("Tutup")
+                }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     if (isRosterOpen) {
         OccupantRosterSheet(
             occupants = occupants,
@@ -2760,4 +2910,82 @@ private fun isMucJid(jid: String): Boolean {
            domain.contains("muc.", true) || 
            domain.contains("chat.", true) ||
            domain.contains("rooms.", true)
+}
+
+@Composable
+fun OccupantActionDialog(
+    occupant: RoomOccupant,
+    roomJid: String,
+    onDismiss: () -> Unit,
+    onMention: () -> Unit,
+    onWhisper: () -> Unit,
+    onQueryVersion: () -> Unit,
+    onViewProfile: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (occupant.avatar != null) {
+                        coil.compose.AsyncImage(
+                            model = occupant.avatar,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = occupant.nickname.take(1).uppercase(Locale.getDefault()),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(text = occupant.nickname, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(text = occupant.jid.ifBlank { "Anggota Room" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(bottom = 4.dp))
+                
+                DropdownMenuItem(
+                    text = { Text("Mention (@${occupant.nickname})") },
+                    leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onMention(); onDismiss() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Kirim Pesan Pribadi (Bisikan)") },
+                    leadingIcon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onWhisper(); onDismiss() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Cek Versi Klien (XEP-0092)") },
+                    leadingIcon = { Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onQueryVersion(); onDismiss() }
+                )
+                DropdownMenuItem(
+                    text = { Text("Lihat Profil Anggota") },
+                    leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { onViewProfile(); onDismiss() }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Tutup")
+            }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
 }

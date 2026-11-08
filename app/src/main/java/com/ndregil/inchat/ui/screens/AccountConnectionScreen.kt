@@ -449,52 +449,60 @@ fun AccountConnectionScreen(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     var isServerDropdownExpanded by remember { mutableStateOf(false) }
 
+                    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
                     ExposedDropdownMenuBox(
                         expanded = isServerDropdownExpanded,
-                        onExpandedChange = { isServerDropdownExpanded = !isServerDropdownExpanded },
+                        onExpandedChange = {
+                            keyboardController?.hide()
+                            isServerDropdownExpanded = !isServerDropdownExpanded
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         OutlinedTextField(
                             value = regDomain,
-                            onValueChange = {
-                                regDomain = it
-                                regHost = it
-                                regValidationError = null
-                            },
+                            onValueChange = {},
+                            readOnly = true,
                             label = { Text("Pilih Server XMPP (Kategori A)") },
-                            placeholder = { Text("Pilih dari daftar atau ketik domain...") },
+                            placeholder = { Text("Pilih dari daftar server...") },
                             leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isServerDropdownExpanded) },
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                             modifier = Modifier
                                 .menuAnchor()
-                                .fillMaxWidth(),
+                                .fillMaxWidth()
+                                .clickable {
+                                    keyboardController?.hide()
+                                    isServerDropdownExpanded = !isServerDropdownExpanded
+                                },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
                         )
 
                         ExposedDropdownMenu(
                             expanded = isServerDropdownExpanded,
-                            onDismissRequest = { isServerDropdownExpanded = false }
+                            onDismissRequest = { isServerDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             PROVIDERS_A_INBAND.forEach { item ->
                                 DropdownMenuItem(
                                     text = {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Text(item.domain, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                            Spacer(Modifier.width(16.dp))
+                                            Text(item.domain, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                            Spacer(Modifier.width(24.dp))
                                             Text(
                                                 text = item.description,
-                                                fontSize = 11.sp,
+                                                fontSize = 12.sp,
                                                 color = if (item.requiresCaptcha) MaterialTheme.colorScheme.onSurfaceVariant else OnlineGreen
                                             )
                                         }
                                     },
                                     onClick = {
+                                        keyboardController?.hide()
                                         regDomain = item.domain
                                         regHost = item.domain
                                         regValidationError = null

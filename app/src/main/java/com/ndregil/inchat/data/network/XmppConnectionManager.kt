@@ -600,11 +600,12 @@ class XmppConnectionManager(
     suspend fun querySoftwareVersion(targetJid: String): Result<com.ndregil.inchat.data.model.ClientCaps> = withContext(Dispatchers.IO) {
         val conn = tcpConnection ?: return@withContext Result.failure(Exception("Disconnected"))
         try {
-            val fullJid = JidCreate.from(targetJid.trim())
+            val jidStr = targetJid.trim()
+            val jid = JidCreate.from(jidStr)
             val versionManager = VersionManager.getInstanceFor(conn)
-            val version = versionManager.getVersion(fullJid)
+            val version = versionManager.getVersion(jid)
             
-            if (version == null) return@withContext Result.failure(Exception("No version info"))
+            if (version == null) return@withContext Result.failure(Exception("Tidak ada info versi dari user"))
             
             val caps = com.ndregil.inchat.data.model.ClientCaps(
                 clientName = version.name ?: "Unknown",
@@ -613,9 +614,60 @@ class XmppConnectionManager(
             )
             Result.success(caps)
         } catch (e: Exception) {
+            Log.e(TAG, "querySoftwareVersion failed for $targetJid: ${e.message}")
             Result.failure(e)
         }
     }
+
+    suspend fun loadVCard(targetJid: String): org.jivesoftware.smackx.vcardtemp.packet.VCard? = withContext(Dispatchers.IO) {
+        val conn = tcpConnection ?: return@withContext null
+        try {
+            val cleanJid = targetJid.trim()
+            val jidObj = JidCreate.from(cleanJid)
+
+            // 1. If it has resource or is a MUC occupant JID, query via raw VCard IQ directly to the full JID
+            if (jidObj.hasResource()) {
+                try {
+                    val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
+                    vcardIq.to = jidObj
+                    vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.get
+                    val res = conn.sendIqRequestAndWaitForResponse<org.jivesoftware.smackx.vcardtemp.packet.VCard>(vcardIq)
+                    if (res != null) return@withContext res
+                } catch (e: Exception) {
+                    Log.d(TAG, "Direct vCard IQ to $cleanJid failed: ${e.message}")
+                }
+            }
+
+            // 2. Query via VCardManager using bare JID
+            val bare = jidObj.asEntityBareJidIfPossible()
+            if (bare != null) {
+                try {
+                    val vCardManager = org.jivesoftware.smackx.vcardtemp.VCardManager.getInstanceFor(conn)
+                    val vCard = vCardManager.loadVCard(bare)
+                    if (vCard != null) return@withContext vCard
+                } catch (e: Exception) {
+                    Log.d(TAG, "vCardManager for $bare failed: ${e.message}")
+                }
+            }
+
+            // 3. Fallback: try raw VCard IQ to bare JID
+            try {
+                val vcardIq = org.jivesoftware.smackx.vcardtemp.packet.VCard()
+                vcardIq.to = jidObj.asBareJid()
+                vcardIq.type = org.jivesoftware.smack.packet.IQ.Type.get
+                val res = conn.sendIqRequestAndWaitForResponse<org.jivesoftware.smackx.vcardtemp.packet.VCard>(vcardIq)
+                if (res != null) return@withContext res
+            } catch (e: Exception) {
+                Log.d(TAG, "Fallback vCard IQ to bare failed: ${e.message}")
+            }
+
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load vCard for $targetJid: ${e.message}")
+            null
+        }
+    }
+
 
     suspend fun submitCaptchaAnswer(
         challenge: CaptchaChallengeData,
