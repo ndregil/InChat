@@ -1,0 +1,8 @@
+{
+  "name": "InChat",
+  "description": "XMPP based chat application with Multi-User Chat (MUC) support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

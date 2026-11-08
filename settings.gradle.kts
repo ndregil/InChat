@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "XMPP Call"
+rootProject.name = "InChat"
 
 include(":app")
