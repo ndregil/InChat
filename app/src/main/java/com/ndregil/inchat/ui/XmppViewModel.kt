@@ -555,7 +555,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
             val whisperTarget = whisperTargetOccupant.value
             if (whisperTarget != null) {
                 repository.sendWhisper(room.jid, whisperTarget.nickname, trimmed, myNick)
-                whisperTargetOccupant.value = null
+                // Retain whisper target so the private whisper conversation continues smoothly!
             } else {
                 repository.sendMessage(
                     roomJid = room.jid,

@@ -66,7 +66,7 @@ class MultiUserChatManager(
 ) {
     companion object {
         private const val TAG = "MultiUserChatManager"
-        private const val DEFAULT_HISTORY_STANZAS = 50
+        private const val DEFAULT_HISTORY_STANZAS = 30
     }
 
     // Active joined MUC instances mapped by Bare JID string
@@ -1080,7 +1080,13 @@ class MultiUserChatManager(
             onMessageProcessed = { msg ->
                 val senderJid = msg.senderJid
                 val avatar = avatarManager.getAvatar(senderJid)
-                onMessageReceived(msg.copy(senderAvatar = avatar))
+                val cachedCaps = getOccupantCaps(roomJid, msg.senderNickname)
+                val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
+                    cachedCaps
+                } else {
+                    msg.senderClientCaps
+                }
+                onMessageReceived(msg.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             }
         )
         if (muc.addMessageListener(listener)) {
@@ -1101,7 +1107,13 @@ class MultiUserChatManager(
             onMessageProcessed = { xmppMessage ->
                 val senderJid = xmppMessage.senderJid
                 val avatar = avatarManager.getAvatar(senderJid)
-                _incomingMessages.tryEmit(xmppMessage.copy(senderAvatar = avatar))
+                val cachedCaps = getOccupantCaps(roomJid, xmppMessage.senderNickname)
+                val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
+                    cachedCaps
+                } else {
+                    xmppMessage.senderClientCaps
+                }
+                _incomingMessages.tryEmit(xmppMessage.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             },
             onTopicUpdated = { jid, newTopic ->
                 _topicUpdates.tryEmit(Pair(jid, newTopic))

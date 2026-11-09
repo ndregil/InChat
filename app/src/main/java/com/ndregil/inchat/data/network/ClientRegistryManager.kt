@@ -533,15 +533,30 @@ object ClientRegistryManager {
         return null
     }
 
+    fun findDefByName(targetName: String): ClientDefinition? {
+        val cleanTarget = targetName.trim().lowercase()
+        return synchronized(dynamicRegistry) {
+            dynamicRegistry.firstOrNull { it.clientName.lowercase() == cleanTarget }
+        } ?: staticRegistry.firstOrNull { it.clientName.lowercase() == cleanTarget }
+    }
+
     /**
-     * Strictly matches a node URL against clients.txt patterns.
+     * Sensitively matches a node URL against clients.txt patterns and client capabilities.
+     * Handles exact URLs, subdomains, token boundaries, and keyword identifiers (e.g. "http://xmpp.bot.com" -> Jabber Bot).
      */
     fun resolveByNode(node: String): ClientDefinition? {
         val rawClean = node.trim().lowercase()
         if (rawClean.isBlank()) return null
         val cleanNode = rawClean.removePrefix("http://").removePrefix("https://").removeSuffix("/")
+        if (cleanNode.isBlank()) return null
 
-        return dynamicRegistry.firstOrNull { def -> 
+        val host = cleanNode.substringBefore("/").substringBefore("#").substringBefore("?").trim()
+        val path = cleanNode.substringAfter("/", "").substringBefore("#").substringBefore("?").trim()
+
+        val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
+
+        // 1. Direct or prefix match against registered patterns
+        val directMatch = registry.firstOrNull { def -> 
             def.patterns.any { pattern ->
                 val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 if (cleanPattern.isBlank()) return@any false
@@ -558,23 +573,175 @@ object ClientRegistryManager {
                 (cleanNode.contains(".") && cleanPattern.contains(".") && cleanNode.substringBefore(".") == cleanPattern.substringBefore("."))
             } 
         }
+        if (directMatch != null) return directMatch
+
+        // 2. Domain / Subdomain matching (e.g. "xmpp.conversations.im" or "conversations.im")
+        if (host.isNotBlank() && host.contains(".")) {
+            val domainMatch = registry.firstOrNull { def ->
+                def.patterns.any { pattern ->
+                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                    val patternHost = cleanPattern.substringBefore("/").substringBefore("#").substringBefore("?").trim()
+                    patternHost.contains(".") && (host == patternHost || host.endsWith(".$patternHost") || patternHost.endsWith(".$host"))
+                }
+            }
+            if (domainMatch != null) return domainMatch
+        }
+
+        // 3. Priority specialized clients (to avoid shorter/generic tokens shadowing specific client variants)
+        // Bombus variants
+        if (cleanNode.contains("bombusmod-qd") || cleanNode.contains("bombus-qd")) {
+            findDefByName("Bombus-QD")?.let { return it }
+        }
+        if (cleanNode.contains("bombusmod")) {
+            findDefByName("BombusMod")?.let { return it }
+        }
+        if (cleanNode.contains("bombus")) {
+            findDefByName("Bombus")?.let { return it }
+        }
+
+        // Psi variants
+        if (cleanNode.contains("psi-plus") || cleanNode.contains("psi+") || cleanNode.contains("psi_plus")) {
+            findDefByName("Psi+")?.let { return it }
+        }
+        if (cleanNode.contains("psi-im") || cleanNode.contains("psi")) {
+            findDefByName("Psi")?.let { return it }
+        }
+
+        // Miranda variants
+        if (cleanNode.contains("miranda-ng") || cleanNode.contains("miranda_ng")) {
+            findDefByName("Miranda NG")?.let { return it }
+        }
+        if (cleanNode.contains("miranda")) {
+            findDefByName("Miranda")?.let { return it }
+        }
+
+        // Specialized Bots / Transports
+        if (cleanNode.contains("isida-bot") || cleanNode.contains("isida")) {
+            findDefByName("Isida bot")?.let { return it }
+        }
+        if (cleanNode.contains("twitter")) {
+            findDefByName("Twitter bot")?.let { return it }
+        }
+        if (cleanNode.contains("jabrss") || cleanNode.contains("rss")) {
+            findDefByName("RSS Bot")?.let { return it }
+        }
+        if (cleanNode.contains("pyicq")) {
+            findDefByName("PyICQ-t")?.let { return it }
+        }
+
+        // 4. Token & Segment analysis (sensitive matching for host and path components)
+        val tokens = cleanNode.split('.', '/', '#', '?', '&', '-', '_', '+', ':', '@')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        // Jabber Bot sensitivity:
+        // E.g. "http://xmpp.bot.com", "http://bot.xmpp.today/caps", "http://mybot.com", "http://service.net/bot"
+        if (tokens.contains("bot") || host.contains("bot") || path.contains("bot") || cleanNode.contains("bot") || cleanNode.contains("freq")) {
+            findDefByName("Jabber Bot")?.let { return it }
+        }
+
+        // Sensitive check for other known clients
+        if (tokens.contains("conversations") || cleanNode.contains("conversations")) findDefByName("Conversations")?.let { return it }
+        if (tokens.contains("gajim") || cleanNode.contains("gajim")) findDefByName("Gajim")?.let { return it }
+        if (tokens.contains("slixmpp") || cleanNode.contains("slixmpp")) findDefByName("Slixmpp")?.let { return it }
+        if (tokens.contains("yaxim") || cleanNode.contains("yaxim")) findDefByName("Yaxim")?.let { return it }
+        if (tokens.contains("monal") || cleanNode.contains("monal")) findDefByName("Monal IM")?.let { return it }
+        if (tokens.contains("monocles") || cleanNode.contains("monocles")) findDefByName("Monocles")?.let { return it }
+        if (tokens.contains("blabber") || cleanNode.contains("blabber")) findDefByName("Blabber")?.let { return it }
+        if (tokens.contains("cheogram") || cleanNode.contains("cheogram")) findDefByName("Cheogram")?.let { return it }
+        if (tokens.contains("dino") || cleanNode.contains("dino")) findDefByName("Dino")?.let { return it }
+        if (tokens.contains("profanity") || cleanNode.contains("profanity")) findDefByName("Profanity")?.let { return it }
+        if (tokens.contains("mcabber") || cleanNode.contains("mcabber")) findDefByName("Mcabber")?.let { return it }
+        if (tokens.contains("pidgin") || tokens.contains("gaim") || cleanNode.contains("pidgin") || cleanNode.contains("gaim")) findDefByName("Pidgin")?.let { return it }
+        if (tokens.contains("tkabber") || cleanNode.contains("tkabber")) findDefByName("Tkabber")?.let { return it }
+        if (tokens.contains("inchat") || cleanNode.contains("inchat")) findDefByName("InChat")?.let { return it }
+        if (tokens.contains("jtalk") || cleanNode.contains("jtalk")) findDefByName("jTalk")?.let { return it }
+        if (tokens.contains("jimm") || cleanNode.contains("jimm")) findDefByName("Jimm aspro")?.let { return it }
+        if (tokens.contains("kopete") || cleanNode.contains("kopete")) findDefByName("Kopete")?.let { return it }
+        if (tokens.contains("qip") || cleanNode.contains("qip")) findDefByName("Qip")?.let { return it }
+        if (tokens.contains("movim") || cleanNode.contains("movim")) findDefByName("Movim")?.let { return it }
+        if (tokens.contains("poezio") || cleanNode.contains("poezio") || cleanNode.contains("poez.io")) findDefByName("Poezio")?.let { return it }
+        if (tokens.contains("beagle") || cleanNode.contains("beagleim") || cleanNode.contains("beagle")) findDefByName("BeagleIM")?.let { return it }
+        if (tokens.contains("c0nnect") || cleanNode.contains("c0nnect")) findDefByName("c0nnectPRO")?.let { return it }
+        if (tokens.contains("archon") || cleanNode.contains("archon")) findDefByName("Archon")?.let { return it }
+        if (tokens.contains("google") || tokens.contains("gmail") || cleanNode.contains("google") || cleanNode.contains("gmail")) findDefByName("Google")?.let { return it }
+        if (tokens.contains("yandex") || cleanNode.contains("ya.online") || cleanNode.contains("ajabb")) findDefByName("Ya.Online")?.let { return it }
+
+        // 5. Fallback token match across all patterns
+        return registry.firstOrNull { def ->
+            def.patterns.any { p ->
+                val cp = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                cp.length >= 3 && (tokens.contains(cp) || cleanNode.contains(cp))
+            }
+        }
     }
 
     /**
-     * Matches client name against clients.txt patterns without inferring node URI.
+     * Sensitively matches client name against clients.txt patterns and names.
      */
     fun resolveByName(name: String): ClientDefinition? {
         val cleanName = name.trim().lowercase()
         if (cleanName.isBlank() || cleanName == "unknown" || cleanName.contains("@")) return null
 
-        return dynamicRegistry.firstOrNull { def ->
+        val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
+
+        // 1. Direct or pattern exact match
+        registry.firstOrNull { def ->
             def.clientName.lowercase() == cleanName || 
             def.patterns.any { p ->
                 val cp = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 val cpBase = cp.substringBefore("/")
                 cpBase.isNotBlank() && cleanName == cpBase
             }
-        }
+        }?.let { return it }
+
+        // 2. Sensitive token or keyword match
+        val tokens = cleanName.split(' ', '-', '_', '.', '+', '@').filter { it.isNotBlank() }
+
+        // Priority bots & specialized clients first
+        if (tokens.contains("isida") || cleanName.contains("isida")) return findDefByName("Isida bot")
+        if (tokens.contains("twitter") || cleanName.contains("twitter")) return findDefByName("Twitter bot")
+        if (tokens.contains("rss") || cleanName.contains("rss") || cleanName.contains("jabrss")) return findDefByName("RSS Bot")
+        if (tokens.contains("bombusmod-qd") || cleanName.contains("bombus-qd")) return findDefByName("Bombus-QD")
+        if (tokens.contains("bombusmod") || cleanName.contains("bombusmod")) return findDefByName("BombusMod")
+        if (tokens.contains("bombus") || cleanName.contains("bombus")) return findDefByName("Bombus")
+        if (tokens.contains("psi-plus") || cleanName.contains("psi+") || cleanName.contains("psi-plus")) return findDefByName("Psi+")
+        if (tokens.contains("psi") || cleanName.contains("psi")) return findDefByName("Psi")
+        if (tokens.contains("miranda-ng") || cleanName.contains("miranda-ng")) return findDefByName("Miranda NG")
+        if (tokens.contains("miranda") || cleanName.contains("miranda")) return findDefByName("Miranda")
+
+        // Generic bot match:
+        if (tokens.contains("bot") || cleanName.contains("bot")) return findDefByName("Jabber Bot")
+
+        // Priority InChat & common clients
+        if (tokens.contains("inchat") || cleanName.contains("inchat")) return findDefByName("InChat")
+        if (tokens.contains("conversations") || cleanName.contains("conversations")) return findDefByName("Conversations")
+        if (tokens.contains("gajim") || cleanName.contains("gajim")) return findDefByName("Gajim")
+        if (tokens.contains("pidgin") || cleanName.contains("pidgin") || cleanName.contains("gaim")) return findDefByName("Pidgin")
+        if (tokens.contains("monal") || cleanName.contains("monal")) return findDefByName("Monal IM")
+        if (tokens.contains("yaxim") || cleanName.contains("yaxim")) return findDefByName("Yaxim")
+        if (tokens.contains("dino") || cleanName.contains("dino")) return findDefByName("Dino")
+        if (tokens.contains("profanity") || cleanName.contains("profanity")) return findDefByName("Profanity")
+        if (tokens.contains("slixmpp") || cleanName.contains("slixmpp")) return findDefByName("Slixmpp")
+        if (tokens.contains("inchat") || cleanName.contains("inchat")) return findDefByName("InChat")
+        if (tokens.contains("jtalk") || cleanName.contains("jtalk")) return findDefByName("jTalk")
+        if (tokens.contains("blabber") || cleanName.contains("blabber")) return findDefByName("Blabber")
+        if (tokens.contains("monocles") || cleanName.contains("monocles")) return findDefByName("Monocles")
+        if (tokens.contains("cheogram") || cleanName.contains("cheogram")) return findDefByName("Cheogram")
+        if (tokens.contains("movim") || cleanName.contains("movim")) return findDefByName("Movim")
+        if (tokens.contains("poezio") || cleanName.contains("poezio")) return findDefByName("Poezio")
+        if (tokens.contains("tkabber") || cleanName.contains("tkabber")) return findDefByName("Tkabber")
+        if (tokens.contains("mcabber") || cleanName.contains("mcabber")) return findDefByName("Mcabber")
+        if (tokens.contains("qip") || cleanName.contains("qip")) return findDefByName("Qip")
+        if (tokens.contains("kopete") || cleanName.contains("kopete")) return findDefByName("Kopete")
+        if (tokens.contains("jimm") || cleanName.contains("jimm")) return findDefByName("Jimm aspro")
+        if (tokens.contains("beagle") || cleanName.contains("beagle")) return findDefByName("BeagleIM")
+        if (tokens.contains("c0nnect") || cleanName.contains("c0nnect")) return findDefByName("c0nnectPRO")
+        if (tokens.contains("archon") || cleanName.contains("archon")) return findDefByName("Archon")
+        if (tokens.contains("google") || cleanName.contains("google") || cleanName.contains("gmail")) return findDefByName("Google")
+        if (tokens.contains("yandex") || cleanName.contains("ya.online") || cleanName.contains("ajabb")) return findDefByName("Ya.Online")
+
+        return null
     }
 
     /**

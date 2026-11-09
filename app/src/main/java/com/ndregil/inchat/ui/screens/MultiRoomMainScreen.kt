@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.AlternateEmail
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -273,10 +274,28 @@ fun MultiRoomMainScreen(
         }
     }
 
-    // Auto scroll to latest message when messages change
-    LaunchedEffect(messages.size) {
+    // Auto scroll to latest message when active room changes or new messages arrive
+    LaunchedEffect(activeRoom?.jid, messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            listState.scrollToItem(messages.size - 1)
+        }
+    }
+
+    // Reset whisper target when active room changes
+    LaunchedEffect(activeRoom?.jid) {
+        viewModel.setWhisperTarget(null)
+    }
+
+    // Automatically maintain continuous whisper session when incoming whisper arrives
+    LaunchedEffect(messages.lastOrNull()?.id) {
+        val lastMsg = messages.lastOrNull()
+        if (lastMsg != null && lastMsg.messageType == com.ndregil.inchat.data.model.MessageType.WHISPER && !lastMsg.isMine) {
+            val senderNick = lastMsg.senderNickname
+            if (senderNick.isNotBlank()) {
+                val found = occupants.find { it.nickname == senderNick }
+                    ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = senderNick, jid = lastMsg.senderJid)
+                viewModel.setWhisperTarget(found)
+            }
         }
     }
 
@@ -858,33 +877,79 @@ fun MultiRoomMainScreen(
                                     // Whisper Target Banner
                                     AnimatedVisibility(visible = whisperTarget != null) {
                                         whisperTarget?.let { target ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            Surface(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                color = Color(0xFF6D28D9),
+                                                shadowElevation = 2.dp
                                             ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    ClientCapsIcon(
-                                                        platform = target.clientCaps.platform,
-                                                        clientCaps = target.clientCaps,
-                                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                        modifier = Modifier.size(15.dp).clickable { selectedCapsOccupant = target }
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "Mode Bisikan ke @${target.nickname}",
-                                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                                IconButton(onClick = { viewModel.setWhisperTarget(null) }, modifier = Modifier.size(24.dp)) {
-                                                    Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(16.dp))
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Chat,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFDDD6FE),
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        ClientCapsIcon(
+                                                            platform = target.clientCaps.platform,
+                                                            clientCaps = target.clientCaps,
+                                                            tint = Color(0xFFDDD6FE),
+                                                            modifier = Modifier.size(15.dp).clickable { selectedCapsOccupant = target }
+                                                        )
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Column {
+                                                            Text(
+                                                                text = "Percakapan Pribadi Aktif",
+                                                                color = Color(0xFFDDD6FE),
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.Normal
+                                                            )
+                                                            Text(
+                                                                text = "Tertuju ke @${target.nickname}",
+                                                                color = Color.White,
+                                                                fontSize = 13.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Explicit 'Akhiri' (End Whisper) Button
+                                                    Surface(
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color = Color.White.copy(alpha = 0.2f),
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(16.dp))
+                                                            .clickable { viewModel.setWhisperTarget(null) }
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Close,
+                                                                contentDescription = "Akhiri Percakapan Pribadi",
+                                                                tint = Color.White,
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                            Text(
+                                                                text = "Akhiri",
+                                                                color = Color.White,
+                                                                fontSize = 11.sp,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -2648,9 +2713,9 @@ fun ChatInputBar(
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
-                                        text = "Tulis pesan...",
+                                        text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Tulis pesan...",
                                         fontSize = 15.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        color = if (whisperTarget != null) Color(0xFFA855F7).copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
 

@@ -506,14 +506,28 @@ data class ClientCaps(
             val resolvedVersion = cleanVersion.ifBlank { "-" }
             val resolvedOs = cleanOs.ifBlank { "-" }
 
-            // Node URI is strictly taken from clients.txt ONLY if node matched an entry in clients.txt!
-            val resolvedNodeUri = nodeMatch?.canonicalNodeUri ?: ""
+            // Node URI is preserved from node if present or taken from matched definition
+            val resolvedNodeUri = when {
+                cleanNode.isNotBlank() -> cleanNode
+                nodeMatch != null -> nodeMatch.canonicalNodeUri
+                else -> ""
+            }
 
-            // Icon is shown ONLY if node matched clients.txt OR name matched clients.txt!
-            val resolvedIcon = nodeMatch?.iconResId ?: nameMatch?.iconResId
+            // Icon is resolved sensitively: matched node/name, or fallback for bot keywords. Otherwise null.
+            val resolvedIcon = nodeMatch?.iconResId
+                ?: nameMatch?.iconResId
+                ?: when {
+                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") -> com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+                    else -> null
+                }
 
-            // Platform
-            val resolvedPlatform = nodeMatch?.platform ?: nameMatch?.platform ?: ClientPlatform.UNKNOWN
+            // Platform is resolved sensitively: matched node/name, or fallback for bot keywords. Otherwise UNKNOWN.
+            val resolvedPlatform = nodeMatch?.platform
+                ?: nameMatch?.platform
+                ?: when {
+                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") -> ClientPlatform.BOT
+                    else -> ClientPlatform.UNKNOWN
+                }
 
             return ClientCaps(
                 clientName = resolvedName,

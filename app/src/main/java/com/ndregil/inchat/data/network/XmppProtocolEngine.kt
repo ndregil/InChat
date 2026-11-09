@@ -205,7 +205,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
             append("<presence to='$roomJid/$nickname'>\n")
             append("  <x xmlns='http://jabber.org/protocol/muc'>\n")
             if (password.isNotBlank()) append("    <password>$password</password>\n")
-            append("    <history maxstanzas='20'/>\n")
+            append("    <history maxstanzas='30'/>\n")
             append("  </x>\n")
             append("</presence>")
         }

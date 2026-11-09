@@ -108,6 +108,7 @@ fun AccountConnectionScreen(
 
     var regUsername by remember { mutableStateOf("") }
     var regDomain by remember { mutableStateOf("jabber.de") }
+    var isCustomServerMode by remember { mutableStateOf(false) }
     var regPassword by remember { mutableStateOf("") }
     var regConfirmPassword by remember { mutableStateOf("") }
     var regNickname by remember { mutableStateOf("") }
@@ -460,11 +461,11 @@ fun AccountConnectionScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         OutlinedTextField(
-                            value = regDomain,
+                            value = if (isCustomServerMode) "Server Kustom (Manual)" else regDomain,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Pilih Server XMPP (Kategori A)") },
-                            placeholder = { Text("Pilih dari daftar server...") },
+                            label = { Text("Pilihan Server Pendaftaran") },
+                            placeholder = { Text("Pilih server atau server kustom...") },
                             leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isServerDropdownExpanded) },
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
@@ -484,6 +485,32 @@ fun AccountConnectionScreen(
                             onDismissRequest = { isServerDropdownExpanded = false },
                             modifier = Modifier.fillMaxWidth()
                         ) {
+                            // Custom Server Option at top
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Server Kustom (Input Manual)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                        Text("Manual", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                onClick = {
+                                    isCustomServerMode = true
+                                    regValidationError = null
+                                    isServerDropdownExpanded = false
+                                },
+                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                            )
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
                             PROVIDERS_A_INBAND.forEach { item ->
                                 DropdownMenuItem(
                                     text = {
@@ -503,6 +530,7 @@ fun AccountConnectionScreen(
                                     },
                                     onClick = {
                                         keyboardController?.hide()
+                                        isCustomServerMode = false
                                         regDomain = item.domain
                                         regHost = item.domain
                                         regValidationError = null
@@ -510,6 +538,53 @@ fun AccountConnectionScreen(
                                     },
                                     contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
                                 )
+                            }
+                        }
+                    }
+
+                    // If Custom Server mode is selected, show custom domain and host fields
+                    if (isCustomServerMode) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Pengaturan Server Kustom", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                OutlinedTextField(
+                                    value = regDomain,
+                                    onValueChange = { 
+                                        regDomain = it
+                                        if (regHost.isBlank() || regHost == regDomain) regHost = it
+                                        regValidationError = null 
+                                    },
+                                    label = { Text("Domain Server XMPP") },
+                                    placeholder = { Text("contoh: xmpp.domain.com") },
+                                    leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = regHost,
+                                        onValueChange = { regHost = it },
+                                        label = { Text("Host Connect (Opsional)") },
+                                        placeholder = { Text("Auto") },
+                                        modifier = Modifier.weight(2f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = regPort,
+                                        onValueChange = { regPort = it },
+                                        label = { Text("Port") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
                             }
                         }
                     }

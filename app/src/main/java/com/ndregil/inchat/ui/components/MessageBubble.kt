@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Error
@@ -306,98 +307,71 @@ fun MessageBubble(
 
                     Spacer(modifier = Modifier.width(2.dp))
 
-                    // Reply Button
+                    // Reply Button (Icon only)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(20.dp)
+                            .clip(CircleShape)
                             .clickable { onReplyClick(message) }
                             .testTag("btn_reply_msg_${message.id}")
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Reply,
                                 contentDescription = "Balas Pesan",
-                                modifier = Modifier.size(10.dp),
+                                modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Reply",
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
 
-                    // Quote Button
+                    // Quote Button (Icon only)
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(20.dp)
+                            .clip(CircleShape)
                             .clickable { onQuoteClick(message) }
                             .testTag("btn_quote_msg_${message.id}")
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
                                 contentDescription = "Kutip Pesan",
-                                modifier = Modifier.size(10.dp),
+                                modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.secondary
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Quote",
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
 
-                    // Private Message / Whisper Button (only for other's messages and not already whisper)
+                    // Private Message / Whisper Button (Icon only, Chat icon instead of Lock)
                     if (!isMine && !isWhisper) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF8B5CF6).copy(alpha = 0.15f),
-                            border = BorderStroke(0.6.dp, Color(0xFF8B5CF6).copy(alpha = 0.35f)),
+                            shape = CircleShape,
+                            color = Color(0xFF8B5CF6).copy(alpha = 0.18f),
+                            border = BorderStroke(0.6.dp, Color(0xFF8B5CF6).copy(alpha = 0.4f)),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .size(20.dp)
+                                .clip(CircleShape)
                                 .clickable { onWhisperClick(message) }
                                 .testTag("btn_whisper_msg_${message.id}")
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                            ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
+                                    imageVector = Icons.Default.Chat,
                                     contentDescription = "Pesan Pribadi",
-                                    modifier = Modifier.size(9.dp),
+                                    modifier = Modifier.size(11.dp),
                                     tint = Color(0xFFA855F7)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Text(
-                                    text = "Pribadi",
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFA855F7)
                                 )
                             }
                         }
                     }
                 }
             } else {
-                // For own standard messages, show quick quote / reply options
+                // For own standard messages, show quick quote icon
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -414,28 +388,19 @@ fun MessageBubble(
                     )
 
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .size(20.dp)
+                            .clip(CircleShape)
                             .clickable { onQuoteClick(message) }
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
+                        Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
                                 contentDescription = "Kutip Pesan Sendiri",
-                                modifier = Modifier.size(10.dp),
+                                modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.secondary
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text(
-                                text = "Quote",
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }

@@ -275,9 +275,9 @@ class XmppRepository(
         // Function removed to avoid simulated rooms
     }
 
-    fun getMessagesForRoom(roomJid: String): Flow<List<XmppMessage>> {
+    fun getMessagesForRoom(roomJid: String, maxCount: Int = 30): Flow<List<XmppMessage>> {
         return combine(
-            database.messageDao().getMessagesForRoom(roomJid),
+            database.messageDao().getRecentMessagesForRoom(roomJid, maxCount),
             smackAvatarManager.avatarUpdates.onStart { emit("") }
         ) { entities, _ ->
             entities.map { entity ->
@@ -1124,7 +1124,7 @@ class XmppRepository(
     /**
      * Synchronizes historical messages for a specific JID using XEP-0313 (MAM).
      */
-    suspend fun syncMamHistory(roomJid: String, limit: Int = 50) {
+    suspend fun syncMamHistory(roomJid: String, limit: Int = 30) {
         if (!smackConnectionManager.isConnected()) return
 
         val latestTimestamp = database.messageDao().getLatestMessageTimestamp(roomJid) ?: 0L

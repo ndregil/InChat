@@ -90,14 +90,15 @@ fun ClientCapsIcon(
     contentDescription: String? = null
 ) {
     val iconRes = clientCaps?.iconResId
+    val effectivePlatform = if (platform != ClientPlatform.UNKNOWN) platform else (clientCaps?.platform ?: ClientPlatform.UNKNOWN)
+
     if (iconRes != null && iconRes != 0) {
         androidx.compose.foundation.Image(
             painter = androidx.compose.ui.res.painterResource(id = iconRes),
-            contentDescription = contentDescription ?: clientCaps.clientName,
+            contentDescription = contentDescription ?: clientCaps?.clientName,
             modifier = modifier
         )
-    } else {
-        val effectivePlatform = if (platform != ClientPlatform.UNKNOWN) platform else (clientCaps?.platform ?: ClientPlatform.UNKNOWN)
+    } else if (effectivePlatform != ClientPlatform.UNKNOWN) {
         val icon = getClientPlatformIcon(effectivePlatform)
         val color = tint ?: getClientPlatformColor(effectivePlatform)
         Icon(
@@ -106,6 +107,8 @@ fun ClientCapsIcon(
             tint = color,
             modifier = modifier
         )
+    } else {
+        return
     }
 }
 

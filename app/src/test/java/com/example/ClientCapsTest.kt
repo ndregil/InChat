@@ -23,6 +23,21 @@ class ClientCapsTest {
     }
 
     @Test
+    fun testSensitiveBotNodeResolution() {
+        // User specific scenario: http://xmpp.bot.com resolves to Jabber Bot and its client icon
+        val botNodeCaps = ClientCaps.resolveFor("SmartBot", "smartbot@conference.org/bot", node = "http://xmpp.bot.com")
+        assertEquals(ClientPlatform.BOT, botNodeCaps.platform)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_jabber_bot, botNodeCaps.iconResId)
+        assertEquals("SmartBot", botNodeCaps.clientName)
+        assertEquals("http://xmpp.bot.com", botNodeCaps.nodeUri)
+
+        // Subdomain / path variations
+        val botSubdomainCaps = ClientCaps.resolveFor("Helper", "helper@xmpp.org", node = "http://bot.xmpp.today/caps")
+        assertEquals(ClientPlatform.BOT, botSubdomainCaps.platform)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_jabber_bot, botSubdomainCaps.iconResId)
+    }
+
+    @Test
     fun testGajimCapsResolution() {
         val gajimCaps = ClientCaps.resolveFor("SecurityGajim", "gajim@xmpp.today", node = "http://gajim.org")
         assertEquals(ClientPlatform.DESKTOP, gajimCaps.platform)

@@ -111,6 +111,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp ASC")
     fun getMessagesForRoom(roomJid: String): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM (SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    fun getRecentMessagesForRoom(roomJid: String, limit: Int = 30): Flow<List<MessageEntity>>
+
     @Query("SELECT * FROM messages ORDER BY timestamp ASC")
     suspend fun getAllMessagesList(): List<MessageEntity>
 
