@@ -241,7 +241,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
 
     suspend fun sendGroupMessage(roomJid: String, body: String, myNickname: String): XmppMessage {
         val msgId = "raw_${System.currentTimeMillis()}"
-        val stanza = "<message to='$roomJid' type='groupchat' id='$msgId'><body>$body</body></message>"
+        val stanza = "<message to='$roomJid' type='groupchat' id='$msgId'><body>$body</body><request xmlns='urn:xmpp:receipts'/></message>"
         sendRawStanza(stanza, "MESSAGE", roomJid)
 
         return XmppMessage(
@@ -259,7 +259,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
 
     suspend fun sendDirectOobMessage(targetJid: String, url: String, myNickname: String): XmppMessage {
         val msgId = "raw_file_${System.currentTimeMillis()}"
-        val stanza = "<message to='$targetJid' type='chat' id='$msgId'><body>$url</body><x xmlns='jabber:x:oob'><url>$url</url></x></message>"
+        val stanza = "<message to='$targetJid' type='chat' id='$msgId'><body>$url</body><x xmlns='jabber:x:oob'><url>$url</url></x><request xmlns='urn:xmpp:receipts'/></message>"
         sendRawStanza(stanza, "MESSAGE", targetJid)
 
         return XmppMessage(
@@ -279,7 +279,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
     suspend fun sendGroupFile(roomJid: String, url: String, fileName: String, mimeType: String, fileSize: Long, myNickname: String): XmppMessage {
         val msgId = "raw_file_${System.currentTimeMillis()}"
         val body = "File: $fileName\n$url"
-        val stanza = "<message to='$roomJid' type='groupchat' id='$msgId'><body>$body</body><x xmlns='jabber:x:oob'><url>$url</url></x></message>"
+        val stanza = "<message to='$roomJid' type='groupchat' id='$msgId'><body>$body</body><x xmlns='jabber:x:oob'><url>$url</url></x><request xmlns='urn:xmpp:receipts'/></message>"
         sendRawStanza(stanza, "MESSAGE", roomJid)
 
         return XmppMessage(
@@ -319,11 +319,12 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
     }
 
     suspend fun sendPrivateWhisper(roomJid: String, targetNickname: String, body: String, myNickname: String): XmppMessage {
-        val whisperStanza = "<message to='$roomJid/$targetNickname' type='chat'><body>$body</body></message>"
+        val msgId = "whisper_${System.currentTimeMillis()}"
+        val whisperStanza = "<message to='$roomJid/$targetNickname' type='chat' id='$msgId'><body>$body</body><request xmlns='urn:xmpp:receipts'/></message>"
         sendRawStanza(whisperStanza, "WHISPER", roomJid)
 
         return XmppMessage(
-            id = UUID.randomUUID().toString(),
+            id = msgId,
             roomJid = roomJid,
             senderJid = "$roomJid/$myNickname",
             senderNickname = myNickname,

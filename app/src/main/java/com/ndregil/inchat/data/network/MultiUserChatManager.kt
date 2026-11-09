@@ -515,7 +515,11 @@ class MultiUserChatManager(
             IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
         try {
-            muc.sendMessage(body)
+            val message = muc.createMessage().apply {
+                this.body = body
+                org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
+            }
+            muc.sendMessage(message)
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send message to $roomJid: ${e.message}", e)
@@ -538,6 +542,7 @@ class MultiUserChatManager(
             val targetFullJid: EntityFullJid = JidCreate.entityFullFrom("$roomJid/$targetNickname")
             val message = Message(targetFullJid, Message.Type.chat).apply {
                 this.body = body
+                org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
             }
             conn.sendStanza(message)
             Log.d(TAG, "Sent whisper to $targetNickname in $roomJid: $body")

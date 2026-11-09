@@ -42,8 +42,12 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.VideoCall
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -156,6 +160,7 @@ fun MessageBubble(
     onQuoteClick: (XmppMessage) -> Unit = {},
     onWhisperClick: (XmppMessage) -> Unit = {},
     onMentionClick: (String) -> Unit = {},
+    onViewProfile: ((XmppMessage) -> Unit)? = null,
     onQuerySoftwareVersion: ((targetJid: String, onResult: (Result<com.ndregil.inchat.data.model.ClientCaps>) -> Unit) -> Unit)? = null,
     bubbleTheme: String = "dregil-theme",
     isDark: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
@@ -163,6 +168,8 @@ fun MessageBubble(
     modifier: Modifier = Modifier
 ) {
     var showCapsDialog by remember { mutableStateOf(false) }
+    var showAvatarMenu by remember { mutableStateOf(false) }
+    var showVCardDialog by remember { mutableStateOf(false) }
     var showActionMenu by remember { mutableStateOf(false) }
 
     if (message.messageType == MessageType.SYSTEM_JOIN ||
@@ -240,7 +247,7 @@ fun MessageBubble(
         verticalAlignment = Alignment.Bottom
     ) {
         if (!isMine) {
-            IncomingAvatar(message, senderColor, onReplyClick, { showCapsDialog = true })
+            IncomingAvatar(message, senderColor, { showAvatarMenu = true }, { showAvatarMenu = true })
             Spacer(modifier = Modifier.width(8.dp))
         }
 
@@ -288,8 +295,7 @@ fun MessageBubble(
                             fontWeight = FontWeight.Bold,
                             color = senderColor,
                             modifier = Modifier.clickable {
-                                onSenderClick(message.senderNickname)
-                                onMentionClick(message.senderNickname)
+                                showAvatarMenu = true
                             }
                         )
                     }
@@ -529,7 +535,13 @@ fun MessageBubble(
                                 DeliveryStatus.DELIVERED -> Icon(
                                     imageVector = Icons.Default.DoneAll,
                                     contentDescription = "Sampai ke Penerima",
-                                    tint = Color(0xFF3B82F6), // Distinct blue color for delivery
+                                    tint = textColor.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                DeliveryStatus.READ -> Icon(
+                                    imageVector = Icons.Default.DoneAll,
+                                    contentDescription = "Telah Dibaca",
+                                    tint = Color(0xFF3B82F6), // Blue double check
                                     modifier = Modifier.size(14.dp)
                                 )
                                 DeliveryStatus.FAILED -> Icon(
@@ -547,7 +559,7 @@ fun MessageBubble(
 
         if (isMine) {
             Spacer(modifier = Modifier.width(8.dp))
-            OutgoingAvatar(message, senderColor, onReplyClick, { showCapsDialog = true })
+            OutgoingAvatar(message, senderColor, { showAvatarMenu = true }, { showAvatarMenu = true })
         }
     }
 
@@ -606,6 +618,107 @@ fun MessageBubble(
             targetJid = message.senderJid,
             onQuerySoftwareVersion = onQuerySoftwareVersion,
             onDismiss = { showCapsDialog = false }
+        )
+    }
+
+    if (showAvatarMenu) {
+        AlertDialog(
+            onDismissRequest = { showAvatarMenu = false },
+            icon = {
+                Surface(
+                    shape = CircleShape,
+                    color = senderColor.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, senderColor),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (message.senderAvatar != null) {
+                            coil.compose.AsyncImage(
+                                model = message.senderAvatar,
+                                contentDescription = "Avatar ${message.senderNickname}",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp,
+                                color = senderColor
+                            )
+                        }
+                    }
+                }
+            },
+            title = {
+                Text(
+                    text = message.senderNickname,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    if (!isMine) {
+                        DropdownMenuItem(
+                            text = { Text("Mention (@${message.senderNickname})") },
+                            leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
+                            onClick = {
+                                showAvatarMenu = false
+                                onMentionClick(message.senderNickname)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Kirim Pesan Pribadi (Bisikan)") },
+                            leadingIcon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
+                            onClick = {
+                                showAvatarMenu = false
+                                onSenderClick(message.senderNickname)
+                                onWhisperClick(message)
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("Cek Versi Klien (XEP-0092)") },
+                        leadingIcon = { Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = {
+                            showAvatarMenu = false
+                            showCapsDialog = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Info Profil Anggota") },
+                        leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = {
+                            showAvatarMenu = false
+                            if (onViewProfile != null) {
+                                onViewProfile(message)
+                            } else {
+                                showVCardDialog = true
+                            }
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAvatarMenu = false }) {
+                    Text("Tutup")
+                }
+            },
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    if (showVCardDialog) {
+        VCardProfileDialog(
+            message = message,
+            onDismiss = { showVCardDialog = false }
         )
     }
 }
@@ -1140,3 +1253,113 @@ fun OutgoingAvatar(
         }
     }
 }
+
+@Composable
+fun VCardProfileDialog(
+    message: XmppMessage,
+    onDismiss: () -> Unit
+) {
+    val senderColor = getSenderColor(message.senderNickname)
+    val avatarData = message.senderAvatar
+    var showFullPhoto by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(CircleShape)
+                        .background(senderColor.copy(alpha = 0.2f))
+                        .border(2.dp, senderColor, CircleShape)
+                        .clickable { if (avatarData != null) showFullPhoto = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (avatarData != null) {
+                        coil.compose.AsyncImage(
+                            model = avatarData,
+                            contentDescription = "Foto vCard ${message.senderNickname}",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = message.senderNickname.take(1).uppercase(Locale.getDefault()),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 32.sp,
+                            color = senderColor
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = message.senderNickname,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+                Text(
+                    text = "@${message.senderNickname}",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("JID / Alamat XMPP:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(message.senderJid.ifBlank { "User" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Tutup")
+            }
+        },
+        shape = RoundedCornerShape(20.dp)
+    )
+
+    if (showFullPhoto && avatarData != null) {
+        AlertDialog(
+            onDismissRequest = { showFullPhoto = false },
+            title = { Text("Foto vCard ${message.senderNickname}") },
+            text = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(280.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    coil.compose.AsyncImage(
+                        model = avatarData,
+                        contentDescription = "Foto vCard Full",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFullPhoto = false }) {
+                    Text("Tutup Foto")
+                }
+            }
+        )
+    }
+}
+
+

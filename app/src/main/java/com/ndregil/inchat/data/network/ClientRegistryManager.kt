@@ -762,7 +762,7 @@ object ClientRegistryManager {
         return null
     }
 
-    fun getRegistry(): List<ClientDefinition> = dynamicRegistry
+    fun getRegistry(): List<ClientDefinition> = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 }
 
 

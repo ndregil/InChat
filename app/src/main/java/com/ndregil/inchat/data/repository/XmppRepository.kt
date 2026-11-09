@@ -291,6 +291,7 @@ class XmppRepository(
 
     suspend fun markRoomAsRead(roomJid: String) {
         database.roomDao().markRoomAsRead(roomJid)
+        database.messageDao().updateMineMessagesStatusForRoom(roomJid, DeliveryStatus.READ)
     }
 
     suspend fun connect(account: XmppAccount, password: String = "") = connectionMutex.withLock {
@@ -588,6 +589,38 @@ class XmppRepository(
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
         conn.addAsyncStanzaListener({ stanza ->
             val message = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
+
+            val xml = message.toXML().toString()
+
+            // Handle XEP-0184 Delivery Receipts (<received xmlns='urn:xmpp:receipts' id='...'/>)
+            val receiptId = (message.getExtension("received", "urn:xmpp:receipts") as? org.jivesoftware.smackx.receipts.DeliveryReceipt)?.id
+                ?: Regex("""<received[^>]*xmlns=['"]urn:xmpp:receipts['"][^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+                ?: Regex("""<received[^>]*id=['"]([^'"]+)['"][^>]*xmlns=['"]urn:xmpp:receipts['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+
+            if (!receiptId.isNullOrBlank()) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        database.messageDao().updateMessageStatus(receiptId, DeliveryStatus.DELIVERED)
+                        Log.d("XmppRepository", "Received delivery receipt for message $receiptId -> DELIVERED")
+                    } catch (e: Exception) {
+                        Log.e("XmppRepository", "Failed to update receipt status: ${e.message}")
+                    }
+                }
+            }
+
+            // Handle XEP-0333 Chat Markers (<displayed xmlns='urn:xmpp:chat-markers:0' id='...'/>)
+            val displayedId = Regex("""<displayed[^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+            if (!displayedId.isNullOrBlank()) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        database.messageDao().updateMessageStatus(displayedId, DeliveryStatus.READ)
+                        Log.d("XmppRepository", "Received read chat marker for message $displayedId -> READ")
+                    } catch (e: Exception) {
+                        Log.e("XmppRepository", "Failed to update chat marker status: ${e.message}")
+                    }
+                }
+            }
+
             val hasOmemo = message.hasExtension("encrypted", "urn:xmpp:omemo:2") ||
                     message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
             val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
@@ -1503,6 +1536,7 @@ class XmppRepository(
                         val msgStanza = org.jivesoftware.smack.packet.Message(cleanJidJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
                             body = text
                             setStanzaId(stanzaId)
+                            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
                         }
                         conn.sendStanza(msgStanza)
                         isSentSuccessfully = true
@@ -1628,14 +1662,37 @@ class XmppRepository(
         val msg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(senderAvatar = myAvatar)
         database.messageDao().insertMessage(msg.toEntity())
 
-        val existing = database.roomDao().getRoomByJid(roomJid)
-        if (existing != null) {
-            database.roomDao().insertOrUpdateRoom(
-                existing.copy(
-                    lastMessageText = "[Bisikan ke @$targetNickname] $text",
-                    lastMessageTime = msg.timestamp
+        try {
+            val existing = database.roomDao().getRoomByJid(roomJid)
+            if (existing != null) {
+                database.roomDao().updateLastMessage(
+                    roomJid,
+                    "[Bisikan ke @$targetNickname] $text",
+                    msg.timestamp,
+                    0
                 )
-            )
+            } else {
+                val newRoom = RoomEntity(
+                    jid = roomJid,
+                    name = roomJid.substringBefore("@"),
+                    topic = "Ruangan MUC",
+                    myNickname = myNickname,
+                    occupantCount = 1,
+                    unreadCount = 0,
+                    lastMessageText = "[Bisikan ke @$targetNickname] $text",
+                    lastMessageTime = msg.timestamp,
+                    isJoined = true,
+                    isBookmarked = true,
+                    myRole = OccupantRole.PARTICIPANT,
+                    myAffiliation = OccupantAffiliation.MEMBER,
+                    colorHex = randomColorForRoom(roomJid),
+                    isAutoJoin = true,
+                    isGroupChat = true
+                )
+                database.roomDao().insertOrUpdateRoom(newRoom)
+            }
+        } catch (e: Exception) {
+            Log.e("XmppRepository", "Failed to update room last message for whisper: ${e.message}")
         }
     }
 

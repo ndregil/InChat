@@ -864,6 +864,27 @@ fun MultiRoomMainScreen(
                                                             viewModel.setWhisperTarget(found)
                                                         },
                                                         onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                        onViewProfile = { profileMsg ->
+                                                            val targetNick = profileMsg.senderNickname
+                                                            val occ = occupants.find { it.nickname == targetNick }
+                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatar = profileMsg.senderAvatar)
+                                                            val target = occ.fullJid.ifBlank { occ.jid.ifBlank { profileMsg.senderJid.ifBlank { "${room.jid}/$targetNick" } } }
+                                                            if (target.isNotBlank()) {
+                                                                isLoadingProfile = true
+                                                                coroutineScope.launch {
+                                                                    val profile = viewModel.repository.loadVCard(target)
+                                                                    val fetchedAvatar = viewModel.repository.smackAvatarManager.getAvatar(target)
+                                                                    if (profile != null && fetchedAvatar != null && profile.avatar == null) {
+                                                                        profile.avatar = fetchedAvatar
+                                                                    }
+                                                                    val finalAvatar = fetchedAvatar ?: profile?.avatar ?: profileMsg.senderAvatar ?: occ.avatar
+                                                                    isLoadingProfile = false
+                                                                    selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
+                                                                }
+                                                            } else {
+                                                                selectedProfileOccupant = Pair(occ, null)
+                                                            }
+                                                        },
                                                         onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
                                                         bubbleTheme = room.bubbleTheme ?: "dregil-theme",
                                                         isDark = isDarkMode,
@@ -1423,6 +1444,27 @@ fun MultiRoomMainScreen(
                                                     onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
                                                     onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
                                                     onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                    onViewProfile = { profileMsg ->
+                                                        val targetNick = profileMsg.senderNickname
+                                                        val occ = occupants.find { it.nickname == targetNick }
+                                                            ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatar = profileMsg.senderAvatar)
+                                                        val target = occ.fullJid.ifBlank { occ.jid.ifBlank { profileMsg.senderJid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/$targetNick" else "" } } }
+                                                        if (target.isNotBlank()) {
+                                                            isLoadingProfile = true
+                                                            coroutineScope.launch {
+                                                                val profile = viewModel.repository.loadVCard(target)
+                                                                val fetchedAvatar = viewModel.repository.smackAvatarManager.getAvatar(target)
+                                                                if (profile != null && fetchedAvatar != null && profile.avatar == null) {
+                                                                    profile.avatar = fetchedAvatar
+                                                                }
+                                                                val finalAvatar = fetchedAvatar ?: profile?.avatar ?: profileMsg.senderAvatar ?: occ.avatar
+                                                                isLoadingProfile = false
+                                                                selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
+                                                            }
+                                                        } else {
+                                                            selectedProfileOccupant = Pair(occ, null)
+                                                        }
+                                                    },
                                                     onQuerySoftwareVersion = { jid, callback -> viewModel.querySoftwareVersion(jid, callback) },
                                                     bubbleTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
                                                     isDark = isDarkMode,
@@ -1688,14 +1730,18 @@ fun MultiRoomMainScreen(
                 selectedCapsOccupant = occ
             },
             onViewProfile = {
-                // Resolve best JID (fullJid for MUC occupant or realJid/jid)
                 val target = occ.fullJid.ifBlank { occ.jid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/${occ.nickname}" else "" } }
                 if (target.isNotBlank()) {
                     isLoadingProfile = true
                     coroutineScope.launch {
                         val profile = viewModel.repository.loadVCard(target)
+                        val fetchedAvatar = viewModel.repository.smackAvatarManager.getAvatar(target)
+                        if (profile != null && fetchedAvatar != null && profile.avatar == null) {
+                            profile.avatar = fetchedAvatar
+                        }
+                        val finalAvatar = fetchedAvatar ?: profile?.avatar ?: occ.avatar
                         isLoadingProfile = false
-                        selectedProfileOccupant = Pair(occ, profile)
+                        selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
                     }
                 } else {
                     selectedProfileOccupant = Pair(occ, null)
@@ -1723,7 +1769,7 @@ fun MultiRoomMainScreen(
         )
     }
 
-    // Rich Profile Dialog
+    // Rich Profile Dialog (vCard)
     selectedProfileOccupant?.let { (occupant, vCard) ->
         val effectiveJid = occupant.fullJid.ifBlank { occupant.jid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/${occupant.nickname}" else "" } }
         val displayName = if (vCard != null) {
@@ -1737,22 +1783,28 @@ fun MultiRoomMainScreen(
         val org = vCard?.organization ?: "-"
         val email = vCard?.emailHome ?: vCard?.emailWork ?: "-"
         val avatarBytes = vCard?.avatar ?: occupant.avatar
+        var showFullPhoto by remember { mutableStateOf(false) }
 
         AlertDialog(
             onDismissRequest = { selectedProfileOccupant = null },
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(96.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            .clickable { if (avatarBytes != null) showFullPhoto = true },
                         contentAlignment = Alignment.Center
                     ) {
                         if (avatarBytes != null) {
                             coil.compose.AsyncImage(
                                 model = avatarBytes,
-                                contentDescription = null,
+                                contentDescription = "Foto Profil ${occupant.nickname}",
                                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
@@ -1760,21 +1812,27 @@ fun MultiRoomMainScreen(
                             Text(
                                 text = occupant.nickname.take(1).uppercase(Locale.getDefault()),
                                 fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.headlineMedium,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(text = displayName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Text(text = "@${occupant.nickname}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = displayName,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    Text(
+                        text = "@${occupant.nickname}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             },
             text = {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -1803,20 +1861,43 @@ fun MultiRoomMainScreen(
                         Text("JID / Alamat XMPP:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(effectiveJid, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                     }
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Klien Perangkat:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(occupant.clientCaps.clientName.ifBlank { occupant.clientCaps.platform.name }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                    }
                 }
             },
             confirmButton = {
-                Button(onClick = { selectedProfileOccupant = null }) {
+                TextButton(onClick = { selectedProfileOccupant = null }) {
                     Text("Tutup")
                 }
             },
             shape = RoundedCornerShape(20.dp)
         )
+
+        if (showFullPhoto && avatarBytes != null) {
+            AlertDialog(
+                onDismissRequest = { showFullPhoto = false },
+                title = { Text("Foto vCard ${occupant.nickname}") },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        coil.compose.AsyncImage(
+                            model = avatarBytes,
+                            contentDescription = "Foto vCard Full",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showFullPhoto = false }) {
+                        Text("Tutup Foto")
+                    }
+                }
+            )
+        }
     }
 
     if (isRosterOpen) {
