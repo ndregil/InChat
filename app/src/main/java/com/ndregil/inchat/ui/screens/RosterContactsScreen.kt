@@ -67,6 +67,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -150,6 +151,7 @@ fun RosterContactsScreen(
         }
     }
 
+    var isSearchVisible by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("ALL") } // ALL, ONLINE, OFFLINE
     var showAddDialog by remember { mutableStateOf(false) }
@@ -184,15 +186,40 @@ fun RosterContactsScreen(
             Column {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = when (selectedSubTab) {
-                                0 -> "Stories"
-                                1 -> "Kontak"
-                                else -> "Grup Chat"
-                            },
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleLarge
-                        )
+                        if (isSearchVisible && selectedSubTab == 1) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                placeholder = { Text("Cari kontak...", fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                singleLine = true,
+                                shape = RoundedCornerShape(24.dp),
+                                trailingIcon = {
+                                    IconButton(onClick = { 
+                                        searchQuery = ""
+                                        isSearchVisible = false 
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color.Transparent,
+                                    unfocusedBorderColor = Color.Transparent,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                )
+                            )
+                        } else {
+                            Text(
+                                text = when (selectedSubTab) {
+                                    0 -> "Stories"
+                                    1 -> "Kontak"
+                                    else -> "Grup Chat"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        }
                     },
                     actions = {
                         when (selectedSubTab) {
@@ -209,6 +236,9 @@ fun RosterContactsScreen(
                                 }
                             }
                             1 -> {
+                                IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
+                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Cari")
+                                }
                                 IconButton(
                                     onClick = { viewModel.refreshRoster() },
                                     modifier = Modifier.testTag("refresh_roster_button")
@@ -375,27 +405,7 @@ fun RosterContactsScreen(
                             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                         )
 
-                        // Search Input
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            placeholder = { Text("Cari berdasarkan nama, JID, atau grup...") },
-                            leadingIcon = {
-                                Icon(imageVector = Icons.Default.Search, contentDescription = null)
-                            },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(imageVector = Icons.Default.Clear, contentDescription = "Hapus teks")
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .testTag("roster_search_input")
-                        )
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         // Granular Presence Filter Chips
                         LazyRow(
@@ -1187,7 +1197,7 @@ fun UserPresenceControlCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .padding(8.dp)
         ) {
             // Header: Avatar, Name, Presence Badge, Expand Button
             Row(
@@ -1211,10 +1221,10 @@ fun UserPresenceControlCard(
 
                     Box(
                         modifier = Modifier
-                            .size(52.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer)
-                            .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                            .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         if (decodedBitmap != null) {
@@ -1229,30 +1239,30 @@ fun UserPresenceControlCard(
                                 text = currentAccount.nickname.take(2).uppercase(Locale.getDefault()),
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontSize = 18.sp
+                                fontSize = 14.sp
                             )
                         }
                     }
 
                     // Camera edit icon badge
                     Surface(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(14.dp),
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.surface)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.PhotoCamera,
                                 contentDescription = "Ganti Foto Profil",
-                                modifier = Modifier.size(10.dp),
+                                modifier = Modifier.size(8.dp),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -1261,38 +1271,32 @@ fun UserPresenceControlCard(
                     ) {
                         Text(
                             text = currentAccount.nickname,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
 
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(4.dp),
                             color = presenceColor.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = presenceTitle,
                                 color = presenceColor,
-                                fontSize = 10.sp,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
                     }
 
                     Text(
-                        text = if (statusMessage.isNotBlank()) "\"$statusMessage\"" else "Tidak ada pesan status",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = if (statusMessage.isNotBlank()) statusMessage else "Tanpa status",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = "📡 Disiarkan ke $contactsCount kontak & $roomsCount ruang MUC",
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
 
