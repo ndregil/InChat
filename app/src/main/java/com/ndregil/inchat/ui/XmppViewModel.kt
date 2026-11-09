@@ -498,6 +498,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearReplyMessage() {
         replyingToMessage.value = null
+        currentInputText.value = ""
     }
 
     fun quoteMessage(msg: XmppMessage) {
@@ -506,10 +507,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val cleanNick = msg.senderNickname.replace("@System", "").trim()
         val dateStr = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(msg.timestamp))
         val mention = if (cleanNick.isBlank()) "" else "@$cleanNick "
-        val quoteText = "${mention}($dateStr) \"$fullBody\" "
+        val quoteText = "${mention}($dateStr) \"$fullBody\"\n\n"
         
         val current = currentInputText.value.trimStart()
-        val cleanCurrent = current.replace(Regex("^@[^ ]+\\s*\\([^)]+\\)\\s*\"[^\"]*\"\\s*"), "").trimStart()
+        val cleanCurrent = current.replace(Regex("^@[^ ]+\\s*\\([^)]+\\)\\s*\"[^\"]*\"\\s*\\n*"), "").trimStart()
         currentInputText.value = if (cleanCurrent.isNotBlank()) {
             "$quoteText$cleanCurrent"
         } else {

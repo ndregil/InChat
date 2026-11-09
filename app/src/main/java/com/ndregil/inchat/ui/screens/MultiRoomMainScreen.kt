@@ -79,6 +79,11 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.pager.HorizontalPager
@@ -2572,6 +2577,35 @@ fun ChatInputBar(
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var currentAmpRatio by remember { mutableFloatStateOf(0f) }
 
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(replyingToMessage) {
+        if (replyingToMessage != null) {
+            showEmojiKeyboard = false
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    var tfvState by remember {
+        mutableStateOf(
+            androidx.compose.ui.text.input.TextFieldValue(
+                text = inputText,
+                selection = androidx.compose.ui.text.TextRange(inputText.length)
+            )
+        )
+    }
+
+    LaunchedEffect(inputText) {
+        if (inputText != tfvState.text) {
+            tfvState = androidx.compose.ui.text.input.TextFieldValue(
+                text = inputText,
+                selection = androidx.compose.ui.text.TextRange(inputText.length)
+            )
+        }
+    }
+
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -2800,45 +2834,17 @@ fun ChatInputBar(
                                     )
                                 }
 
-                                val textFieldValue = remember(inputText) {
-                                    androidx.compose.ui.text.input.TextFieldValue(
-                                        text = inputText,
-                                        selection = androidx.compose.ui.text.TextRange(inputText.length)
-                                    )
-                                }
-
-                                var previousInputText by remember { mutableStateOf(inputText) }
-                                val actualTextFieldValue = remember(inputText) {
-                                    val newCursor = if (inputText != previousInputText) {
-                                        previousInputText = inputText
-                                        val replyPrefixRegex = Regex("^@[^ ]+\\s*")
-                                        val quotePrefixRegex = Regex("^@[^ ]+\\s*\\([^)]+\\)\\s*\"[^\"]*\"\\s*")
-                                        when {
-                                            inputText.startsWith("@") && replyPrefixRegex.containsMatchIn(inputText) && !inputText.contains("\"") -> {
-                                                replyPrefixRegex.find(inputText)?.range?.endInclusive?.plus(1) ?: inputText.length
-                                            }
-                                            inputText.startsWith("@") && quotePrefixRegex.containsMatchIn(inputText) -> {
-                                                quotePrefixRegex.find(inputText)?.range?.endInclusive?.plus(1) ?: inputText.length
-                                            }
-                                            else -> inputText.length
-                                        }
-                                    } else {
-                                        inputText.length
-                                    }
-                                    androidx.compose.ui.text.input.TextFieldValue(
-                                        text = inputText,
-                                        selection = androidx.compose.ui.text.TextRange(newCursor.coerceAtMost(inputText.length))
-                                    )
-                                }
-
                                 BasicTextField(
-                                    value = actualTextFieldValue,
+                                    value = tfvState,
                                     onValueChange = { newVal ->
-                                        previousInputText = newVal.text
-                                        onInputChange(newVal.text)
+                                        tfvState = newVal
+                                        if (newVal.text != inputText) {
+                                            onInputChange(newVal.text)
+                                        }
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .focusRequester(focusRequester)
                                         .testTag("chat_input_field"),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurface,
