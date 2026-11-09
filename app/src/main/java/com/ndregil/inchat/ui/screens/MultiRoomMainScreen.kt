@@ -78,6 +78,12 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -280,9 +286,21 @@ fun MultiRoomMainScreen(
     }
 
     // Auto scroll to latest message when active room changes or new messages arrive
-    LaunchedEffect(activeRoom?.jid, messages.size) {
+    val lastMsgId = remember(messages) { messages.lastOrNull()?.id }
+    val isLastMsgMine = remember(messages) { messages.lastOrNull()?.isMine == true }
+
+    LaunchedEffect(activeRoom?.jid, messages.size, lastMsgId) {
         if (messages.isNotEmpty()) {
-            listState.scrollToItem(messages.size - 1)
+            val totalCount = messages.size
+            val targetIndex = (totalCount - 1).coerceAtLeast(0)
+            val isNearBottom = listState.firstVisibleItemIndex >= (totalCount - 6).coerceAtLeast(0)
+            if (isLastMsgMine || isNearBottom || listState.firstVisibleItemIndex == 0) {
+                try {
+                    listState.animateScrollToItem(targetIndex)
+                } catch (_: Exception) {
+                    listState.scrollToItem(targetIndex)
+                }
+            }
         }
     }
 
@@ -898,6 +916,14 @@ fun MultiRoomMainScreen(
                                                 }
                                             }
                                         }
+
+                                        ScrollNavigationButtons(
+                                            listState = listState,
+                                            totalMessagesCount = messages.size,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(end = 12.dp, bottom = 12.dp)
+                                        )
                                     }
 
                                     // Whisper Target Banner
@@ -1477,6 +1503,14 @@ fun MultiRoomMainScreen(
                                                 )
                                             }
                                         }
+
+                                        ScrollNavigationButtons(
+                                            listState = listState,
+                                            totalMessagesCount = messages.size,
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(end = 12.dp, bottom = 12.dp)
+                                        )
                                     }
                                 }
 
@@ -3140,4 +3174,80 @@ fun OccupantActionDialog(
         },
         shape = RoundedCornerShape(20.dp)
     )
+}
+
+@Composable
+fun ScrollNavigationButtons(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    totalMessagesCount: Int,
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val showScrollToBottom by remember(totalMessagesCount) {
+        derivedStateOf {
+            totalMessagesCount > 0 && listState.firstVisibleItemIndex < (totalMessagesCount - 4).coerceAtLeast(0)
+        }
+    }
+    val showScrollToTop by remember {
+        derivedStateOf {
+            totalMessagesCount > 0 && listState.firstVisibleItemIndex > 3
+        }
+    }
+
+    AnimatedVisibility(
+        visible = showScrollToTop || showScrollToBottom,
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 },
+        modifier = modifier
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (showScrollToTop) {
+                SmallFloatingActionButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(0)
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .testTag("btn_scroll_top")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowUpward,
+                        contentDescription = "Ke Pesan Teratas",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            if (showScrollToBottom) {
+                FloatingActionButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            val lastIndex = (totalMessagesCount - 1).coerceAtLeast(0)
+                            listState.animateScrollToItem(lastIndex)
+                        }
+                    },
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("btn_scroll_bottom")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDownward,
+                        contentDescription = "Ke Pesan Terbaru",
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+    }
 }
