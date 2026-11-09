@@ -1148,6 +1148,7 @@ fun StaticMapPreview(lat: Double, lng: Double) {
                 // Use software layer for many small instances to reduce memory pressure
                 setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 
+                settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 isVerticalScrollBarEnabled = false
@@ -1167,6 +1168,8 @@ fun StaticMapPreview(lat: Double, lng: Double) {
         onRelease = { wv ->
             try {
                 wv.stopLoading()
+                wv.clearCache(true)
+                wv.clearHistory()
                 wv.destroy()
             } catch (_: Exception) {}
         },
