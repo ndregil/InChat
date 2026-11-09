@@ -2323,12 +2323,15 @@ fun RoomOccupantsCapsBar(
                             )
 
                             // Client Caps Icon
-                            ClientCapsIcon(
-                                platform = occupant.clientCaps.platform,
-                                clientCaps = occupant.clientCaps,
-                                modifier = Modifier.size(13.dp),
-                                tint = platformColor
-                            )
+                            // Client Caps Icon
+                            if (occupant.clientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
+                                ClientCapsIcon(
+                                    platform = occupant.clientCaps.platform,
+                                    clientCaps = occupant.clientCaps,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = platformColor
+                                )
+                            }
                         }
                     }
                 }
