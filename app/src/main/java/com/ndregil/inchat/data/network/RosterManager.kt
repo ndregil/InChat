@@ -770,7 +770,7 @@ class RosterManager(
 
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = effectiveName,
-                jid = jidString,
+                jid = presence.from?.toString() ?: jidString,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )

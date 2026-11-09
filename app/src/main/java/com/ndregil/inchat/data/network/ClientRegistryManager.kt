@@ -498,6 +498,7 @@ object ClientRegistryManager {
         if (presence == null) return null
 
         try {
+            // 1. Try standard Smack CapsExtension
             val capsExt = org.jivesoftware.smackx.caps.packet.CapsExtension.from(presence)
                 ?: (presence.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
             if (capsExt != null && capsExt.node.isNotBlank()) {
@@ -506,6 +507,7 @@ object ClientRegistryManager {
         } catch (_: Exception) {}
 
         try {
+            // 2. Try raw extension extraction
             val ext = presence.getExtension("c", "http://jabber.org/protocol/caps")
                 ?: presence.getExtension("http://jabber.org/protocol/caps")
                 ?: presence.extensions.firstOrNull { it.elementName == "c" && it.namespace == "http://jabber.org/protocol/caps" }
@@ -521,6 +523,7 @@ object ClientRegistryManager {
                         return Pair(nodeAttr, verAttr ?: "")
                     }
                 }
+                // 3. XML regex fallback for malformed or generic extensions
                 val xml = ext.toXML("").toString()
                 val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
                 val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
@@ -529,6 +532,18 @@ object ClientRegistryManager {
                 }
             }
         } catch (_: Exception) {}
+
+        // 4. Resource-based fallback for known clients that put node in resource
+        val fromStr = presence.from?.toString() ?: ""
+        if (fromStr.contains("/")) {
+            val resource = fromStr.substringAfterLast("/")
+            if (resource.contains("InChat", ignoreCase = true)) {
+                return Pair("http://ndregil.inchat", "")
+            }
+            if (resource.contains("Bombus", ignoreCase = true)) {
+                return Pair("http://bombus-im.org", "")
+            }
+        }
 
         return null
     }
@@ -654,7 +669,7 @@ object ClientRegistryManager {
         if (tokens.contains("mcabber") || cleanNode.contains("mcabber")) findDefByName("Mcabber")?.let { return it }
         if (tokens.contains("pidgin") || tokens.contains("gaim") || cleanNode.contains("pidgin") || cleanNode.contains("gaim")) findDefByName("Pidgin")?.let { return it }
         if (tokens.contains("tkabber") || cleanNode.contains("tkabber")) findDefByName("Tkabber")?.let { return it }
-        if (tokens.contains("inchat") || cleanNode.contains("inchat")) findDefByName("InChat")?.let { return it }
+        if (tokens.contains("inchat") || cleanNode.contains("inchat") || cleanNode.contains("ndregil")) findDefByName("InChat")?.let { return it }
         if (tokens.contains("jtalk") || cleanNode.contains("jtalk")) findDefByName("jTalk")?.let { return it }
         if (tokens.contains("jimm") || cleanNode.contains("jimm")) findDefByName("Jimm aspro")?.let { return it }
         if (tokens.contains("kopete") || cleanNode.contains("kopete")) findDefByName("Kopete")?.let { return it }
@@ -714,7 +729,7 @@ object ClientRegistryManager {
         if (tokens.contains("bot") || cleanName.contains("bot")) return findDefByName("Jabber Bot")
 
         // Priority InChat & common clients
-        if (tokens.contains("inchat") || cleanName.contains("inchat")) return findDefByName("InChat")
+        if (tokens.contains("inchat") || cleanName.contains("inchat") || cleanName.contains("ndregil")) return findDefByName("InChat")
         if (tokens.contains("conversations") || cleanName.contains("conversations")) return findDefByName("Conversations")
         if (tokens.contains("gajim") || cleanName.contains("gajim")) return findDefByName("Gajim")
         if (tokens.contains("pidgin") || cleanName.contains("pidgin") || cleanName.contains("gaim")) return findDefByName("Pidgin")
@@ -759,6 +774,27 @@ object ClientRegistryManager {
             resolveByName(cleanName)?.let { return it }
         }
 
+        if (jid.isNotBlank()) {
+            resolveByJid(jid)?.let { return it }
+        }
+
+        return null
+    }
+
+    /**
+     * Attempts to resolve client by examining the resource part of a JID or the JID itself.
+     */
+    fun resolveByJid(jid: String): ClientDefinition? {
+        if (jid.isBlank()) return null
+        val resource = if (jid.contains("/")) jid.substringAfterLast("/") else ""
+        if (resource.isNotBlank()) {
+            resolveByName(resource)?.let { return it }
+        }
+        
+        val lower = jid.lowercase()
+        if (lower.contains("inchat") || lower.contains("ndregil")) return findDefByName("InChat")
+        if (lower.contains("conversations")) return findDefByName("Conversations")
+        
         return null
     }
 

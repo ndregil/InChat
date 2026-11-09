@@ -1521,7 +1521,7 @@ class MultiUserChatManager(
                     val realJid = if (isMe && myJid.isNotBlank()) {
                         myJid
                     } else {
-                        occupant?.jid?.asBareJid()?.toString() ?: occupantJid.toString()
+                        occupant?.jid?.toString() ?: occupantJid.toString()
                     }
 
                     val extractedCaps = ClientRegistryManager.extractCapsFromPresence(smackPresence)

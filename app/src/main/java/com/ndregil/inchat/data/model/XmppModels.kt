@@ -496,11 +496,17 @@ data class ClientCaps(
                 com.ndregil.inchat.data.network.ClientRegistryManager.resolveByName(cleanName)
             } else null
 
-            // CRITICAL: Software name resolution priority: nodeMatch -> nameMatch -> fallback
+            // 3. Resolve JID against clients.txt (resource part check)
+            val jidMatch = if (jid.isNotBlank()) {
+                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByJid(jid)
+            } else null
+
+            // CRITICAL: Software name resolution priority: nodeMatch -> nameMatch -> jidMatch -> fallback
             val resolvedName = when {
                 nodeMatch != null -> nodeMatch.clientName
                 nameMatch != null -> nameMatch.clientName
-                else -> "Unknown"
+                jidMatch != null -> jidMatch.clientName
+                else -> "" // Empty means unidentified
             }
 
             val resolvedVersion = cleanVersion.ifBlank { "-" }
@@ -513,24 +519,37 @@ data class ClientCaps(
                 else -> ""
             }
 
-            // Icon is resolved sensitively: matched node/name, or fallback for bot keywords. Otherwise null.
+            // Icon is resolved sensitively: matched node/name/jid, or fallback for bot/inchat keywords. Otherwise null.
             val resolvedIcon = nodeMatch?.iconResId
                 ?: nameMatch?.iconResId
+                ?: jidMatch?.iconResId
                 ?: when {
-                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") -> com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") || jid.lowercase().contains("bot") -> com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+                    cleanNode.lowercase().contains("inchat") || cleanName.lowercase().contains("inchat") || cleanNode.lowercase().contains("ndregil") || jid.lowercase().contains("inchat") || jid.lowercase().contains("ndregil") -> com.ndregil.inchat.R.drawable.ic_client_inchat
                     else -> null
                 }
 
-            // Platform is resolved sensitively: matched node/name, or fallback for bot keywords. Otherwise UNKNOWN.
+            // Platform is resolved sensitively: matched node/name/jid, or fallback for bot/inchat keywords. Otherwise UNKNOWN.
             val resolvedPlatform = nodeMatch?.platform
                 ?: nameMatch?.platform
+                ?: jidMatch?.platform
                 ?: when {
-                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") -> ClientPlatform.BOT
+                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") || jid.lowercase().contains("bot") -> ClientPlatform.BOT
+                    cleanNode.lowercase().contains("inchat") || cleanName.lowercase().contains("inchat") || cleanNode.lowercase().contains("ndregil") || jid.lowercase().contains("inchat") || jid.lowercase().contains("ndregil") -> ClientPlatform.ANDROID
                     else -> ClientPlatform.UNKNOWN
                 }
 
+            // If platform was matched via keyword but name is empty, set a friendly name
+            val finalName = if (resolvedName.isBlank()) {
+                when (resolvedPlatform) {
+                    ClientPlatform.ANDROID -> if (cleanNode.contains("inchat") || cleanName.contains("inchat")) "InChat" else ""
+                    ClientPlatform.BOT -> "Jabber Bot"
+                    else -> ""
+                }
+            } else resolvedName
+
             return ClientCaps(
-                clientName = resolvedName,
+                clientName = finalName,
                 version = resolvedVersion,
                 os = resolvedOs,
                 platform = resolvedPlatform,

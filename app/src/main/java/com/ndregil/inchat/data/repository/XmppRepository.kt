@@ -781,6 +781,7 @@ class XmppRepository(
                     if (senderNick.equals(myRoomNick, ignoreCase = true)) return@launch
 
                     val avatar = smackAvatarManager.getAvatar(fromStr) ?: smackAvatarManager.getAvatar(roomJid)
+                    val cachedCaps = smackMucManager.getOccupantCaps(roomJid, senderNick)
 
                     val xmppMsg = XmppMessage(
                         id = stanzaId ?: java.util.UUID.randomUUID().toString(),
@@ -788,6 +789,7 @@ class XmppRepository(
                         senderNickname = senderNick,
                         senderJid = fromStr,
                         senderAvatar = avatar,
+                        senderClientCaps = cachedCaps ?: com.ndregil.inchat.data.model.ClientCaps.resolveFor(senderNick, fromStr),
                         body = bodyText,
                         timestamp = System.currentTimeMillis(),
                         isMine = false,
@@ -834,13 +836,19 @@ class XmppRepository(
                 }
 
                 val avatar = smackAvatarManager.getAvatar(targetRoomJid)
+                val cachedCaps = if (isMucContext) {
+                    smackMucManager.getOccupantCaps(targetRoomJid, senderNick)
+                } else {
+                    contactMatch?.clientCaps
+                }
 
                 val xmppMsg = XmppMessage(
                     id = stanzaId ?: java.util.UUID.randomUUID().toString(),
                     roomJid = targetRoomJid,
                     senderNickname = senderNick,
-                    senderJid = if (isSentByMe) myJid else targetRoomJid,
+                    senderJid = if (isSentByMe) myJid else fromStr,
                     senderAvatar = avatar,
+                    senderClientCaps = cachedCaps ?: com.ndregil.inchat.data.model.ClientCaps.resolveFor(senderNick, if (isSentByMe) myJid else fromStr),
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
                     isMine = isSentByMe,
