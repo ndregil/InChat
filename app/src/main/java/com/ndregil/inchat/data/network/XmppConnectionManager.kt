@@ -334,6 +334,15 @@ class XmppConnectionManager(
             val versionManager = VersionManager.getInstanceFor(connection)
             versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
 
+            // Entity Capabilities (XEP-0115)
+            try {
+                val capsManager = org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(connection)
+                capsManager.enableEntityCaps()
+                org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
+            } catch (e: Exception) {
+                Log.w(TAG, "EntityCapsManager setup failed: ${e.message}")
+            }
+
             // Delivery Receipts (XEP-0184)
             val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
             deliveryReceiptManager.autoReceiptMode = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.AutoReceiptMode.always

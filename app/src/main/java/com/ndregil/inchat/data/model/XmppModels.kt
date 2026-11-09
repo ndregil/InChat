@@ -496,9 +496,8 @@ data class ClientCaps(
                 com.ndregil.inchat.data.network.ClientRegistryManager.resolveByName(cleanName)
             } else null
 
-            // CRITICAL: Software name MUST be the exact name returned by the user being checked!
+            // CRITICAL: Software name resolution priority: nodeMatch -> nameMatch -> fallback
             val resolvedName = when {
-                cleanName.isNotBlank() && !cleanName.contains("@") && cleanName != "Unknown" -> cleanName
                 nodeMatch != null -> nodeMatch.clientName
                 nameMatch != null -> nameMatch.clientName
                 else -> "Unknown"

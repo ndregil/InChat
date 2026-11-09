@@ -300,16 +300,18 @@ fun MessageBubble(
                         )
                     }
 
-                    ClientCapsIcon(
-                        platform = message.senderClientCaps.platform,
-                        clientCaps = message.senderClientCaps,
-                        modifier = Modifier
-                            .size(15.dp)
-                            .clip(CircleShape)
-                            .clickable { showCapsDialog = true }
-                            .testTag("caps_icon_msg_${message.id}"),
-                        contentDescription = "Caps: ${message.senderClientCaps.clientName}"
-                    )
+                    if (message.senderClientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
+                        ClientCapsIcon(
+                            platform = message.senderClientCaps.platform,
+                            clientCaps = message.senderClientCaps,
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clip(CircleShape)
+                                .clickable { showCapsDialog = true }
+                                .testTag("caps_icon_msg_${message.id}"),
+                            contentDescription = "Caps: ${message.senderClientCaps.clientName}"
+                        )
+                    }
 
                     Spacer(modifier = Modifier.width(2.dp))
 
