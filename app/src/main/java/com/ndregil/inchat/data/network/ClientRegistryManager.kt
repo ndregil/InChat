@@ -29,11 +29,29 @@ object ClientRegistryManager {
         ClientDefinition(
             patterns = listOf("jtalk.ustyugov.net/caps", "jtalk", "jtalk.ustyugov.net"),
             clientName = "jTalk",
-            canonicalNodeUri = "jtalk.ustyugov.net/caps",
+            canonicalNodeUri = "http://jtalk.ustyugov.net/caps",
             platform = ClientPlatform.ANDROID,
             iconResId = com.ndregil.inchat.R.drawable.ic_client_jtalk,
             defaultVersion = "1.0",
             defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("dev.narayana.im", "anotherim"),
+            clientName = "Another IM",
+            canonicalNodeUri = "http://dev.narayana.im",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_anotherim,
+            defaultVersion = "1.0",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("ndregil.smart-ng", "smartng"),
+            clientName = "SmartNG",
+            canonicalNodeUri = "http://ndregil.smart-ng",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_smartng,
+            defaultVersion = "1.0",
+            defaultOs = "Android"
         ),
         ClientDefinition(
             patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat", "inchat-android"),
@@ -440,6 +458,8 @@ object ClientRegistryManager {
             clean.contains("movim") -> com.ndregil.inchat.R.drawable.ic_client_movim
             clean.contains("poezio") -> com.ndregil.inchat.R.drawable.ic_client_poezio
             clean.contains("c0nnect") -> com.ndregil.inchat.R.drawable.ic_client_c0nnect
+            clean.contains("another im") || clean == "anotherim" -> com.ndregil.inchat.R.drawable.ic_client_anotherim
+            clean.contains("smartng") || clean == "smart-ng" -> com.ndregil.inchat.R.drawable.ic_client_smartng
             clean.contains("archon") -> com.ndregil.inchat.R.drawable.ic_client_archon
             clean.contains("jimm") -> com.ndregil.inchat.R.drawable.ic_client_jimm
             clean.contains("pyicq") -> com.ndregil.inchat.R.drawable.ic_client_pyicq
@@ -467,7 +487,7 @@ object ClientRegistryManager {
     private fun determineDefaultOs(clientName: String): String {
         val clean = clientName.lowercase()
         return when {
-            clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" -> "Android"
+            clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" || clean == "smartng" -> "Android"
             clean.contains("ios") || clean.contains("monal") -> "iOS"
             clean.contains("bot") || clean.contains("rss") || clean.contains("pyicq") -> "Server"
             clean.contains("movim") || clean.contains("web") || clean.contains("google") -> "Web"
@@ -482,7 +502,7 @@ object ClientRegistryManager {
     private fun determinePlatform(name: String): ClientPlatform {
         val n = name.lowercase()
         return when {
-            n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") -> ClientPlatform.ANDROID
+            n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") || n == "smartng" -> ClientPlatform.ANDROID
             n.contains("ios") || n.contains("monal") -> ClientPlatform.IOS
             n.contains("bot") || n.contains("pyicq") || n.contains("rss") || n.contains("isida") || n.contains("twitter") -> ClientPlatform.BOT
             n.contains("web") || n == "movim" || n == "google" || n.contains("ya.online") -> ClientPlatform.WEB

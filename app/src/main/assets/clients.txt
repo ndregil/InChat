@@ -34,3 +34,6 @@ dino.im,http://dino.im	Dino
 profanity.im,http://profanity.im	Profanity
 beagleim.org,http://beagleim.org	BeagleIM
 gajim,http://gajim.org	Gajim
+dev.narayana.im	Another IM
+jtalk.ustyugov.net/caps	jTalk
+ndregil.smart-ng	SmartNG
