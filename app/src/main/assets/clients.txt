@@ -1,4 +1,4 @@
-http://ndregil.inchat,ndregil.inchat,inchat	InChat
+http://ndregil.inchat,ndregil.inchat,inchat,inchat-android	InChat
 bombusmod.net.ru,BombusMod	BombusMod
 bombus-im.org,voffk.org.ru/bombus	Bombus
 bombusmod-qd	Bombus-QD

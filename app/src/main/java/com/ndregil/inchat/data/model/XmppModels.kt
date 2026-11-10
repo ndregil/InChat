@@ -486,74 +486,25 @@ data class ClientCaps(
             val cleanVersion = version.trim()
             val cleanOs = os.trim()
 
-            // 1. Resolve node strictly against clients.txt
-            val nodeMatch = if (cleanNode.isNotBlank()) {
-                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByNode(cleanNode)
-            } else null
+            // Strictly resolve against clients.txt definitions
+            val definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
+                name = cleanName,
+                jid = jid,
+                node = cleanNode
+            )
 
-            // 2. Resolve name against clients.txt (for icon / platform lookup when node is missing)
-            val nameMatch = if (cleanName.isNotBlank()) {
-                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByName(cleanName)
-            } else null
-
-            // 3. Resolve JID against clients.txt (resource part check)
-            val jidMatch = if (jid.isNotBlank()) {
-                com.ndregil.inchat.data.network.ClientRegistryManager.resolveByJid(jid)
-            } else null
-
-            // CRITICAL: Software name resolution priority: nodeMatch -> nameMatch -> jidMatch -> fallback
-            val resolvedName = when {
-                nodeMatch != null -> nodeMatch.clientName
-                nameMatch != null -> nameMatch.clientName
-                jidMatch != null -> jidMatch.clientName
-                else -> "" // Empty means unidentified
-            }
-
+            val resolvedName = definition?.clientName ?: ""
             val resolvedVersion = cleanVersion.ifBlank { "-" }
             val resolvedOs = cleanOs.ifBlank { "-" }
-
-            // Node URI is preserved from node if present or taken from matched definition
-            val resolvedNodeUri = when {
-                cleanNode.isNotBlank() -> cleanNode
-                nodeMatch != null -> nodeMatch.canonicalNodeUri
-                else -> ""
-            }
-
-            // Icon is resolved sensitively: matched node/name/jid, or fallback for bot/inchat keywords. Otherwise null.
-            val resolvedIcon = nodeMatch?.iconResId
-                ?: nameMatch?.iconResId
-                ?: jidMatch?.iconResId
-                ?: when {
-                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") || jid.lowercase().contains("bot") -> com.ndregil.inchat.R.drawable.ic_client_jabber_bot
-                    cleanNode.lowercase().contains("inchat") || cleanName.lowercase().contains("inchat") || cleanNode.lowercase().contains("ndregil") || jid.lowercase().contains("inchat") || jid.lowercase().contains("ndregil") -> com.ndregil.inchat.R.drawable.ic_client_inchat
-                    else -> null
-                }
-
-            // Platform is resolved sensitively: matched node/name/jid, or fallback for bot/inchat keywords. Otherwise UNKNOWN.
-            val resolvedPlatform = nodeMatch?.platform
-                ?: nameMatch?.platform
-                ?: jidMatch?.platform
-                ?: when {
-                    cleanNode.lowercase().contains("bot") || cleanName.lowercase().contains("bot") || jid.lowercase().contains("bot") -> ClientPlatform.BOT
-                    cleanNode.lowercase().contains("inchat") || cleanName.lowercase().contains("inchat") || cleanNode.lowercase().contains("ndregil") || jid.lowercase().contains("inchat") || jid.lowercase().contains("ndregil") -> ClientPlatform.ANDROID
-                    else -> ClientPlatform.UNKNOWN
-                }
-
-            // If platform was matched via keyword but name is empty, set a friendly name
-            val finalName = if (resolvedName.isBlank()) {
-                when (resolvedPlatform) {
-                    ClientPlatform.ANDROID -> if (cleanNode.contains("inchat") || cleanName.contains("inchat")) "InChat" else ""
-                    ClientPlatform.BOT -> "Jabber Bot"
-                    else -> ""
-                }
-            } else resolvedName
+            val resolvedIcon = definition?.iconResId
+            val resolvedPlatform = definition?.platform ?: ClientPlatform.UNKNOWN
 
             return ClientCaps(
-                clientName = finalName,
+                clientName = resolvedName,
                 version = resolvedVersion,
                 os = resolvedOs,
                 platform = resolvedPlatform,
-                nodeUri = resolvedNodeUri,
+                nodeUri = cleanNode.ifBlank { definition?.canonicalNodeUri ?: "" },
                 hash = hash,
                 ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
                 iconResId = resolvedIcon,

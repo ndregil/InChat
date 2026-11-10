@@ -496,12 +496,12 @@ fun OccupantItemRow(
                     ClientCapsBadge(
                         clientCaps = occupant.clientCaps,
                         onClick = onViewCaps,
-                        showLabel = false
+                        showLabel = true
                     )
                 }
 
-                Text(
-                    text = occupant.statusText.ifBlank {
+                val displayStatus = remember(occupant.statusText, occupant.nickname, occupant.presence) {
+                    val raw = occupant.statusText.ifBlank {
                         when (occupant.presence) {
                             UserPresence.ONLINE -> "Online"
                             UserPresence.CHAT -> "Chat"
@@ -510,7 +510,26 @@ fun OccupantItemRow(
                             UserPresence.DND -> "DND"
                             UserPresence.OFFLINE -> "Offline"
                         }
-                    },
+                    }
+                    // Remove prepended nickname if present (common in MUC statuses)
+                    if (raw.startsWith(occupant.nickname, ignoreCase = true)) {
+                        raw.substring(occupant.nickname.length).trim().removePrefix("is ").removePrefix(": ").ifBlank { 
+                            when (occupant.presence) {
+                                UserPresence.ONLINE -> "Online"
+                                UserPresence.CHAT -> "Chat"
+                                UserPresence.AWAY -> "Away"
+                                UserPresence.XA -> "Extended Away"
+                                UserPresence.DND -> "DND"
+                                UserPresence.OFFLINE -> "Offline"
+                            }
+                        }
+                    } else {
+                        raw
+                    }
+                }
+
+                Text(
+                    text = displayStatus,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

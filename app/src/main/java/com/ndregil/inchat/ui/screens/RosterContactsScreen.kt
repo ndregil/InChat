@@ -1197,7 +1197,7 @@ fun UserPresenceControlCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp)
+                .padding(6.dp)
         ) {
             // Header: Avatar, Name, Presence Badge, Expand Button
             Row(

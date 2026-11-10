@@ -36,7 +36,7 @@ object ClientRegistryManager {
             defaultOs = "Mobile"
         ),
         ClientDefinition(
-            patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat"),
+            patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat", "inchat-android"),
             clientName = "InChat",
             canonicalNodeUri = "http://ndregil.inchat",
             platform = ClientPlatform.ANDROID,
@@ -507,41 +507,43 @@ object ClientRegistryManager {
         } catch (_: Exception) {}
 
         try {
-            // 2. Try raw extension extraction
-            val ext = presence.getExtension("c", "http://jabber.org/protocol/caps")
-                ?: presence.getExtension("http://jabber.org/protocol/caps")
-                ?: presence.extensions.firstOrNull { it.elementName == "c" && it.namespace == "http://jabber.org/protocol/caps" }
-
-            if (ext != null) {
-                if (ext is org.jivesoftware.smackx.caps.packet.CapsExtension) {
-                    return Pair(ext.node, ext.ver ?: "")
-                }
-                if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
-                    val nodeAttr = ext.getAttributeValue("node")
-                    val verAttr = ext.getAttributeValue("ver")
-                    if (!nodeAttr.isNullOrBlank()) {
-                        return Pair(nodeAttr, verAttr ?: "")
+            // 2. Comprehensive search across all extensions for 'c' element with caps namespace
+            presence.extensions.forEach { ext ->
+                if ((ext.elementName == "c" && ext.namespace == "http://jabber.org/protocol/caps") || 
+                    ext.namespace == "http://jabber.org/protocol/caps") {
+                    
+                    if (ext is org.jivesoftware.smackx.caps.packet.CapsExtension) {
+                        return Pair(ext.node, ext.ver ?: "")
                     }
-                }
-                // 3. XML regex fallback for malformed or generic extensions
-                val xml = ext.toXML("").toString()
-                val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                if (!nodeMatch.isNullOrBlank()) {
-                    return Pair(nodeMatch, verMatch ?: "")
+                    
+                    if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
+                        val nodeAttr = ext.getAttributeValue("node")
+                        val verAttr = ext.getAttributeValue("ver")
+                        if (!nodeAttr.isNullOrBlank()) {
+                            return Pair(nodeAttr, verAttr ?: "")
+                        }
+                    }
+                    
+                    // 3. XML regex fallback for unidentified extension types
+                    val xml = ext.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+                    val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                    val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                    if (!nodeMatch.isNullOrBlank()) {
+                        return Pair(nodeMatch, verMatch ?: "")
+                    }
                 }
             }
         } catch (_: Exception) {}
 
-        // 4. Resource-based fallback for known clients that put node in resource
+        // 4. Resource-based fallback for known clients
         val fromStr = presence.from?.toString() ?: ""
         if (fromStr.contains("/")) {
             val resource = fromStr.substringAfterLast("/")
-            if (resource.contains("InChat", ignoreCase = true)) {
+            if (resource.contains("InChat", ignoreCase = true) || resource.contains("ndregil", ignoreCase = true)) {
                 return Pair("http://ndregil.inchat", "")
             }
-            if (resource.contains("Bombus", ignoreCase = true)) {
-                return Pair("http://bombus-im.org", "")
+            if (resource.contains("Conversations", ignoreCase = true)) {
+                return Pair("http://conversations.im", "")
             }
         }
 
@@ -556,143 +558,31 @@ object ClientRegistryManager {
     }
 
     /**
-     * Sensitively matches a node URL against clients.txt patterns and client capabilities.
-     * Handles exact URLs, subdomains, token boundaries, and keyword identifiers (e.g. "http://xmpp.bot.com" -> Jabber Bot).
+     * Flexible matching of a node URL against clients.txt patterns.
+     * If a keyword from the registry is found within the node string, it is a match.
      */
     fun resolveByNode(node: String): ClientDefinition? {
         val rawClean = node.trim().lowercase()
         if (rawClean.isBlank()) return null
+        // Remove protocol for cleaner keyword matching
         val cleanNode = rawClean.removePrefix("http://").removePrefix("https://").removeSuffix("/")
-        if (cleanNode.isBlank()) return null
-
-        val host = cleanNode.substringBefore("/").substringBefore("#").substringBefore("?").trim()
-        val path = cleanNode.substringAfter("/", "").substringBefore("#").substringBefore("?").trim()
-
+        
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        // 1. Direct or prefix match against registered patterns
-        val directMatch = registry.firstOrNull { def -> 
+        // Check every client definition
+        return registry.firstOrNull { def -> 
             def.patterns.any { pattern ->
-                val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                if (cleanPattern.isBlank()) return@any false
+                val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (keyword.isBlank()) return@any false
 
-                cleanNode == cleanPattern || 
-                cleanNode.startsWith("$cleanPattern/") || 
-                cleanNode.startsWith("$cleanPattern#") || 
-                cleanNode.startsWith("$cleanPattern?") ||
-                cleanNode.startsWith("$cleanPattern.") ||
-                cleanNode.startsWith(cleanPattern) ||
-                cleanPattern.startsWith(cleanNode) ||
-                cleanNode.substringBefore("/") == cleanPattern.substringBefore("/") ||
-                cleanNode.substringBefore("#") == cleanPattern.substringBefore("#") ||
-                (cleanNode.contains(".") && cleanPattern.contains(".") && cleanNode.substringBefore(".") == cleanPattern.substringBefore("."))
+                // "Asal ada kata-kata" logic: contains the keyword
+                cleanNode.contains(keyword)
             } 
-        }
-        if (directMatch != null) return directMatch
-
-        // 2. Domain / Subdomain matching (e.g. "xmpp.conversations.im" or "conversations.im")
-        if (host.isNotBlank() && host.contains(".")) {
-            val domainMatch = registry.firstOrNull { def ->
-                def.patterns.any { pattern ->
-                    val cleanPattern = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                    val patternHost = cleanPattern.substringBefore("/").substringBefore("#").substringBefore("?").trim()
-                    patternHost.contains(".") && (host == patternHost || host.endsWith(".$patternHost") || patternHost.endsWith(".$host"))
-                }
-            }
-            if (domainMatch != null) return domainMatch
-        }
-
-        // 3. Priority specialized clients (to avoid shorter/generic tokens shadowing specific client variants)
-        // Bombus variants
-        if (cleanNode.contains("bombusmod-qd") || cleanNode.contains("bombus-qd")) {
-            findDefByName("Bombus-QD")?.let { return it }
-        }
-        if (cleanNode.contains("bombusmod")) {
-            findDefByName("BombusMod")?.let { return it }
-        }
-        if (cleanNode.contains("bombus")) {
-            findDefByName("Bombus")?.let { return it }
-        }
-
-        // Psi variants
-        if (cleanNode.contains("psi-plus") || cleanNode.contains("psi+") || cleanNode.contains("psi_plus")) {
-            findDefByName("Psi+")?.let { return it }
-        }
-        if (cleanNode.contains("psi-im") || cleanNode.contains("psi")) {
-            findDefByName("Psi")?.let { return it }
-        }
-
-        // Miranda variants
-        if (cleanNode.contains("miranda-ng") || cleanNode.contains("miranda_ng")) {
-            findDefByName("Miranda NG")?.let { return it }
-        }
-        if (cleanNode.contains("miranda")) {
-            findDefByName("Miranda")?.let { return it }
-        }
-
-        // Specialized Bots / Transports
-        if (cleanNode.contains("isida-bot") || cleanNode.contains("isida")) {
-            findDefByName("Isida bot")?.let { return it }
-        }
-        if (cleanNode.contains("twitter")) {
-            findDefByName("Twitter bot")?.let { return it }
-        }
-        if (cleanNode.contains("jabrss") || cleanNode.contains("rss")) {
-            findDefByName("RSS Bot")?.let { return it }
-        }
-        if (cleanNode.contains("pyicq")) {
-            findDefByName("PyICQ-t")?.let { return it }
-        }
-
-        // 4. Token & Segment analysis (sensitive matching for host and path components)
-        val tokens = cleanNode.split('.', '/', '#', '?', '&', '-', '_', '+', ':', '@')
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-
-        // Jabber Bot sensitivity:
-        // E.g. "http://xmpp.bot.com", "http://bot.xmpp.today/caps", "http://mybot.com", "http://service.net/bot"
-        if (tokens.contains("bot") || host.contains("bot") || path.contains("bot") || cleanNode.contains("bot") || cleanNode.contains("freq")) {
-            findDefByName("Jabber Bot")?.let { return it }
-        }
-
-        // Sensitive check for other known clients
-        if (tokens.contains("conversations") || cleanNode.contains("conversations")) findDefByName("Conversations")?.let { return it }
-        if (tokens.contains("gajim") || cleanNode.contains("gajim")) findDefByName("Gajim")?.let { return it }
-        if (tokens.contains("slixmpp") || cleanNode.contains("slixmpp")) findDefByName("Slixmpp")?.let { return it }
-        if (tokens.contains("yaxim") || cleanNode.contains("yaxim")) findDefByName("Yaxim")?.let { return it }
-        if (tokens.contains("monal") || cleanNode.contains("monal")) findDefByName("Monal IM")?.let { return it }
-        if (tokens.contains("monocles") || cleanNode.contains("monocles")) findDefByName("Monocles")?.let { return it }
-        if (tokens.contains("blabber") || cleanNode.contains("blabber")) findDefByName("Blabber")?.let { return it }
-        if (tokens.contains("cheogram") || cleanNode.contains("cheogram")) findDefByName("Cheogram")?.let { return it }
-        if (tokens.contains("dino") || cleanNode.contains("dino")) findDefByName("Dino")?.let { return it }
-        if (tokens.contains("profanity") || cleanNode.contains("profanity")) findDefByName("Profanity")?.let { return it }
-        if (tokens.contains("mcabber") || cleanNode.contains("mcabber")) findDefByName("Mcabber")?.let { return it }
-        if (tokens.contains("pidgin") || tokens.contains("gaim") || cleanNode.contains("pidgin") || cleanNode.contains("gaim")) findDefByName("Pidgin")?.let { return it }
-        if (tokens.contains("tkabber") || cleanNode.contains("tkabber")) findDefByName("Tkabber")?.let { return it }
-        if (tokens.contains("inchat") || cleanNode.contains("inchat") || cleanNode.contains("ndregil")) findDefByName("InChat")?.let { return it }
-        if (tokens.contains("jtalk") || cleanNode.contains("jtalk")) findDefByName("jTalk")?.let { return it }
-        if (tokens.contains("jimm") || cleanNode.contains("jimm")) findDefByName("Jimm aspro")?.let { return it }
-        if (tokens.contains("kopete") || cleanNode.contains("kopete")) findDefByName("Kopete")?.let { return it }
-        if (tokens.contains("qip") || cleanNode.contains("qip")) findDefByName("Qip")?.let { return it }
-        if (tokens.contains("movim") || cleanNode.contains("movim")) findDefByName("Movim")?.let { return it }
-        if (tokens.contains("poezio") || cleanNode.contains("poezio") || cleanNode.contains("poez.io")) findDefByName("Poezio")?.let { return it }
-        if (tokens.contains("beagle") || cleanNode.contains("beagleim") || cleanNode.contains("beagle")) findDefByName("BeagleIM")?.let { return it }
-        if (tokens.contains("c0nnect") || cleanNode.contains("c0nnect")) findDefByName("c0nnectPRO")?.let { return it }
-        if (tokens.contains("archon") || cleanNode.contains("archon")) findDefByName("Archon")?.let { return it }
-        if (tokens.contains("google") || tokens.contains("gmail") || cleanNode.contains("google") || cleanNode.contains("gmail")) findDefByName("Google")?.let { return it }
-        if (tokens.contains("yandex") || cleanNode.contains("ya.online") || cleanNode.contains("ajabb")) findDefByName("Ya.Online")?.let { return it }
-
-        // 5. Fallback token match across all patterns
-        return registry.firstOrNull { def ->
-            def.patterns.any { p ->
-                val cp = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                cp.length >= 3 && (tokens.contains(cp) || cleanNode.contains(cp))
-            }
         }
     }
 
     /**
-     * Sensitively matches client name against clients.txt patterns and names.
+     * Flexible matching of client name/resource against registry patterns.
      */
     fun resolveByName(name: String): ClientDefinition? {
         val cleanName = name.trim().lowercase()
@@ -700,68 +590,22 @@ object ClientRegistryManager {
 
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        // 1. Direct or pattern exact match
-        registry.firstOrNull { def ->
-            def.clientName.lowercase() == cleanName || 
+        return registry.firstOrNull { def ->
+            // Direct name match
+            if (def.clientName.lowercase() == cleanName) return@firstOrNull true
+            
+            // Or keyword match in patterns
             def.patterns.any { p ->
-                val cp = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                val cpBase = cp.substringBefore("/")
-                cpBase.isNotBlank() && cleanName == cpBase
+                val keyword = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (keyword.isBlank()) return@any false
+                
+                cleanName.contains(keyword)
             }
-        }?.let { return it }
-
-        // 2. Sensitive token or keyword match
-        val tokens = cleanName.split(' ', '-', '_', '.', '+', '@').filter { it.isNotBlank() }
-
-        // Priority bots & specialized clients first
-        if (tokens.contains("isida") || cleanName.contains("isida")) return findDefByName("Isida bot")
-        if (tokens.contains("twitter") || cleanName.contains("twitter")) return findDefByName("Twitter bot")
-        if (tokens.contains("rss") || cleanName.contains("rss") || cleanName.contains("jabrss")) return findDefByName("RSS Bot")
-        if (tokens.contains("bombusmod-qd") || cleanName.contains("bombus-qd")) return findDefByName("Bombus-QD")
-        if (tokens.contains("bombusmod") || cleanName.contains("bombusmod")) return findDefByName("BombusMod")
-        if (tokens.contains("bombus") || cleanName.contains("bombus")) return findDefByName("Bombus")
-        if (tokens.contains("psi-plus") || cleanName.contains("psi+") || cleanName.contains("psi-plus")) return findDefByName("Psi+")
-        if (tokens.contains("psi") || cleanName.contains("psi")) return findDefByName("Psi")
-        if (tokens.contains("miranda-ng") || cleanName.contains("miranda-ng")) return findDefByName("Miranda NG")
-        if (tokens.contains("miranda") || cleanName.contains("miranda")) return findDefByName("Miranda")
-
-        // Generic bot match:
-        if (tokens.contains("bot") || cleanName.contains("bot")) return findDefByName("Jabber Bot")
-
-        // Priority InChat & common clients
-        if (tokens.contains("inchat") || cleanName.contains("inchat") || cleanName.contains("ndregil")) return findDefByName("InChat")
-        if (tokens.contains("conversations") || cleanName.contains("conversations")) return findDefByName("Conversations")
-        if (tokens.contains("gajim") || cleanName.contains("gajim")) return findDefByName("Gajim")
-        if (tokens.contains("pidgin") || cleanName.contains("pidgin") || cleanName.contains("gaim")) return findDefByName("Pidgin")
-        if (tokens.contains("monal") || cleanName.contains("monal")) return findDefByName("Monal IM")
-        if (tokens.contains("yaxim") || cleanName.contains("yaxim")) return findDefByName("Yaxim")
-        if (tokens.contains("dino") || cleanName.contains("dino")) return findDefByName("Dino")
-        if (tokens.contains("profanity") || cleanName.contains("profanity")) return findDefByName("Profanity")
-        if (tokens.contains("slixmpp") || cleanName.contains("slixmpp")) return findDefByName("Slixmpp")
-        if (tokens.contains("inchat") || cleanName.contains("inchat")) return findDefByName("InChat")
-        if (tokens.contains("jtalk") || cleanName.contains("jtalk")) return findDefByName("jTalk")
-        if (tokens.contains("blabber") || cleanName.contains("blabber")) return findDefByName("Blabber")
-        if (tokens.contains("monocles") || cleanName.contains("monocles")) return findDefByName("Monocles")
-        if (tokens.contains("cheogram") || cleanName.contains("cheogram")) return findDefByName("Cheogram")
-        if (tokens.contains("movim") || cleanName.contains("movim")) return findDefByName("Movim")
-        if (tokens.contains("poezio") || cleanName.contains("poezio")) return findDefByName("Poezio")
-        if (tokens.contains("tkabber") || cleanName.contains("tkabber")) return findDefByName("Tkabber")
-        if (tokens.contains("mcabber") || cleanName.contains("mcabber")) return findDefByName("Mcabber")
-        if (tokens.contains("qip") || cleanName.contains("qip")) return findDefByName("Qip")
-        if (tokens.contains("kopete") || cleanName.contains("kopete")) return findDefByName("Kopete")
-        if (tokens.contains("jimm") || cleanName.contains("jimm")) return findDefByName("Jimm aspro")
-        if (tokens.contains("beagle") || cleanName.contains("beagle")) return findDefByName("BeagleIM")
-        if (tokens.contains("c0nnect") || cleanName.contains("c0nnect")) return findDefByName("c0nnectPRO")
-        if (tokens.contains("archon") || cleanName.contains("archon")) return findDefByName("Archon")
-        if (tokens.contains("google") || cleanName.contains("google") || cleanName.contains("gmail")) return findDefByName("Google")
-        if (tokens.contains("yandex") || cleanName.contains("ya.online") || cleanName.contains("ajabb")) return findDefByName("Ya.Online")
-
-        return null
+        }
     }
 
     /**
      * Resolves client definition strictly from clients.txt definitions and node patterns.
-     * Note: Server domain in JID is NEVER used to infer or resolve the client.
      */
     fun resolve(name: String, jid: String, node: String): ClientDefinition? {
         val cleanNode = node.trim()
@@ -769,32 +613,28 @@ object ClientRegistryManager {
             resolveByNode(cleanNode)?.let { return it }
         }
 
-        val cleanName = name.trim()
-        if (cleanName.isNotBlank()) {
-            resolveByName(cleanName)?.let { return it }
-        }
-
+        // We check JID (resource) before nickname for better precision
         if (jid.isNotBlank()) {
             resolveByJid(jid)?.let { return it }
+        }
+
+        val cleanName = name.trim()
+        if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
+            resolveByName(cleanName)?.let { return it }
         }
 
         return null
     }
 
     /**
-     * Attempts to resolve client by examining the resource part of a JID or the JID itself.
+     * Attempts to resolve client by examining the resource part of a JID.
      */
     fun resolveByJid(jid: String): ClientDefinition? {
         if (jid.isBlank()) return null
         val resource = if (jid.contains("/")) jid.substringAfterLast("/") else ""
         if (resource.isNotBlank()) {
-            resolveByName(resource)?.let { return it }
+            return resolveByName(resource)
         }
-        
-        val lower = jid.lowercase()
-        if (lower.contains("inchat") || lower.contains("ndregil")) return findDefByName("InChat")
-        if (lower.contains("conversations")) return findDefByName("Conversations")
-        
         return null
     }
 

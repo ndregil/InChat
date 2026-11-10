@@ -610,7 +610,22 @@ class XmppConnectionManager(
         val conn = tcpConnection ?: return@withContext Result.failure(Exception("Disconnected"))
         try {
             val jidStr = targetJid.trim()
-            val jid = JidCreate.from(jidStr)
+            var jid = JidCreate.from(jidStr)
+            
+            // If bare JID, try to find a full JID from Roster if available
+            if (!jid.hasResource()) {
+                try {
+                    val roster = org.jivesoftware.smack.roster.Roster.getInstanceFor(conn)
+                    val presence = roster.getPresence(jid.asBareJid())
+                    if (presence.isAvailable && presence.from != null) {
+                        jid = presence.from
+                        Log.d(TAG, "Resolved bare JID $targetJid to full JID $jid for version query")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to resolve full JID from roster for $targetJid: ${e.message}")
+                }
+            }
+
             val versionManager = VersionManager.getInstanceFor(conn)
             val version = versionManager.getVersion(jid)
             

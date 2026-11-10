@@ -2322,9 +2322,8 @@ fun RoomOccupantsCapsBar(
                                 maxLines = 1
                             )
 
-                            // Client Caps Icon
-                            // Client Caps Icon
-                            if (occupant.clientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
+                            // Client icon only if strictly identified
+                            if (occupant.clientCaps.clientName.isNotBlank()) {
                                 ClientCapsIcon(
                                     platform = occupant.clientCaps.platform,
                                     clientCaps = occupant.clientCaps,

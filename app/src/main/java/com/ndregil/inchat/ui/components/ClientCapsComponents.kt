@@ -122,6 +122,11 @@ fun ClientCapsBadge(
     modifier: Modifier = Modifier,
     showLabel: Boolean = true
 ) {
+    // If no identification info, don't show the badge at all
+    if (clientCaps.clientName.isBlank() && clientCaps.platform == ClientPlatform.UNKNOWN && clientCaps.iconResId == null) {
+        return
+    }
+
     val platformColor = getClientPlatformColor(clientCaps.platform)
     val clickableModifier = if (onClick != null) {
         Modifier.clickable { onClick() }
@@ -148,7 +153,7 @@ fun ClientCapsBadge(
                 tint = platformColor
             )
 
-            if (showLabel) {
+            if (showLabel && clientCaps.clientName.isNotBlank()) {
                 Text(
                     text = clientCaps.clientName,
                     fontSize = 11.sp,

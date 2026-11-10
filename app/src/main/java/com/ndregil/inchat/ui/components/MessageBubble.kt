@@ -300,18 +300,6 @@ fun MessageBubble(
                         )
                     }
 
-                    if (message.senderClientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
-                        ClientCapsIcon(
-                            platform = message.senderClientCaps.platform,
-                            clientCaps = message.senderClientCaps,
-                            modifier = Modifier
-                                .size(15.dp)
-                                .clip(CircleShape)
-                                .clickable { showCapsDialog = true }
-                                .testTag("caps_icon_msg_${message.id}"),
-                            contentDescription = "Caps: ${message.senderClientCaps.clientName}"
-                        )
-                    }
 
                     Spacer(modifier = Modifier.width(2.dp))
 
@@ -385,15 +373,6 @@ fun MessageBubble(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(bottom = 2.dp, end = 4.dp)
                 ) {
-                    ClientCapsIcon(
-                        platform = message.senderClientCaps.platform,
-                        clientCaps = message.senderClientCaps,
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .clickable { showCapsDialog = true },
-                        contentDescription = "Caps Saya"
-                    )
 
                     Surface(
                         shape = CircleShape,
