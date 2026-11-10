@@ -887,6 +887,7 @@ fun MultiRoomMainScreen(
                                                             viewModel.setWhisperTarget(found)
                                                         },
                                                         onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                         onTranslateClick = { translateMsg -> viewModel.translateMessage(translateMsg.id) },
                                                         onViewProfile = { profileMsg ->
                                                             val targetNick = profileMsg.senderNickname
                                                             val occ = occupants.find { it.nickname == targetNick }
@@ -1475,6 +1476,7 @@ fun MultiRoomMainScreen(
                                                     onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
                                                     onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
                                                     onMentionClick = { nick -> viewModel.insertMention(nick) },
+                                                    onTranslateClick = { translateMsg -> viewModel.translateMessage(translateMsg.id) },
                                                     onViewProfile = { profileMsg ->
                                                         val targetNick = profileMsg.senderNickname
                                                         val occ = occupants.find { it.nickname == targetNick }
@@ -1674,6 +1676,8 @@ fun MultiRoomMainScreen(
                             onSwitchToAccountTab = { showAccountSettingsDirectly = true },
                             autoApproveSubscription = viewModel.autoApproveSubscription.collectAsStateWithLifecycle().value,
                             onToggleAutoApproveSubscription = { viewModel.setAutoApproveSubscription(it) },
+                            translationPreferences = viewModel.translationPreferences.collectAsStateWithLifecycle().value,
+                            onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
                             onSignOut = { viewModel.signOut() },
                             onExitApp = { viewModel.exitApp() }
                         )
@@ -2714,10 +2718,22 @@ fun ChatInputBar(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
-        val loc = try {
-            locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
-                ?: locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
-        } catch (e: Exception) { null }
+        val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        val loc = if (hasFine || hasCoarse) {
+            try {
+                @Suppress("MissingPermission")
+                val fineLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                @Suppress("MissingPermission")
+                val coarseLoc = locationManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                fineLoc ?: coarseLoc
+            } catch (e: Exception) { null }
+        } else null
 
         val lat = loc?.latitude ?: -6.200000
         val lng = loc?.longitude ?: 106.816666
@@ -2900,7 +2916,7 @@ fun ChatInputBar(
                                 ) {
                                     // Lokasi
                                     IconButton(
-                                        onClick = { showLocationDialog = true },
+                                        onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
                                         modifier = Modifier.size(32.dp).testTag("btn_loc")
                                     ) {
                                         Icon(Icons.Default.LocationOn, null, tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))

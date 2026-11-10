@@ -41,6 +41,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -91,11 +92,28 @@ class XmppRepository(
     val jabberSearchManager = com.ndregil.inchat.data.network.JabberNetworkSearchManager()
     val backupManager = com.ndregil.inchat.data.local.backup.ChatBackupManager(context, database)
     val themePreferencesManager = com.ndregil.inchat.data.local.ThemePreferencesManager(context)
+    val translationService = com.ndregil.inchat.data.network.TranslationService()
+    val translationPreferencesManager = com.ndregil.inchat.data.local.TranslationPreferencesManager(context)
     val connectionService = XmppConnectionService(context, this, scope)
 
     val themePreferences: Flow<com.ndregil.inchat.data.model.ThemePreferences> = themePreferencesManager.themePreferences
     suspend fun updateThemePreferences(prefs: com.ndregil.inchat.data.model.ThemePreferences) {
         themePreferencesManager.updateThemePreferences(prefs)
+    }
+
+    val translationPreferences: Flow<com.ndregil.inchat.data.model.TranslationPreferences> = translationPreferencesManager.translationPreferences
+    suspend fun updateTranslationPreferences(prefs: com.ndregil.inchat.data.model.TranslationPreferences) {
+        translationPreferencesManager.updatePreferences(prefs)
+    }
+
+    suspend fun translateMessage(messageId: String, targetLanguage: String = "id"): String? {
+        val message = database.messageDao().getMessageByIdSync(messageId) ?: return null
+        if (message.body.isBlank()) return null
+        val translated = translationService.translateText(message.body, targetLanguage)
+        if (!translated.isNullOrBlank()) {
+            database.messageDao().updateMessageTranslation(messageId, translated, targetLanguage)
+        }
+        return translated
     }
 
     val connectionStatus: StateFlow<ConnectionStatus> = smackConnectionManager.connectionStatus
@@ -280,6 +298,35 @@ class XmppRepository(
             database.messageDao().getRecentMessagesForRoom(roomJid, maxCount),
             smackAvatarManager.avatarUpdates.onStart { emit("") }
         ) { entities, _ ->
+            if (entities.isNotEmpty()) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val prefs = translationPreferencesManager.translationPreferences.first()
+                        val isGroup = isMucJid(roomJid)
+                        val shouldTranslate = prefs.isAutoTranslateEnabled &&
+                                if (isGroup) prefs.translateRooms else prefs.translateContacts
+
+                        if (shouldTranslate) {
+                            val untranslated = entities.filter { entity ->
+                                val translateThis = if (entity.isMine) prefs.translateOutgoing else true
+                                translateThis && entity.translatedBody.isNullOrBlank() && entity.body.isNotBlank() &&
+                                        entity.messageType != MessageType.FILE && entity.messageType != MessageType.VOICE &&
+                                        entity.messageType != MessageType.SYSTEM_JOIN && entity.messageType != MessageType.SYSTEM_LEAVE
+                            }.take(10)
+
+                            for (entity in untranslated) {
+                                val translated = translationService.translateText(entity.body, prefs.targetLanguageCode)
+                                if (!translated.isNullOrBlank()) {
+                                    database.messageDao().updateMessageTranslation(entity.id, translated, prefs.targetLanguageCode)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Room auto-translate error: ${e.message}")
+                    }
+                }
+            }
+
             entities.map { entity ->
                 val model = entity.toModel()
                 val myJid = currentAccount.value.jid
@@ -370,7 +417,8 @@ class XmppRepository(
             scope.launch {
                 // 1. Join local rooms immediately for best responsiveness
                 launch {
-                    kotlinx.coroutines.delay(200) 
+                    // Give session a moment to stabilize
+                    kotlinx.coroutines.delay(1000) 
                     autoJoinConfiguredRooms()
                 }
                 
@@ -562,6 +610,12 @@ class XmppRepository(
             engine.disconnect()
         } catch (_: Exception) {}
         database.accountDao().clearAccounts()
+        database.roomDao().clearAllRooms()
+        database.messageDao().clearAllMessages()
+        database.roomConfigDao().clearAllConfigs()
+        database.contactDao().clearAllContacts()
+        database.storyDao().clearAllStories()
+        database.avatarDao().clearAllAvatars()
         _currentAccount.value = XmppAccount()
     }
 
@@ -936,6 +990,29 @@ class XmppRepository(
             // 1. Efficient Insert
             database.messageDao().insertMessage(msg.toEntity())
 
+            // Auto-translate incoming message if enabled
+            if (!msg.isMine && !msg.isHistory && msg.body.isNotBlank() &&
+                msg.messageType != MessageType.FILE && msg.messageType != MessageType.VOICE
+            ) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val prefs = translationPreferencesManager.translationPreferences.first()
+                        val isGroup = isMucJid(msg.roomJid)
+                        val shouldTranslate = prefs.isAutoTranslateEnabled &&
+                                if (isGroup) prefs.translateRooms else prefs.translateContacts
+
+                        if (shouldTranslate) {
+                            val translated = translationService.translateText(msg.body, prefs.targetLanguageCode)
+                            if (!translated.isNullOrBlank()) {
+                                database.messageDao().updateMessageTranslation(msg.id, translated, prefs.targetLanguageCode)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Auto-translate error: ${e.message}")
+                    }
+                }
+            }
+
             // 2. Optimized Room Update
             val lastText = when(msg.messageType) {
                 MessageType.WHISPER -> "[Bisikan] ${msg.body}"
@@ -1038,6 +1115,7 @@ class XmppRepository(
             nickname = nickname,
             password = if (password.isNotBlank()) password else existingConfig.password,
             subject = if (topic.isNotBlank()) topic else existingConfig.subject,
+            isAutoJoin = true, // Force autojoin for manually joined rooms
             lastJoinedAt = System.currentTimeMillis()
         ) ?: RoomConfigEntity(
             roomJid = roomJid,
@@ -1139,6 +1217,7 @@ class XmppRepository(
                 val (name, nick, pass) = data
                 launch {
                     try {
+                        Log.d("XmppRepository", "Attempting auto-join for $jid as $nick...")
                         val res = joinRoom(
                             roomJid = jid,
                             name = name,
@@ -1147,9 +1226,12 @@ class XmppRepository(
                         )
                         if (res.isSuccess) {
                             joinedNames.add(name.ifBlank { jid.substringBefore("@") })
+                            Log.i("XmppRepository", "Successfully auto-joined $jid")
+                        } else {
+                            Log.w("XmppRepository", "Auto-join failed for $jid: ${res.exceptionOrNull()?.message}")
                         }
                     } catch (e: Exception) {
-                        Log.w("XmppRepository", "Auto-join failed for $jid: ${e.message}")
+                        Log.w("XmppRepository", "Auto-join Exception for $jid: ${e.message}")
                     }
                 }
             }
@@ -1303,7 +1385,8 @@ class XmppRepository(
             nickname = nick,
             password = password ?: existingConfig?.password,
             subject = if (topic.isNotBlank()) topic else (existingConfig?.subject ?: ""),
-            isBookmarked = true
+            isBookmarked = true,
+            isAutoJoin = true // Ensure it autojoins if saved manually
         )
         database.roomConfigDao().insertOrUpdateConfig(config)
 
@@ -1602,6 +1685,27 @@ class XmppRepository(
         try {
             database.messageDao().insertMessage(msg.toEntity())
             Log.d("XmppRepository", "Saved sent message to local DB: $stanzaId")
+
+            // Auto-translate outgoing message if enabled
+            if (text.isNotBlank() && !isImage) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val prefs = translationPreferencesManager.translationPreferences.first()
+                        val isGroup = isMucJid(cleanJid)
+                        val shouldTranslate = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
+                                if (isGroup) prefs.translateRooms else prefs.translateContacts
+
+                        if (shouldTranslate) {
+                            val translated = translationService.translateText(text, prefs.targetLanguageCode)
+                            if (!translated.isNullOrBlank()) {
+                                database.messageDao().updateMessageTranslation(msg.id, translated, prefs.targetLanguageCode)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Outgoing message auto-translate error: ${e.message}")
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e("XmppRepository", "Failed to save sent message to DB: ${e.message}")
         }
@@ -2232,7 +2336,8 @@ private fun RoomEntity.toModel(): XmppRoom = XmppRoom(
     isAutoJoin = isAutoJoin,
     bubbleTheme = bubbleTheme,
     wallpaperStyle = wallpaperStyle,
-    isGroupChat = isGroupChat
+    isGroupChat = isGroupChat,
+    password = password
 )
 
 private fun MessageEntity.toModel(): XmppMessage = XmppMessage(
@@ -2253,7 +2358,9 @@ private fun MessageEntity.toModel(): XmppMessage = XmppMessage(
     replyToMessageId = replyToMessageId,
     replyToSender = replyToSender,
     replyToText = replyToText,
-    voiceDurationSeconds = voiceDurationSeconds
+    voiceDurationSeconds = voiceDurationSeconds,
+    translatedBody = translatedBody,
+    translationLanguage = translationLanguage
 )
 
 private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
@@ -2274,5 +2381,7 @@ private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
     replyToMessageId = replyToMessageId,
     replyToSender = replyToSender,
     replyToText = replyToText,
-    voiceDurationSeconds = voiceDurationSeconds
+    voiceDurationSeconds = voiceDurationSeconds,
+    translatedBody = translatedBody,
+    translationLanguage = translationLanguage
 )

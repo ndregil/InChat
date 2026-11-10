@@ -86,7 +86,7 @@ class Converters {
         com.ndregil.inchat.data.local.entity.StoryEntity::class,
         com.ndregil.inchat.data.local.entity.StoryViewerEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

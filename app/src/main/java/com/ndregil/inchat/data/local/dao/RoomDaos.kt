@@ -144,6 +144,9 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateMessageStatus(id: String, status: DeliveryStatus)
 
+    @Query("UPDATE messages SET translatedBody = :translatedBody, translationLanguage = :language WHERE id = :id")
+    suspend fun updateMessageTranslation(id: String, translatedBody: String, language: String)
+
     @Query("UPDATE messages SET status = :status WHERE roomJid = :roomJid AND isMine = 1 AND status != :status")
     suspend fun updateMineMessagesStatusForRoom(roomJid: String, status: DeliveryStatus)
 

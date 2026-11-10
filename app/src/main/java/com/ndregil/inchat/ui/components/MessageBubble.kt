@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -162,6 +164,7 @@ fun MessageBubble(
     onMentionClick: (String) -> Unit = {},
     onViewProfile: ((XmppMessage) -> Unit)? = null,
     onQuerySoftwareVersion: ((targetJid: String, onResult: (Result<com.ndregil.inchat.data.model.ClientCaps>) -> Unit) -> Unit)? = null,
+    onTranslateClick: ((XmppMessage) -> Unit)? = null,
     bubbleTheme: String = "dregil-theme",
     isDark: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
     themePrefs: ThemePreferences = ThemePreferences(),
@@ -343,6 +346,28 @@ fun MessageBubble(
                         }
                     }
 
+                    // Translate Button (Icon only)
+                    if (message.body.isNotBlank() && message.messageType != MessageType.FILE && message.messageType != MessageType.VOICE) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .clickable { onTranslateClick?.invoke(message) }
+                                .testTag("btn_translate_msg_${message.id}")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Translate,
+                                    contentDescription = "Terjemahkan Pesan",
+                                    modifier = Modifier.size(11.dp),
+                                    tint = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                    }
+
                     // Private Message / Whisper Button (Icon only, Chat icon instead of Lock)
                     if (!isMine && !isWhisper) {
                         Surface(
@@ -486,6 +511,65 @@ fun MessageBubble(
                         }
                     }
 
+                    // Render Telegram-style Translation Card if translatedBody is present
+                    if (!message.translatedBody.isNullOrBlank()) {
+                        var showTranslationCard by remember(message.id, message.translatedBody) { mutableStateOf(true) }
+                        if (showTranslationCard) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp, bottom = 2.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(textColor.copy(alpha = 0.1f))
+                                    .border(
+                                        BorderStroke(0.8.dp, palette.accentColor.copy(alpha = 0.5f)),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(7.dp)
+                            ) {
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Translate,
+                                                contentDescription = "Terjemahan",
+                                                tint = palette.accentColor,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            val langName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(message.translationLanguage ?: "id")
+                                            Text(
+                                                text = "Diterjemahkan ke $langName",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = palette.accentColor
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Sembunyikan Terjemahan",
+                                            tint = textColor.copy(alpha = 0.6f),
+                                            modifier = Modifier
+                                                .size(13.dp)
+                                                .clickable { showTranslationCard = false }
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = message.translatedBody ?: "",
+                                        fontSize = 12.sp,
+                                        fontStyle = FontStyle.Italic,
+                                        color = textColor.copy(alpha = 0.95f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(6.dp))
 
                     // Timestamp and Status
@@ -575,6 +659,21 @@ fun MessageBubble(
                 onQuoteClick(message)
             }
         )
+        if (message.body.isNotBlank()) {
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Terjemahkan Pesan", fontSize = 13.sp)
+                    }
+                },
+                onClick = {
+                    showActionMenu = false
+                    onTranslateClick?.invoke(message)
+                }
+            )
+        }
         if (!isMine) {
             DropdownMenuItem(
                 text = {
@@ -1025,18 +1124,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Map Preview
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.LightGray.copy(alpha = 0.3f))
-        ) {
-            StaticMapPreview(lat = lat, lng = lng)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
+        // Simple location link bubble as requested
 
         Surface(
             shape = RoundedCornerShape(10.dp),

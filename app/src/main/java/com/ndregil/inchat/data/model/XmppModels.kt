@@ -93,7 +93,8 @@ data class XmppRoom(
     val isAutoJoin: Boolean = true,
     val bubbleTheme: String = "dregil-theme",
     val wallpaperStyle: String = "default",
-    val isGroupChat: Boolean = true
+    val isGroupChat: Boolean = true,
+    val password: String? = null
 )
 
 enum class ClientPlatform {
@@ -535,7 +536,9 @@ data class XmppMessage(
     val replyToSender: String? = null,
     val replyToText: String? = null,
     val voiceDurationSeconds: Int? = null,
-    val isHistory: Boolean = false
+    val isHistory: Boolean = false,
+    val translatedBody: String? = null,
+    val translationLanguage: String? = null
 )
 
 data class RoomOccupant(
@@ -672,4 +675,12 @@ data class ThemePreferences(
     val wallpaperOpacity: Float = 0.5f,
     val isCustomThemeEnabled: Boolean = false,
     val isDarkModeOverride: Boolean? = null
+)
+
+data class TranslationPreferences(
+    val isAutoTranslateEnabled: Boolean = true,
+    val targetLanguageCode: String = com.ndregil.inchat.data.network.TranslationService.getDefaultSystemLanguageCode(),
+    val translateRooms: Boolean = true,
+    val translateContacts: Boolean = true,
+    val translateOutgoing: Boolean = true
 )

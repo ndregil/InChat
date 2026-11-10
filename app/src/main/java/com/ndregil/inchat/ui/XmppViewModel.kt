@@ -70,6 +70,26 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         repository.smackAvatarManager.getAvatar(acc.jid)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val translationPreferences: StateFlow<com.ndregil.inchat.data.model.TranslationPreferences> =
+        repository.translationPreferences.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            com.ndregil.inchat.data.model.TranslationPreferences()
+        )
+
+    fun updateTranslationPreferences(prefs: com.ndregil.inchat.data.model.TranslationPreferences) {
+        viewModelScope.launch {
+            repository.updateTranslationPreferences(prefs)
+        }
+    }
+
+    fun translateMessage(messageId: String) {
+        viewModelScope.launch {
+            val targetLang = translationPreferences.value.targetLanguageCode
+            repository.translateMessage(messageId, targetLang)
+        }
+    }
+
     val autoJoinToastStatus = MutableStateFlow<String?>(null)
     fun clearAutoJoinToastStatus() { autoJoinToastStatus.value = null }
 
@@ -531,6 +551,21 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun selectRoom(jid: String) {
         _selectedRoomJid.value = jid
         viewModelScope.launch {
+            // Check if it's already in the room list and if it's NOT joined yet
+            val room = allRooms.value.find { it.jid == jid }
+            if (room != null && room.isGroupChat && !room.isJoined) {
+                Log.i("XmppViewModel", "Selected room $jid is not joined. Triggering manual join...")
+                // Trigger manual join
+                joinOrCreateRoom(
+                    roomJid = room.jid,
+                    roomName = room.name,
+                    nickname = room.myNickname,
+                    topic = room.topic,
+                    password = room.password ?: "",
+                    saveToBookmarks = room.isBookmarked
+                )
+            }
+
             repository.markRoomAsRead(jid)
             try {
                 repository.syncMamHistory(jid)

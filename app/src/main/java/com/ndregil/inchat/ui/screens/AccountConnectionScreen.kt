@@ -158,17 +158,17 @@ fun AccountConnectionScreen(
         // Profile Card (When connected)
         if (connectionStatus == ConnectionStatus.CONNECTED) {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f))
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(64.dp)
+                            .size(56.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer)
                             .clickable { avatarPicker.launch("image/*") },
@@ -241,7 +241,7 @@ fun AccountConnectionScreen(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp),
+                .padding(vertical = 4.dp),
             colors = CardDefaults.cardColors(
                 containerColor = when (connectionStatus) {
                     ConnectionStatus.CONNECTED -> OnlineGreen.copy(alpha = 0.08f)
@@ -250,7 +250,7 @@ fun AccountConnectionScreen(
                     ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 }
             ),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
                 when (connectionStatus) {
@@ -262,7 +262,7 @@ fun AccountConnectionScreen(
             )
         ) {
             Row(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(

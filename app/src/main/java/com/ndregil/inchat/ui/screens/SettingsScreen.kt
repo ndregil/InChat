@@ -74,6 +74,7 @@ private fun Context.findActivity(): Activity? {
 enum class SubSettingCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
     DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
+    TRANSLATION("Penerjemah Pesan", "Terjemahkan otomatis pesan masuk di kontak & room", Icons.Default.Translate),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
     ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info)
@@ -104,6 +105,8 @@ fun SettingsScreen(
     onSwitchToAccountTab: () -> Unit,
     autoApproveSubscription: Boolean,
     onToggleAutoApproveSubscription: (Boolean) -> Unit,
+    translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
+    onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -150,6 +153,8 @@ fun SettingsScreen(
                 onDisconnect = onDisconnect,
                 autoApproveSubscription = autoApproveSubscription,
                 onToggleAutoApproveSubscription = onToggleAutoApproveSubscription,
+                translationPreferences = translationPreferences,
+                onUpdateTranslationPreferences = onUpdateTranslationPreferences,
                 onSignOut = onSignOut,
                 onExitApp = onExitApp,
                 onBack = { selectedCategory = null },
@@ -518,6 +523,8 @@ fun SubSettingDetailScreen(
     onDisconnect: () -> Unit,
     autoApproveSubscription: Boolean,
     onToggleAutoApproveSubscription: (Boolean) -> Unit,
+    translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
+    onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
     onBack: () -> Unit,
@@ -580,6 +587,10 @@ fun SubSettingDetailScreen(
                     onToggleDarkMode = onToggleDarkMode,
                     onNavigateToBookmarks = onNavigateToBookmarks,
                     onNavigateToCustomTheme = onNavigateToCustomTheme
+                )
+                SubSettingCategory.TRANSLATION -> TranslationSubSettings(
+                    translationPreferences = translationPreferences,
+                    onUpdateTranslationPreferences = onUpdateTranslationPreferences
                 )
                 SubSettingCategory.CONNECTION -> ConnectionSubSettings(
                     currentAccount = currentAccount,
@@ -1769,5 +1780,219 @@ fun AccountConnectionCard(
                 modifier = Modifier.size(18.dp)
             )
         }
+    }
+}
+
+// ==========================================
+// 2.5 PENGATURAN PENERJEMAH PESAN SUB-SETTING
+// ==========================================
+@Composable
+fun TranslationSubSettings(
+    translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences,
+    onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit
+) {
+    var showLanguagePicker by remember { mutableStateOf(false) }
+    val supportedLangs = com.ndregil.inchat.data.network.TranslationService.SUPPORTED_LANGUAGES
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Main Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Otomatis Terjemahkan Pesan", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(
+                                    if (translationPreferences.isAutoTranslateEnabled) "Pesan masuk di kontak & room otomatis diterjemahkan" else "Penerjemah otomatis dinonaktifkan",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = translationPreferences.isAutoTranslateEnabled,
+                            onCheckedChange = { enabled ->
+                                onUpdateTranslationPreferences(translationPreferences.copy(isAutoTranslateEnabled = enabled))
+                            },
+                            modifier = Modifier.testTag("switch_auto_translate")
+                        )
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                    // Target Language Selector
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLanguagePicker = true },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Bahasa Target", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                val currentLangName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(translationPreferences.targetLanguageCode)
+                                Text(
+                                    "Terjemahkan ke: $currentLangName (${translationPreferences.targetLanguageCode})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Cakupan Penerjemahan", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Terjemahkan Pesan Room (MUC)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Pesan masuk di group chat / ruangan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = translationPreferences.translateRooms,
+                            onCheckedChange = { enabled ->
+                                onUpdateTranslationPreferences(translationPreferences.copy(translateRooms = enabled))
+                            }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Terjemahkan Pesan Kontak (1-on-1)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Pesan pribadi langsung dari kontak", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = translationPreferences.translateContacts,
+                            onCheckedChange = { enabled ->
+                                onUpdateTranslationPreferences(translationPreferences.copy(translateContacts = enabled))
+                            }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Terjemahkan Pesan Keluar (Outgoing)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Pesan yang Anda kirim sendiri ke room/kontak", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = translationPreferences.translateOutgoing,
+                            onCheckedChange = { enabled ->
+                                onUpdateTranslationPreferences(translationPreferences.copy(translateOutgoing = enabled))
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            ) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Fitur penerjemahan pesan bekerja secara otomatis untuk pesan masuk. Anda juga dapat mengetuk opsi 'Terjemahkan' pada pesan apa saja di chat untuk menerjemahkan secara manual.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+
+    if (showLanguagePicker) {
+        AlertDialog(
+            onDismissRequest = { showLanguagePicker = false },
+            title = { Text("Pilih Bahasa Target Penerjemahan", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(supportedLangs.size) { idx ->
+                        val lang = supportedLangs[idx]
+                        val isSelected = lang.code.equals(translationPreferences.targetLanguageCode, ignoreCase = true)
+                        Surface(
+                            onClick = {
+                                onUpdateTranslationPreferences(translationPreferences.copy(targetLanguageCode = lang.code))
+                                showLanguagePicker = false
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(lang.displayName, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
+                                    Text(lang.nativeName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                if (isSelected) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLanguagePicker = false }) {
+                    Text("Tutup")
+                }
+            }
+        )
     }
 }

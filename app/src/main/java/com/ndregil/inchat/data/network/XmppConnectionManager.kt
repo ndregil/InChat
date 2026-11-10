@@ -137,7 +137,7 @@ class XmppConnectionManager(
 
     companion object {
         private const val TAG = "XmppConnectionManager"
-        private const val DEFAULT_CONNECT_TIMEOUT_MS = 15000
+        private const val DEFAULT_CONNECT_TIMEOUT_MS = 30000
 
         fun sanitizeDomain(rawDomain: String): String = XmppCredentials.sanitizeDomain(rawDomain)
         fun sanitizeHost(rawHost: String, cleanDomain: String): String = XmppCredentials.sanitizeHost(rawHost, cleanDomain)
@@ -271,10 +271,9 @@ class XmppConnectionManager(
                 .setPort(creds.port)
                 .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                .setSecurityMode(
-                    if (creds.useTls) ConnectionConfiguration.SecurityMode.required
-                    else ConnectionConfiguration.SecurityMode.disabled
-                )
+                .setSecurityMode(ConnectionConfiguration.SecurityMode.ifpossible)
+                .setSendPresence(true)
+                .setCompressionEnabled(false)
 
             if (cleanHost.isNotBlank()) {
                 configBuilder.setHost(cleanHost)
@@ -294,16 +293,16 @@ class XmppConnectionManager(
             val connection = XMPPTCPConnection(configuration)
 
             connection.addConnectionListener(smackConnectionListener)
+            org.jivesoftware.smack.SmackConfiguration.setDefaultReplyTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
+            connection.replyTimeout = DEFAULT_CONNECT_TIMEOUT_MS.toLong()
 
             // Setup Automatic Reconnection (XEP-0198 Stream Management compatible)
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
-            reconnectionManager.enableAutomaticReconnection()
+            // reconnectionManager.enableAutomaticReconnection()
             reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.RANDOM_INCREASING_DELAY)
 
             connection.connect()
             Log.i(TAG, "TCP connection established.")
-
-            connection.replyTimeout = 20000 
 
             if (username.isNotBlank() && creds.password.isNotBlank()) {
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
