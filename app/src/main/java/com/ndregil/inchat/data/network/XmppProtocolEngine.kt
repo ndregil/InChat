@@ -207,6 +207,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
             if (password.isNotBlank()) append("    <password>$password</password>\n")
             append("    <history maxstanzas='30'/>\n")
             append("  </x>\n")
+            append("  <c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='http://ndregil.inchat' ver='kFwX23eY765qL90mN12aBcDeFgH='/>\n")
             append("</presence>")
         }
         sendRawStanza(mucPresence, "PRESENCE", roomJid)
@@ -228,6 +229,7 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
                 append("<presence>")
                 if (showVal != null) append("<show>$showVal</show>")
                 append("<status>$statusMessage</status>")
+                append("<c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='http://ndregil.inchat' ver='kFwX23eY765qL90mN12aBcDeFgH='/>")
                 append("</presence>")
             }
         }

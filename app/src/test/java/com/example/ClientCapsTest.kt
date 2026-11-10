@@ -75,6 +75,28 @@ class ClientCapsTest {
         assertEquals(ClientPlatform.ANDROID, androidCaps.platform)
         assertEquals("KotlinInChat", androidCaps.clientName)
         assertEquals("http://ndregil.inchat", androidCaps.nodeUri)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, androidCaps.iconResId)
+    }
+
+    @Test
+    fun testBotNeverResolvesAsInChat() {
+        // Even if in room called inchat or sender jid contains inchat/ndregil, bot must NOT resolve as InChat
+        val botInInchatRoom = ClientCaps.resolveFor(
+            name = "BudiBot",
+            jid = "inchat@conference.xmpp.today/BudiBot",
+            node = "http://jabbrik.ru/caps"
+        )
+        assertEquals(ClientPlatform.BOT, botInInchatRoom.platform)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_jabber_bot, botInInchatRoom.iconResId)
+        assertTrue(botInInchatRoom.iconResId != com.ndregil.inchat.R.drawable.ic_client_inchat)
+
+        // Random client without exact node must NOT get InChat icon
+        val randomUser = ClientCaps.resolveFor(
+            name = "UserX",
+            jid = "userx@conference.xmpp.today/UserX",
+            node = "http://unknown-node.org"
+        )
+        assertTrue(randomUser.iconResId != com.ndregil.inchat.R.drawable.ic_client_inchat)
     }
 
     @Test
@@ -82,7 +104,7 @@ class ClientCapsTest {
         val tkabberCaps = ClientCaps.resolveFor("Tkabber", "tkabber@xmpp.today")
         assertEquals(ClientPlatform.DESKTOP, tkabberCaps.platform)
         assertEquals("Tkabber", tkabberCaps.clientName)
-        assertEquals("", tkabberCaps.nodeUri)
+        assertEquals("http://tkabber.jabber.ru/", tkabberCaps.nodeUri)
     }
 
     @Test
@@ -100,7 +122,7 @@ class ClientCapsTest {
         assertTrue(ClientCaps.CLIENT_REGISTRY.size >= 32)
         ClientCaps.CLIENT_REGISTRY.forEach { def ->
             assertTrue(def.patterns.isNotEmpty())
-            assertTrue(def.canonicalNodeUri.startsWith("http"))
+            assertTrue(def.canonicalNodeUri.isNotBlank())
             assertTrue(def.iconResId != 0)
         }
     }

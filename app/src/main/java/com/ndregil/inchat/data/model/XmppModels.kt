@@ -117,26 +117,16 @@ data class ClientDefinition(
 )
 
 data class ClientCaps(
-    val clientName: String = "InChat",
-    val version: String = "1.0.0",
-    val os: String = "Android",
-    val platform: ClientPlatform = ClientPlatform.ANDROID,
-    val nodeUri: String = "http://ndregil.inchat",
+    val clientName: String = "",
+    val version: String = "",
+    val os: String = "",
+    val platform: ClientPlatform = ClientPlatform.UNKNOWN,
+    val nodeUri: String = "",
     val hash: String = "sha-1",
-    val ver: String = "kFwX23eY765qL90mN12aBcDeFgH=",
-    val iconResId: Int? = com.ndregil.inchat.R.drawable.ic_client_inchat,
+    val ver: String = "",
+    val iconResId: Int? = null,
     val rawNode: String = "",
-    val features: List<String> = listOf(
-        "http://jabber.org/protocol/caps",
-        "http://jabber.org/protocol/muc",
-        "urn:xmpp:mam:2",
-        "urn:xmpp:receipts",
-        "urn:xmpp:chat-markers:0",
-        "urn:xmpp:ping",
-        "urn:xmpp:omemo:2",
-        "urn:xmpp:carbons:2",
-        "urn:xmpp:avatar:metadata+notify"
-    )
+    val features: List<String> = emptyList()
 ) {
     val summaryText: String
         get() = "$clientName $version ($os)"
@@ -488,15 +478,19 @@ data class ClientCaps(
             val cleanOs = os.trim()
 
             // Strictly resolve against clients.txt definitions
-            val definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
+            var definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
                 name = cleanName,
                 jid = jid,
                 node = cleanNode
             )
 
-            val resolvedName = definition?.clientName ?: ""
-            val resolvedVersion = cleanVersion.ifBlank { "-" }
-            val resolvedOs = cleanOs.ifBlank { "-" }
+            if (definition == null && (cleanName.contains("bot", ignoreCase = true) || jid.contains("bot", ignoreCase = true))) {
+                definition = com.ndregil.inchat.data.network.ClientRegistryManager.findDefByName("Jabber Bot")
+            }
+
+            val resolvedName = cleanName
+            val resolvedVersion = cleanVersion.ifBlank { definition?.defaultVersion ?: "" }
+            val resolvedOs = cleanOs.ifBlank { definition?.defaultOs ?: "" }
             val resolvedIcon = definition?.iconResId
             val resolvedPlatform = definition?.platform ?: ClientPlatform.UNKNOWN
 
@@ -509,7 +503,8 @@ data class ClientCaps(
                 hash = hash,
                 ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
                 iconResId = resolvedIcon,
-                rawNode = cleanNode
+                rawNode = cleanNode,
+                features = if (definition != null) listOf("http://jabber.org/protocol/caps", "http://jabber.org/protocol/muc") else emptyList()
             )
         }
     }

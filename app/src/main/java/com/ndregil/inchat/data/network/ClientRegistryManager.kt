@@ -558,16 +558,31 @@ object ClientRegistryManager {
         // 4. Resource-based fallback for known clients
         val fromStr = presence.from?.toString() ?: ""
         if (fromStr.contains("/")) {
-            val resource = fromStr.substringAfterLast("/")
-            if (resource.contains("InChat", ignoreCase = true) || resource.contains("ndregil", ignoreCase = true)) {
-                return Pair("http://ndregil.inchat", "")
+            val resource = fromStr.substringAfterLast("/").trim()
+            if (isInChatExact(resource)) {
+                return Pair("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=")
             }
-            if (resource.contains("Conversations", ignoreCase = true)) {
+            if (resource.equals("Conversations", ignoreCase = true)) {
                 return Pair("http://conversations.im", "")
             }
         }
 
         return null
+    }
+
+    /**
+     * Strict check for InChat:
+     * http://ndregil.inchat, ndregil.inchat, inchat
+     * Jika bukan persis di atas tadi berarti BUKAN InChat.
+     */
+    fun isInChatExact(value: String): Boolean {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return false
+        val clean = trimmed.lowercase().removeSuffix("/")
+        return clean == "http://ndregil.inchat" ||
+               clean == "https://ndregil.inchat" ||
+               clean == "ndregil.inchat" ||
+               clean == "inchat"
     }
 
     fun findDefByName(targetName: String): ClientDefinition? {
@@ -579,18 +594,29 @@ object ClientRegistryManager {
 
     /**
      * Flexible matching of a node URL against clients.txt patterns.
-     * If a keyword from the registry is found within the node string, it is a match.
+     * InChat is strictly matched via isInChatExact and never guessed via substring.
      */
     fun resolveByNode(node: String): ClientDefinition? {
-        val rawClean = node.trim().lowercase()
+        val rawClean = node.trim()
         if (rawClean.isBlank()) return null
+
+        // Aturan KETAT untuk InChat:
+        // http://ndregil.inchat, ndregil.inchat, inchat
+        // jika bukan persis di atas tadi berarti bukan InChat.
+        if (isInChatExact(rawClean)) {
+            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
         // Remove protocol for cleaner keyword matching
-        val cleanNode = rawClean.removePrefix("http://").removePrefix("https://").removeSuffix("/")
+        val cleanNode = rawClean.lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
         
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        // Check every client definition
+        // Check every client definition (exclude InChat from loose substring matching)
         return registry.firstOrNull { def -> 
+            if (def.clientName.equals("InChat", ignoreCase = true)) {
+                return@firstOrNull false
+            }
             def.patterns.any { pattern ->
                 val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 if (keyword.isBlank()) return@any false
@@ -603,14 +629,23 @@ object ClientRegistryManager {
 
     /**
      * Flexible matching of client name/resource against registry patterns.
+     * InChat is strictly matched via isInChatExact and never guessed via substring.
      */
     fun resolveByName(name: String): ClientDefinition? {
         val cleanName = name.trim().lowercase()
         if (cleanName.isBlank() || cleanName == "unknown" || cleanName.contains("@")) return null
 
+        // Aturan KETAT untuk InChat:
+        if (isInChatExact(cleanName)) {
+            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
         return registry.firstOrNull { def ->
+            if (def.clientName.equals("InChat", ignoreCase = true)) {
+                return@firstOrNull false
+            }
             // Direct name match
             if (def.clientName.lowercase() == cleanName) return@firstOrNull true
             
@@ -629,16 +664,40 @@ object ClientRegistryManager {
      */
     fun resolve(name: String, jid: String, node: String): ClientDefinition? {
         val cleanNode = node.trim()
+        val cleanName = name.trim()
+        val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
+
+        // 1. Cek khusus InChat secara KETAT:
+        // http://ndregil.inchat, ndregil.inchat, inchat
+        // jika bukan persis di atas tadi berarti bukan InChat.
+        if (isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName)) {
+            // Jangan pernah menganggap bot sebagai InChat
+            if (!cleanName.contains("bot", ignoreCase = true) &&
+                !resource.contains("bot", ignoreCase = true) &&
+                !jid.contains("bot", ignoreCase = true)) {
+                return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+            }
+        }
+
+        // 2. Cek apakah ini Bot (berdasarkan keyword bot di name, resource, jid, atau node)
+        if (cleanName.contains("bot", ignoreCase = true) ||
+            resource.contains("bot", ignoreCase = true) ||
+            cleanNode.contains("bot", ignoreCase = true) ||
+            jid.contains("bot", ignoreCase = true)) {
+            findDefByName("Jabber Bot")?.let { return it }
+        }
+
+        // 3. Resolusi standar berdasarkan Node
         if (cleanNode.isNotBlank()) {
             resolveByNode(cleanNode)?.let { return it }
         }
 
-        // We check JID (resource) before nickname for better precision
-        if (jid.isNotBlank()) {
-            resolveByJid(jid)?.let { return it }
+        // 4. Resolusi standar berdasarkan Resource JID
+        if (resource.isNotBlank()) {
+            resolveByName(resource)?.let { return it }
         }
 
-        val cleanName = name.trim()
+        // 5. Resolusi standar berdasarkan Nama/Nickname
         if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
             resolveByName(cleanName)?.let { return it }
         }
