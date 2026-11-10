@@ -489,7 +489,7 @@ object ClientRegistryManager {
         return when {
             clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" || clean == "smartng" -> "Android"
             clean.contains("ios") || clean.contains("monal") -> "iOS"
-            clean.contains("bot") || clean.contains("rss") || clean.contains("pyicq") -> "Server"
+            clean.contains("bot") || clean.contains("rss") || clean.contains("pyicq") || clean.contains("slixmpp") -> "Server"
             clean.contains("movim") || clean.contains("web") || clean.contains("google") -> "Web"
             clean.contains("windows") || clean.contains("miranda") || clean.contains("qip") -> "Windows"
             clean.contains("mcabber") || clean.contains("poezio") || clean.contains("profanity") -> "Linux CLI"
@@ -504,7 +504,7 @@ object ClientRegistryManager {
         return when {
             n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") || n == "smartng" -> ClientPlatform.ANDROID
             n.contains("ios") || n.contains("monal") -> ClientPlatform.IOS
-            n.contains("bot") || n.contains("pyicq") || n.contains("rss") || n.contains("isida") || n.contains("twitter") -> ClientPlatform.BOT
+            n.contains("bot") || n.contains("pyicq") || n.contains("rss") || n.contains("isida") || n.contains("twitter") || n.contains("slixmpp") -> ClientPlatform.BOT
             n.contains("web") || n == "movim" || n == "google" || n.contains("ya.online") -> ClientPlatform.WEB
             else -> ClientPlatform.DESKTOP
         }

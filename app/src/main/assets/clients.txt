@@ -37,3 +37,4 @@ gajim,http://gajim.org	Gajim
 dev.narayana.im	Another IM
 jtalk.ustyugov.net/caps	jTalk
 ndregil.smart-ng	SmartNG
+slixmpp.com	Slixmpp
