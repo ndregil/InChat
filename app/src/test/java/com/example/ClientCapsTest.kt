@@ -182,6 +182,35 @@ class ClientCapsTest {
     }
 
     @Test
+    fun testPeerInChatResolutionFromCapsAndVersion() {
+        // 1. Peer InChat identified from raw presence node http://ndregil.inchat with empty name
+        val peerCaps1 = ClientCaps.resolveFor(name = "", jid = "room@conference.domain.org/PeerUser", node = "http://ndregil.inchat")
+        assertEquals("InChat", peerCaps1.clientName)
+        assertEquals(ClientPlatform.ANDROID, peerCaps1.platform)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, peerCaps1.iconResId)
+        assertTrue(peerCaps1.isIdentified())
+
+        // 2. Peer InChat identified from version query (name = InChat, node = http://ndregil.inchat)
+        val peerCaps2 = ClientCaps.resolveFor(name = "InChat", jid = "room@conference.domain.org/PeerUser", node = "http://ndregil.inchat")
+        assertEquals("InChat", peerCaps2.clientName)
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, peerCaps2.iconResId)
+
+        // 3. Exact pattern variations allowed: ndregil.inchat and inchat
+        val peerCaps3 = ClientCaps.resolveFor(name = "", jid = "peer@domain.org/InChat", node = "ndregil.inchat")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, peerCaps3.iconResId)
+
+        val peerCaps4 = ClientCaps.resolveFor(name = "", jid = "peer@domain.org/InChat", node = "inchat")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, peerCaps4.iconResId)
+
+        // 4. Anything that is NOT exact must NOT resolve to InChat
+        val nonExact1 = ClientCaps.resolveFor(name = "inchat-fake", jid = "fake@domain.org", node = "http://fake.inchat.org")
+        assertTrue(nonExact1.iconResId != com.ndregil.inchat.R.drawable.ic_client_inchat)
+
+        val nonExact2 = ClientCaps.resolveFor(name = "bot", jid = "inchat-bot@domain.org/bot", node = "http://ndregil.inchat.bot.com")
+        assertTrue(nonExact2.iconResId != com.ndregil.inchat.R.drawable.ic_client_inchat)
+    }
+
+    @Test
     fun testClientPlatformIconsAndColors() {
         for (platform in ClientPlatform.values()) {
             val icon = getClientPlatformIcon(platform)

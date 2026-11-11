@@ -433,7 +433,7 @@ object ClientRegistryManager {
     private fun resolveIconRes(clientName: String, context: Context?): Int {
         val clean = clientName.lowercase().trim()
         return when {
-            clean.contains("inchat") -> com.ndregil.inchat.R.drawable.ic_client_inchat
+            isInChatExact(clean) -> com.ndregil.inchat.R.drawable.ic_client_inchat
             clean.contains("slixmpp") -> com.ndregil.inchat.R.drawable.ic_client_slixmpp
             clean.contains("jtalk") -> com.ndregil.inchat.R.drawable.ic_client_jtalk
             clean.contains("bombusmod-qd") || clean.contains("bombus-qd") -> com.ndregil.inchat.R.drawable.ic_client_bombus_qd

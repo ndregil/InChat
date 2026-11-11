@@ -257,10 +257,15 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = null
     )
 
+    private val _roomMessageLimits = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val isLoadingOlderMessages = MutableStateFlow(false)
+
     // Messages for active room
-    val activeRoomMessages: StateFlow<List<XmppMessage>> = activeRoom.flatMapLatest { room ->
+    val activeRoomMessages: StateFlow<List<XmppMessage>> = combine(activeRoom, _roomMessageLimits) { room, limits ->
+        room to (limits[room?.jid] ?: 30)
+    }.flatMapLatest { (room, limit) ->
         if (room != null) {
-            repository.getMessagesForRoom(room.jid)
+            repository.getMessagesForRoom(room.jid, maxCount = limit)
         } else {
             flowOf(emptyList())
         }
@@ -269,6 +274,31 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    fun loadOlderMessagesForActiveRoom(onComplete: (Int) -> Unit = {}) {
+        val room = activeRoom.value ?: return
+        val currentLimit = _roomMessageLimits.value[room.jid] ?: 30
+        if (currentLimit >= 150) {
+            onComplete(0)
+            return
+        }
+
+        val newLimit = (currentLimit + 30).coerceAtMost(150)
+        _roomMessageLimits.value = _roomMessageLimits.value + (room.jid to newLimit)
+
+        viewModelScope.launch {
+            isLoadingOlderMessages.value = true
+            try {
+                val fetchedCount = repository.loadOlderMamHistory(room.jid, limit = 50)
+                onComplete(fetchedCount)
+            } catch (e: Exception) {
+                Log.w("XmppViewModel", "Gagal memuat MAM history terdahulu untuk ${room.jid}: ${e.message}")
+                onComplete(0)
+            } finally {
+                isLoadingOlderMessages.value = false
+            }
+        }
+    }
 
     // Occupants for active room
     val activeRoomOccupants: StateFlow<List<RoomOccupant>> = combine(allRoomOccupants, activeRoom) { map, room ->
@@ -550,6 +580,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectRoom(jid: String) {
         _selectedRoomJid.value = jid
+        if (!_roomMessageLimits.value.containsKey(jid)) {
+            _roomMessageLimits.value = _roomMessageLimits.value + (jid to 30)
+        }
         viewModelScope.launch {
             // Check if it's already in the room list and if it's NOT joined yet
             val room = allRooms.value.find { it.jid == jid }
@@ -766,6 +799,19 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun joinRoom(roomJid: String, nickname: String, password: String? = null) {
+        val room = allRooms.value.find { it.jid == roomJid }
+        val roomName = room?.name ?: roomJid.substringBefore("@")
+        val save = room?.isBookmarked ?: true
+        joinOrCreateRoom(
+            roomJid = roomJid,
+            roomName = roomName,
+            nickname = nickname,
+            password = password ?: (room?.password ?: ""),
+            saveToBookmarks = save
+        )
+    }
+
     fun toggleSaveRoom(roomJid: String) {
         viewModelScope.launch {
             repository.toggleSaveRoom(roomJid)
@@ -799,7 +845,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
             repository.leaveRoom(roomJid, nick)
             if (_selectedRoomJid.value == roomJid) {
                 val other = allRooms.value.firstOrNull { it.jid != roomJid && it.isJoined }
-                _selectedRoomJid.value = other?.jid
+                if (other != null) {
+                    _selectedRoomJid.value = other.jid
+                }
             }
         }
     }
@@ -808,7 +856,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteRoom(roomJid)
             if (_selectedRoomJid.value == roomJid) {
-                _selectedRoomJid.value = allRooms.value.firstOrNull { it.jid != roomJid }?.jid
+                _selectedRoomJid.value = allRooms.value.firstOrNull { it.jid != roomJid && it.isJoined }?.jid
+                    ?: allRooms.value.firstOrNull { it.jid != roomJid }?.jid
             }
         }
     }
@@ -1168,6 +1217,16 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         viewModelScope.launch {
             repository.disconnect()
+        }
+    }
+
+    fun switchAccount(onReadyForNewAccount: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                com.ndregil.inchat.data.network.fcm.XmppForegroundService.stopService(getApplication())
+            } catch (_: Exception) {}
+            repository.prepareSwitchAccount()
+            onReadyForNewAccount()
         }
     }
 

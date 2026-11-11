@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Group
@@ -241,6 +242,7 @@ fun MultiRoomMainScreen(
     val isAdminPanelOpen by viewModel.isAdminPanelOpen.collectAsStateWithLifecycle()
     val roomAdminInfo by viewModel.roomAdminInfo.collectAsStateWithLifecycle()
     val isTopicModalOpen by viewModel.isTopicModalOpen.collectAsStateWithLifecycle()
+    val isLoadingOlder by viewModel.isLoadingOlderMessages.collectAsStateWithLifecycle()
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
 
@@ -663,24 +665,38 @@ fun MultiRoomMainScreen(
                                             }
                                         )
                                     }
+                                    if (activeRoom?.isJoined == true) {
+                                        DropdownMenuItem(
+                                            text = { Text("Tinggalkan Room Ini") },
+                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                            onClick = {
+                                                showRoomMenu = false
+                                                activeRoom?.let { viewModel.leaveRoom(it.jid) }
+                                            }
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text("Gabung ke Room Ini") },
+                                            leadingIcon = { Icon(Icons.Default.Login, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                            onClick = {
+                                                showRoomMenu = false
+                                                activeRoom?.let { room ->
+                                                    val nick = room.myNickname.ifBlank { currentAccount.nickname.ifBlank { currentAccount.username } }
+                                                    viewModel.joinRoom(room.jid, nick, room.password)
+                                                }
+                                            }
+                                        )
+                                    }
                                     DropdownMenuItem(
-                                        text = { Text("Tinggalkan Room Ini") },
-                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                        onClick = {
-                                            showRoomMenu = false
-                                            activeRoom?.let { viewModel.leaveRoom(it.jid) }
-                                        }
+                                         text = { Text("Bersihkan Riwayat Chat") },
+                                         leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
+                                         onClick = {
+                                             showRoomMenu = false
+                                             activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
+                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Bersihkan Riwayat Chat") },
-                                        leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
-                                        onClick = {
-                                            showRoomMenu = false
-                                            activeRoom?.let { viewModel.clearRoomChatHistory(it.jid) }
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Hapus Room dari Daftar") },
+                                        text = { Text("Hapus Penanda Room") },
                                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             showRoomMenu = false
@@ -870,6 +886,43 @@ fun MultiRoomMainScreen(
                                             }
                                         } else {
                                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                item(key = "load_older_header") {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 6.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (isLoadingOlder) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                            ) {
+                                                                androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                                Text(
+                                                                    text = "Memuat pesan sebelumnya...",
+                                                                    style = MaterialTheme.typography.labelMedium,
+                                                                    color = MaterialTheme.colorScheme.primary
+                                                                )
+                                                            }
+                                                        } else {
+                                                            androidx.compose.material3.TextButton(
+                                                                onClick = { viewModel.loadOlderMessagesForActiveRoom() }
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Refresh,
+                                                                    contentDescription = "Muat Pesan Sebelumnya",
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                                Spacer(modifier = Modifier.width(4.dp))
+                                                                Text(
+                                                                    text = "Muat Pesan Sebelumnya",
+                                                                    style = MaterialTheme.typography.labelMedium
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                                 items(messages, key = { it.id }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
@@ -1008,20 +1061,63 @@ fun MultiRoomMainScreen(
                                         }
                                     }
 
-                                    // Input Bar
-                                    ChatInputBar(
-                                        inputText = currentInput,
-                                        onInputChange = { viewModel.currentInputText.value = it },
-                                        onSendMessage = { viewModel.sendMessage(it) },
-                                        onAttachClick = { filePicker.launch("*/*") },
-                                        onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
-                                        onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
-                                        onCallClick = { viewModel.initiateCall(it) },
-                                        whisperTarget = whisperTarget,
-                                        replyingToMessage = replyingToMessage,
-                                        onCancelReply = { viewModel.clearReplyMessage() },
-                                        onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) }
-                                    )
+                                    if (activeRoom?.isGroupChat == true && activeRoom?.isJoined == false) {
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = "Anda telah meninggalkan ruangan ini",
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = "Gabung kembali untuk mulai mengobrol",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        activeRoom?.let { room ->
+                                                            val nick = room.myNickname.ifBlank { currentAccount.nickname.ifBlank { currentAccount.username } }
+                                                            viewModel.joinRoom(room.jid, nick, room.password)
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text("Gabung")
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Input Bar
+                                        ChatInputBar(
+                                            inputText = currentInput,
+                                            onInputChange = { viewModel.currentInputText.value = it },
+                                            onSendMessage = { viewModel.sendMessage(it) },
+                                            onAttachClick = { filePicker.launch("*/*") },
+                                            onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
+                                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                            onCallClick = { viewModel.initiateCall(it) },
+                                            whisperTarget = whisperTarget,
+                                            replyingToMessage = replyingToMessage,
+                                            onCancelReply = { viewModel.clearReplyMessage() },
+                                            onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1468,6 +1564,43 @@ fun MultiRoomMainScreen(
                                         }
                                     } else {
                                         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            item(key = "load_older_header_direct") {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 6.dp),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (isLoadingOlder) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                        ) {
+                                                            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                            Text(
+                                                                text = "Memuat pesan sebelumnya...",
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    } else {
+                                                        androidx.compose.material3.TextButton(
+                                                            onClick = { viewModel.loadOlderMessagesForActiveRoom() }
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Refresh,
+                                                                contentDescription = "Muat Pesan Sebelumnya",
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "Muat Pesan Sebelumnya",
+                                                                style = MaterialTheme.typography.labelMedium
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             items(messages, key = { it.id }) { msg ->
                                                 MessageBubble(
                                                     message = msg,
@@ -1673,12 +1806,22 @@ fun MultiRoomMainScreen(
                             onToggleDarkMode = { viewModel.toggleDarkMode(systemDark) },
                             onNavigateToBookmarks = { showBookmarksScreen = true },
                             onNavigateToCustomTheme = { showCustomThemeScreen = true },
-                            onSwitchToAccountTab = { showAccountSettingsDirectly = true },
+                            onSwitchToAccountTab = {
+                                viewModel.switchAccount {
+                                    initialAccountTabSet = 1
+                                    showAccountSettingsDirectly = true
+                                }
+                            },
                             autoApproveSubscription = viewModel.autoApproveSubscription.collectAsStateWithLifecycle().value,
                             onToggleAutoApproveSubscription = { viewModel.setAutoApproveSubscription(it) },
                             translationPreferences = viewModel.translationPreferences.collectAsStateWithLifecycle().value,
                             onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
-                            onSignOut = { viewModel.signOut() },
+                            onSignOut = {
+                                viewModel.signOut {
+                                    initialAccountTabSet = 1
+                                    showAccountSettingsDirectly = true
+                                }
+                            },
                             onExitApp = { viewModel.exitApp() }
                         )
                     } else {
@@ -1745,6 +1888,7 @@ fun MultiRoomMainScreen(
                                 onImportBackup = { uri, pwd -> viewModel.importBackup(uri, pwd) },
                                 onClearBackupStatus = { viewModel.clearBackupStatus() },
                                 onUpdateAvatar = { viewModel.updateAvatar(it) },
+                                onSwitchAccount = { viewModel.switchAccount() },
                                 myAvatar = viewModel.myAvatar.collectAsStateWithLifecycle().value,
                                 lastErrorMessage = connectionError
                             )

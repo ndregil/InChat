@@ -111,8 +111,32 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp ASC")
     fun getMessagesForRoom(roomJid: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM (SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp DESC LIMIT :limit) ORDER BY timestamp ASC")
+    @Query("""
+        SELECT * FROM messages 
+        WHERE roomJid = :roomJid 
+          AND timestamp >= COALESCE(
+            (
+              SELECT MIN(timestamp) FROM (
+                SELECT timestamp FROM messages 
+                WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE') 
+                ORDER BY timestamp DESC LIMIT :limit
+              )
+            ),
+            (
+              SELECT MIN(timestamp) FROM (
+                SELECT timestamp FROM messages 
+                WHERE roomJid = :roomJid 
+                ORDER BY timestamp DESC LIMIT :limit
+              )
+            ),
+            0
+          )
+        ORDER BY timestamp ASC
+    """)
     fun getRecentMessagesForRoom(roomJid: String, limit: Int = 30): Flow<List<MessageEntity>>
+
+    @Query("SELECT MIN(timestamp) FROM messages WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
+    suspend fun getEarliestMessageTimestamp(roomJid: String): Long?
 
     @Query("SELECT * FROM messages ORDER BY timestamp ASC")
     suspend fun getAllMessagesList(): List<MessageEntity>

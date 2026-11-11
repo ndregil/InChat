@@ -45,7 +45,7 @@ data class XmppCredentials(
     val password: String = "",
     val host: String = "",
     val port: Int = 5222,
-    val resource: String = "InChat-Android",
+    val resource: String = "InChat",
     val nickname: String = "InChatUser",
     val useTls: Boolean = true
 ) {
@@ -264,7 +264,7 @@ class XmppConnectionManager(
 
             val domainJid = JidCreate.domainBareFrom(cleanDomain)
             val username = creds.username.trim()
-            val resource = creds.resource.ifBlank { "InChat-Android" }
+            val resource = creds.resource.ifBlank { "InChat" }
 
             val configBuilder = XMPPTCPConnectionConfiguration.builder()
                 .setXmppDomain(domainJid)
@@ -298,16 +298,31 @@ class XmppConnectionManager(
 
             // Setup Automatic Reconnection (XEP-0198 Stream Management compatible)
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
-            // reconnectionManager.enableAutomaticReconnection()
             reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.RANDOM_INCREASING_DELAY)
+
+            // Setup Entity Capabilities (XEP-0115) and Software Version (XEP-0092) BEFORE connecting
+            try {
+                org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
+                val capsManager = org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(connection)
+                capsManager.enableEntityCaps()
+            } catch (e: Exception) {
+                Log.w(TAG, "EntityCapsManager setup failed: ${e.message}")
+            }
+
+            try {
+                val versionManager = VersionManager.getInstanceFor(connection)
+                versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
+            } catch (e: Exception) {
+                Log.w(TAG, "VersionManager setup failed: ${e.message}")
+            }
 
             connection.connect()
             Log.i(TAG, "TCP connection established.")
 
             if (username.isNotBlank() && creds.password.isNotBlank()) {
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
-                val resourceWithSuffix = Resourcepart.from(resource + "-" + (1000..9999).random())
-                connection.login(username, creds.password, resourceWithSuffix)
+                val resourcePart = Resourcepart.from(resource)
+                connection.login(username, creds.password, resourcePart)
             } else if (username.isNotBlank()) {
                 _connectionStatus.value = ConnectionStatus.AUTHENTICATING
                 connection.login()
@@ -328,19 +343,6 @@ class XmppConnectionManager(
             // Enable XMPP Ping (XEP-0199) to keep-alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
             pingManager.pingInterval = 15 // Every 15 seconds
-            
-            // Software Version (XEP-0092)
-            val versionManager = VersionManager.getInstanceFor(connection)
-            versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
-
-            // Entity Capabilities (XEP-0115)
-            try {
-                val capsManager = org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(connection)
-                capsManager.enableEntityCaps()
-                org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
-            } catch (e: Exception) {
-                Log.w(TAG, "EntityCapsManager setup failed: ${e.message}")
-            }
 
             // Delivery Receipts (XEP-0184)
             val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
@@ -440,6 +442,7 @@ class XmppConnectionManager(
             } else {
                 val builder = PresenceBuilder.buildPresence().ofType(Presence.Type.available).setStatus(statusMessage ?: "Active")
                 if (mode != null) builder.setMode(mode)
+                builder.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
                 builder.build()
             }
 
@@ -630,14 +633,18 @@ class XmppConnectionManager(
             
             if (version == null) return@withContext Result.failure(Exception("Tidak ada info versi dari user"))
             
-            val caps = com.ndregil.inchat.data.model.ClientCaps(
-                clientName = version.name ?: "Unknown",
-                version = version.version ?: "Unknown",
-                os = version.os ?: "Unknown"
+            val vName = version.name ?: "Unknown"
+            val isTargetInChat = vName.equals("InChat", ignoreCase = true)
+            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                name = vName,
+                jid = jid.toString(),
+                node = if (isTargetInChat) "http://ndregil.inchat" else "",
+                version = version.version ?: "1.0.0",
+                os = version.os ?: "Android"
             )
             Result.success(caps)
         } catch (e: Exception) {
-            Log.e(TAG, "querySoftwareVersion failed for $targetJid: ${e.message}")
+            Log.d(TAG, "querySoftwareVersion info for $targetJid: ${e.message}")
             Result.failure(e)
         }
     }

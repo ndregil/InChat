@@ -118,6 +118,32 @@ class RosterManager(
     @Volatile
     private var activeRoster: Roster? = null
 
+    private val queriedContactVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private fun queryContactVersionIfNeeded(fullJid: String, bareJid: String) {
+        if (!queriedContactVersions.add(fullJid)) return
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val result = connectionManager.querySoftwareVersion(fullJid)
+                if (result.isSuccess) {
+                    val caps = result.getOrNull()
+                    if (caps != null && caps.iconResId != null) {
+                        Log.i(TAG, "Resolved software version for contact $bareJid: ${caps.clientName} (icon=${caps.iconResId})")
+                        _contacts.value = _contacts.value.map { contact ->
+                            if (contact.jid.equals(bareJid, ignoreCase = true)) {
+                                contact.copy(clientCaps = caps)
+                            } else {
+                                contact
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Contact version query failed for $fullJid: ${e.message}")
+            }
+        }
+    }
+
     // Listener for Roster events
     private val rosterListener = object : RosterListener {
         override fun entriesAdded(addresses: Collection<Jid>) {
@@ -143,6 +169,7 @@ class RosterManager(
 
         override fun presenceChanged(presence: Presence) {
             val fromJid = presence.from?.asBareJid()?.toString() ?: return
+            val fullJid = presence.from?.toString() ?: fromJid
             val userPresence = presence.toUserPresence()
             val statusMsg = presence.status ?: ""
 
@@ -153,11 +180,10 @@ class RosterManager(
             val extractedNick = extractNickname(presence)
 
             val existing = _contacts.value.find { it.jid.equals(fromJid, ignoreCase = true) }
-            val effectiveName = extractedNick ?: existing?.nickname ?: existing?.name ?: fromJid.substringBefore("@")
 
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = effectiveName,
-                jid = fromJid,
+                name = "",
+                jid = fullJid,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )
@@ -179,6 +205,10 @@ class RosterManager(
                 } else {
                     contact
                 }
+            }
+
+            if (userPresence != UserPresence.OFFLINE && contactCaps.iconResId == null && !fromJid.contains("bot", ignoreCase = true)) {
+                queryContactVersionIfNeeded(fullJid, fromJid)
             }
         }
     }
@@ -769,7 +799,7 @@ class RosterManager(
             val effectiveName = nickFromPresence ?: entry.name ?: existing?.name ?: jidString.substringBefore("@")
 
             val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = effectiveName,
+                name = "",
                 jid = presence.from?.toString() ?: jidString,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
@@ -838,6 +868,9 @@ class RosterManager(
             Log.w(TAG, "Exception during RosterManager release: ${e.message}")
         } finally {
             activeRoster = null
+            _contacts.value = emptyList()
+            _presenceMap.value = emptyMap()
+            queriedContactVersions.clear()
         }
     }
 }

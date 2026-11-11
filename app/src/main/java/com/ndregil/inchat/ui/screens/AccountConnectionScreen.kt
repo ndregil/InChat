@@ -85,6 +85,7 @@ fun AccountConnectionScreen(
     onImportBackup: (sourceUri: android.net.Uri, passphrase: String) -> Unit = { _, _ -> },
     onClearBackupStatus: () -> Unit = {},
     onUpdateAvatar: (android.net.Uri) -> Unit = {},
+    onSwitchAccount: () -> Unit = {},
     myAvatar: ByteArray? = null,
     lastErrorMessage: String? = null,
     initialTab: Int = -1,
@@ -378,7 +379,31 @@ fun AccountConnectionScreen(
                 onInstantGuestLogin = { onCreateInstantAccount("User", "xmpp.today", "User") }
             )
         } else if (activeTabMode == 1) {
-            SettingsCategoryHeader("Kredensial Akun", Icons.Default.Security)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SettingsCategoryHeader("Kredensial Akun", Icons.Default.Security)
+                if (jidInput.isNotBlank() || hostInput.isNotBlank() || connectionStatus == ConnectionStatus.CONNECTED) {
+                    TextButton(
+                        onClick = {
+                            jidInput = ""
+                            passwordInput = ""
+                            nicknameInput = ""
+                            hostInput = ""
+                            portInput = "5222"
+                            statusMsgInput = ""
+                            useTls = true
+                            onSwitchAccount()
+                        }
+                    ) {
+                        Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Ganti Akun Baru", fontSize = 12.sp)
+                    }
+                }
+            }
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 shape = RoundedCornerShape(20.dp),
@@ -416,10 +441,24 @@ fun AccountConnectionScreen(
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (connectionStatus == ConnectionStatus.CONNECTED) {
-                    OutlinedButton(onClick = onDisconnect, modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                        Icon(Icons.Default.LinkOff, null)
+                    OutlinedButton(
+                        onClick = {
+                            jidInput = ""
+                            passwordInput = ""
+                            nicknameInput = ""
+                            hostInput = ""
+                            portInput = "5222"
+                            statusMsgInput = ""
+                            useTls = true
+                            onSwitchAccount()
+                        },
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.SwitchAccount, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Putus")
+                        Text("Ganti Akun")
                     }
                 }
                 Button(onClick = {

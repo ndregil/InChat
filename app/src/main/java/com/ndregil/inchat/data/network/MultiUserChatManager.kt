@@ -104,6 +104,10 @@ class MultiUserChatManager(
     // Cache of occupant presence states per room: roomJid -> (nickname -> Pair(UserPresence, statusText))
     private val roomOccupantPresenceCache = java.util.concurrent.ConcurrentHashMap<String, MutableMap<String, Pair<com.ndregil.inchat.data.model.UserPresence, String>>>()
 
+    // Real-time occupant client caps cache per room: roomJid -> (nickname -> ClientCaps)
+    private val roomOccupantCapsCache = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>>()
+    private val queriedOccupantVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     private val updateJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
     init {
@@ -168,6 +172,9 @@ class MultiUserChatManager(
 
             // Build enter configuration
             val enterConfigBuilder = muc.getEnterConfigurationBuilder(nick)
+            enterConfigBuilder.withPresence { pb ->
+                pb.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
+            }
             if (!password.isNullOrBlank()) {
                 enterConfigBuilder.withPassword(password)
             }
@@ -185,6 +192,9 @@ class MultiUserChatManager(
                     Log.w(TAG, "Nickname '$nick' conflict in $roomJid, retrying with unique suffix...")
                     val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
                     val newEnterConfigBuilder = muc.getEnterConfigurationBuilder(newNick)
+                    newEnterConfigBuilder.withPresence { pb ->
+                        pb.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
+                    }
                     if (!password.isNullOrBlank()) {
                         newEnterConfigBuilder.withPassword(password)
                     }
@@ -417,54 +427,74 @@ class MultiUserChatManager(
      * Leaves an active MUC room and cleans up listeners and occupant state.
      */
     suspend fun leaveRoom(roomJid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid]
-        if (muc == null) {
-            Log.w(TAG, "Room $roomJid is not in active joined rooms list.")
-            return@withContext Result.success(Unit)
-        }
+        val bareJidStr = try { JidCreate.entityBareFrom(roomJid.trim()).toString() } catch (_: Exception) { roomJid.trim() }
+        val matchedKey = activeMucs.keys.find { it.equals(roomJid.trim(), ignoreCase = true) || it.equals(bareJidStr, ignoreCase = true) }
+        val muc = matchedKey?.let { activeMucs[it] } ?: try {
+            getSmackMucManager().getMultiUserChat(JidCreate.entityBareFrom(bareJidStr))
+        } catch (_: Exception) { null }
 
+        Log.i(TAG, "Leaving MUC room $roomJid (bare: $bareJidStr)...")
+
+        // 1. Leave via Smack MUC instance
         try {
-            Log.i(TAG, "Leaving MUC room $roomJid...")
-            if (muc.isJoined) {
+            if (muc != null && muc.isJoined) {
                 muc.leave()
             }
-            // Remove registered listeners
-            roomMessageListeners.remove(roomJid)?.forEach { listener ->
-                try {
-                    muc.removeMessageListener(listener)
-                } catch (e: Exception) {
-                    // Ignore listener cleanup errors on leave
-                }
-            }
-            
-            // Remove presence listeners
-            roomPresenceListeners.remove(roomJid)?.forEach { listener ->
-                try {
-                    connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener)
-                } catch (e: Exception) {
-                    // Ignore listener cleanup errors on leave
-                }
-            }
-            
-            activeMucs.remove(roomJid)
-            roomNicknames.remove(roomJid)
-            _joinedRooms.value = activeMucs.keys.toSet()
-
-            // Remove room from occupants map
-            val currentOccupants = _roomOccupants.value.toMutableMap()
-            currentOccupants.remove(roomJid)
-            _roomOccupants.value = currentOccupants
-
-            Log.i(TAG, "Left room $roomJid successfully.")
-            Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Error leaving room $roomJid: ${e.message}", e)
-            // Even if network exception occurs, unregister locally
-            activeMucs.remove(roomJid)
-            roomNicknames.remove(roomJid)
-            _joinedRooms.value = activeMucs.keys.toSet()
-            Result.failure(e)
+            Log.w(TAG, "muc.leave() error for $roomJid: ${e.message}")
         }
+
+        // 2. Explicitly send unavailable presence (XEP-0045 Section 7.14) to guarantee room exit
+        try {
+            val conn = connectionManager.getRawConnection()
+            if (conn != null && conn.isConnected) {
+                val nick = (if (matchedKey != null) roomNicknames[matchedKey] else null)
+                    ?: roomNicknames[roomJid]
+                    ?: roomNicknames[bareJidStr]
+                    ?: muc?.nickname?.toString()
+                    ?: connectionManager.credentials.value.username
+                if (nick.isNotBlank()) {
+                    val fullRoomJid = JidCreate.entityFullFrom("$bareJidStr/$nick")
+                    val unavailPresence = org.jivesoftware.smack.packet.PresenceBuilder.buildPresence()
+                        .ofType(org.jivesoftware.smack.packet.Presence.Type.unavailable)
+                        .to(fullRoomJid)
+                        .build()
+                    conn.sendStanza(unavailPresence)
+                    Log.i(TAG, "Sent explicit unavailable presence to $fullRoomJid")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed sending explicit unavailable presence to $roomJid: ${e.message}")
+        }
+
+        // 3. Remove registered listeners
+        val keysToRemove = setOfNotNull(roomJid, bareJidStr, matchedKey)
+        for (key in keysToRemove) {
+            roomMessageListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeMessageListener(listener) } catch (_: Exception) {}
+            }
+            roomPresenceListeners.remove(key)?.forEach { listener ->
+                try { connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
+            }
+            activeMucs.remove(key)
+            roomNicknames.remove(key)
+        }
+        _joinedRooms.value = activeMucs.keys.toSet()
+
+        // 4. Remove room from occupants map
+        val currentOccupants = _roomOccupants.value.toMutableMap()
+        currentOccupants.remove(roomJid)
+        currentOccupants.remove(bareJidStr)
+        if (matchedKey != null) currentOccupants.remove(matchedKey)
+        _roomOccupants.value = currentOccupants
+
+        // 5. Clear occupant caps cache for this room
+        roomOccupantCapsCache.keys.filter { it.startsWith("$bareJidStr/") || it.startsWith("$roomJid/") }.forEach {
+            roomOccupantCapsCache.remove(it)
+        }
+
+        Log.i(TAG, "Left room $roomJid successfully.")
+        Result.success(Unit)
     }
 
     /**
@@ -758,6 +788,16 @@ class MultiUserChatManager(
         roomMessageListeners.clear()
         _joinedRooms.value = emptySet()
         _roomOccupants.value = emptyMap()
+        _serverBookmarks.value = emptyList()
+        roomOccupantCapsCache.clear()
+        queriedOccupantVersions.clear()
+    }
+
+    /**
+     * Clears cached server bookmarks.
+     */
+    fun clearServerBookmarks() {
+        _serverBookmarks.value = emptyList()
     }
 
     /**
@@ -1091,6 +1131,9 @@ class MultiUserChatManager(
                 } else {
                     msg.senderClientCaps
                 }
+                if (finalCaps.iconResId == null && !msg.senderNickname.contains("bot", ignoreCase = true) && !msg.isMine) {
+                    queryOccupantVersionIfNeeded(roomJid, msg.senderNickname)
+                }
                 onMessageReceived(msg.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             }
         )
@@ -1117,6 +1160,9 @@ class MultiUserChatManager(
                     cachedCaps
                 } else {
                     xmppMessage.senderClientCaps
+                }
+                if (finalCaps.iconResId == null && !xmppMessage.senderNickname.contains("bot", ignoreCase = true) && !xmppMessage.isMine) {
+                    queryOccupantVersionIfNeeded(roomJid, xmppMessage.senderNickname)
                 }
                 _incomingMessages.tryEmit(xmppMessage.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             },
@@ -1394,6 +1440,21 @@ class MultiUserChatManager(
             if (fromJid != null && fromJid.asBareJid().toString().equals(roomJid, ignoreCase = true)) {
                 val nick = fromJid.resourceOrNull?.toString() ?: return@StanzaListener
 
+                // Extract XEP-0115 Entity Capabilities directly from raw incoming presence
+                val extracted = ClientRegistryManager.extractCapsFromPresence(presence)
+                if (extracted != null) {
+                    val (node, ver) = extracted
+                    val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = "",
+                        jid = fromJid.toString(),
+                        node = node,
+                        ver = ver
+                    )
+                    if (caps.iconResId != null) {
+                        roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nick] = caps
+                    }
+                }
+
                 // Update real-time occupant presence list
                 updateOccupantsForRoom(roomJid, muc)
 
@@ -1463,7 +1524,46 @@ class MultiUserChatManager(
      * Retrieves cached ClientCaps for an occupant in a room.
      */
     fun getOccupantCaps(roomJid: String, nickname: String): com.ndregil.inchat.data.model.ClientCaps? {
-        return _roomOccupants.value[roomJid]?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }?.clientCaps
+        return roomOccupantCapsCache[roomJid]?.get(nickname)
+            ?: _roomOccupants.value[roomJid]?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }?.clientCaps
+    }
+
+    /**
+     * Queries software version on-demand for an occupant if not yet identified.
+     */
+    fun queryOccupantVersionIfNeeded(roomJid: String, nickname: String) {
+        val queryKey = "$roomJid/$nickname"
+        if (!queriedOccupantVersions.add(queryKey)) return
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                val result = connectionManager.querySoftwareVersion(queryKey)
+                if (result.isSuccess) {
+                    val caps = result.getOrNull()
+                    if (caps != null && caps.iconResId != null) {
+                        Log.i(TAG, "Successfully resolved version caps for $queryKey: ${caps.clientName} (icon=${caps.iconResId})")
+                        roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+
+                        // Update current room occupants state flow so UI immediately displays client icon
+                        val currentMap = _roomOccupants.value.toMutableMap()
+                        val occupants = currentMap[roomJid]
+                        if (occupants != null) {
+                            val updated = occupants.map { occ ->
+                                if (occ.nickname.equals(nickname, ignoreCase = true)) {
+                                    occ.copy(clientCaps = caps)
+                                } else {
+                                    occ
+                                }
+                            }
+                            currentMap[roomJid] = updated
+                            _roomOccupants.value = currentMap
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Version query failed for $queryKey: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -1524,21 +1624,44 @@ class MultiUserChatManager(
                         occupant?.jid?.toString() ?: occupantJid.toString()
                     }
 
-                    val extractedCaps = ClientRegistryManager.extractCapsFromPresence(smackPresence)
-
-                    val occupantCaps = if (isMe) {
-                        com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                            name = "InChat",
-                            jid = realJid,
-                            node = "http://ndregil.inchat"
-                        )
+                    // Check cached caps first (from raw presence listener or previous version query)
+                    val cachedCaps = roomOccupantCapsCache[roomJid]?.get(nickname)
+                    val extractedCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
+                        null
                     } else {
-                        com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                            name = nickname,
-                            jid = realJid,
-                            node = extractedCaps?.first ?: "",
-                            ver = extractedCaps?.second ?: ""
-                        )
+                        ClientRegistryManager.extractCapsFromPresence(smackPresence)
+                    }
+
+                    val occupantCaps = when {
+                        isMe -> {
+                            com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                                name = "InChat",
+                                jid = realJid,
+                                node = "http://ndregil.inchat"
+                            )
+                        }
+                        cachedCaps != null && cachedCaps.iconResId != null -> {
+                            cachedCaps
+                        }
+                        extractedCaps != null -> {
+                            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                                name = "",
+                                jid = realJid,
+                                node = extractedCaps.first,
+                                ver = extractedCaps.second
+                            )
+                            if (caps.iconResId != null) {
+                                roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+                            }
+                            caps
+                        }
+                        else -> {
+                            com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                                name = "",
+                                jid = realJid,
+                                node = ""
+                            )
+                        }
                     }
 
                     // Fetch avatar (will trigger fetch if missing, with fallback for current user)
@@ -1582,7 +1705,8 @@ class MultiUserChatManager(
      */
     suspend fun fetchMamHistory(
         roomJid: String,
-        since: Long,
+        since: Long = 0L,
+        before: Long = 0L,
         limit: Int = 50
     ): Result<List<org.jivesoftware.smack.packet.Message>> = withContext(Dispatchers.IO) {
         try {
@@ -1591,6 +1715,12 @@ class MultiUserChatManager(
             val mamManager = MamManager.getInstanceFor(conn, bareJid)
             val queryArgsBuilder = MamManager.MamQueryArgs.builder()
                 .setResultPageSize(limit)
+            if (since > 0L) {
+                queryArgsBuilder.limitResultsSince(java.util.Date(since))
+            }
+            if (before > 0L) {
+                queryArgsBuilder.limitResultsBefore(java.util.Date(before))
+            }
             val query = mamManager.queryArchive(queryArgsBuilder.build())
             Result.success(query.messages)
         } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {

@@ -359,7 +359,33 @@ class XmppRepository(
         )
 
         val existing = database.accountDao().getActiveAccountSync()
-        val pwdToSave = if (password.isNotBlank()) password else (existing?.password ?: "")
+        val isDifferentAccount = existing != null && existing.jid.isNotBlank() &&
+                !existing.jid.equals(sanitizedAccount.jid, ignoreCase = true)
+
+        if (isDifferentAccount) {
+            Log.i("XmppRepository", "Ganti akun terdeteksi dari '${existing.jid}' ke '${sanitizedAccount.jid}'. Membersihkan sesi lama, room, favorit, dan kontak.")
+            try {
+                connectionService.release()
+                smackRosterManager.release()
+                smackMucManager.leaveAllRooms()
+                smackConnectionManager.disconnect()
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Pembersihan sesi lama gagal: ${e.message}")
+            }
+            try { engine.disconnect() } catch (_: Exception) {}
+
+            // Bersihkan data lokal yang terkait dengan akun lama (room, favorit, config, kontak, pesan)
+            database.roomDao().clearAllRooms()
+            database.roomConfigDao().clearAllConfigs()
+            database.contactDao().clearAllContacts()
+            database.messageDao().clearAllMessages()
+            database.storyDao().clearAllStories()
+            database.avatarDao().clearAllAvatars()
+            database.accountDao().clearAccounts()
+            smackMucManager.clearServerBookmarks()
+        }
+
+        val pwdToSave = if (password.isNotBlank()) password else (if (!isDifferentAccount) (existing?.password ?: "") else "")
         database.accountDao().saveAccount(sanitizedAccount.toEntity(pwdToSave))
         _currentAccount.value = sanitizedAccount
 
@@ -588,13 +614,14 @@ class XmppRepository(
         try {
             connectionService.release()
             smackRosterManager.release()
+            smackMucManager.leaveAllRooms()
         } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
         } catch (e: Exception) {
             // Handled gracefully
         }
-        engine.disconnect()
+        try { engine.disconnect() } catch (_: Exception) {}
         _currentAccount.value = XmppAccount()
     }
 
@@ -602,6 +629,7 @@ class XmppRepository(
         try {
             connectionService.release()
             smackRosterManager.release()
+            smackMucManager.leaveAllRooms()
         } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
@@ -616,6 +644,31 @@ class XmppRepository(
         database.contactDao().clearAllContacts()
         database.storyDao().clearAllStories()
         database.avatarDao().clearAllAvatars()
+        smackMucManager.clearServerBookmarks()
+        _currentAccount.value = XmppAccount()
+    }
+
+    suspend fun prepareSwitchAccount() {
+        Log.i("XmppRepository", "Mempersiapkan ganti akun: memutuskan sesi aktif dan membersihkan sesi lama.")
+        try {
+            connectionService.release()
+            smackRosterManager.release()
+            smackMucManager.leaveAllRooms()
+        } catch (_: Exception) {}
+        try {
+            smackConnectionManager.disconnect()
+        } catch (_: Exception) {}
+        try {
+            engine.disconnect()
+        } catch (_: Exception) {}
+        database.accountDao().clearAccounts()
+        database.roomDao().clearAllRooms()
+        database.messageDao().clearAllMessages()
+        database.roomConfigDao().clearAllConfigs()
+        database.contactDao().clearAllContacts()
+        database.storyDao().clearAllStories()
+        database.avatarDao().clearAllAvatars()
+        smackMucManager.clearServerBookmarks()
         _currentAccount.value = XmppAccount()
     }
 
@@ -1163,7 +1216,33 @@ class XmppRepository(
     suspend fun leaveRoom(roomJid: String, nickname: String) {
         val existing = database.roomDao().getRoomByJid(roomJid)
         if (existing != null) {
-            database.roomDao().insertOrUpdateRoom(existing.copy(isJoined = false))
+            if (existing.isBookmarked) {
+                // If bookmarked, keep it in the list as not joined and turn off autoJoin
+                database.roomDao().insertOrUpdateRoom(existing.copy(isJoined = false, isAutoJoin = false))
+            } else {
+                // If not bookmarked, completely remove from active rooms list
+                database.roomDao().deleteRoom(roomJid)
+            }
+        }
+
+        database.roomConfigDao().getRoomConfigSync(roomJid)?.let { cfg ->
+            database.roomConfigDao().insertOrUpdateConfig(cfg.copy(isAutoJoin = false))
+        }
+
+        // Also update server bookmark autoJoin to false so server does not auto-join on reconnect
+        if (smackConnectionManager.isConnected()) {
+            try {
+                val serverBm = smackMucManager.serverBookmarks.value.find { it.jid.toString().equals(roomJid, ignoreCase = true) }
+                if (serverBm != null && serverBm.isAutoJoin) {
+                    smackMucManager.saveBookmark(
+                        roomJid = roomJid,
+                        name = serverBm.name,
+                        autoJoin = false,
+                        nickname = serverBm.nickname?.toString() ?: nickname,
+                        password = serverBm.password
+                    )
+                }
+            } catch (_: Exception) {}
         }
 
         if (smackConnectionManager.isConnected()) {
@@ -1178,6 +1257,18 @@ class XmppRepository(
     }
 
     suspend fun deleteRoom(roomJid: String) {
+        // 1. Leave the room on the server & network first
+        try {
+            val nick = currentAccount.value.nickname.ifBlank { "User" }
+            leaveRoom(roomJid, nick)
+        } catch (_: Exception) {}
+
+        // 2. Remove bookmark (penanda room) from server (XEP-0048) and local database
+        try {
+            removeSavedRoom(roomJid)
+        } catch (_: Exception) {}
+
+        // 3. Delete room and config from database
         database.roomDao().deleteRoom(roomJid)
         database.roomConfigDao().deleteConfig(roomJid)
         database.messageDao().clearRoomMessages(roomJid)
@@ -1253,7 +1344,7 @@ class XmppRepository(
         val latestTimestamp = database.messageDao().getLatestMessageTimestamp(roomJid) ?: 0L
         Log.i("XmppRepository", "Starting MAM Sync for $roomJid since ${java.util.Date(latestTimestamp)} (limit: $limit)")
 
-        val result = smackMucManager.fetchMamHistory(roomJid, latestTimestamp, limit)
+        val result = smackMucManager.fetchMamHistory(roomJid, since = latestTimestamp, before = 0L, limit = limit)
         result.onSuccess { messages ->
             if (messages.isEmpty()) {
                 Log.d("XmppRepository", "No new MAM messages for $roomJid")
@@ -1301,6 +1392,66 @@ class XmppRepository(
                 }
             }
         }
+    }
+
+    suspend fun loadOlderMamHistory(roomJid: String, limit: Int = 50): Int {
+        if (!smackConnectionManager.isConnected()) return 0
+
+        val earliestTimestamp = database.messageDao().getEarliestMessageTimestamp(roomJid) ?: 0L
+        Log.i("XmppRepository", "Starting older MAM Sync for $roomJid before ${java.util.Date(earliestTimestamp)} (limit: $limit)")
+
+        val beforeParam = if (earliestTimestamp > 0L) earliestTimestamp - 1 else 0L
+        val result = smackMucManager.fetchMamHistory(roomJid, since = 0L, before = beforeParam, limit = limit)
+        var countAdded = 0
+        result.onSuccess { messages ->
+            if (messages.isEmpty()) {
+                Log.d("XmppRepository", "No older MAM messages found for $roomJid")
+                return@onSuccess
+            }
+
+            Log.i("XmppRepository", "Processing ${messages.size} older MAM messages for $roomJid")
+            val roomEntity = database.roomDao().getRoomByJid(roomJid)
+            val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
+            val myJid = currentAccount.value.jid
+
+            messages.forEach { smackMsg ->
+                try {
+                    val body = smackMsg.body ?: return@forEach
+                    val fromJid = smackMsg.from
+                    val senderNick = fromJid?.resourceOrNull?.toString() 
+                        ?: fromJid?.asBareJid()?.toString()?.substringBefore("@") 
+                        ?: "User"
+                    
+                    val isMine = if (isMucJid(roomJid)) {
+                        senderNick.equals(myNickname, ignoreCase = true)
+                    } else {
+                        fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                    }
+
+                    val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
+                    val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
+                    val stanzaId = smackMsg.stanzaId ?: java.util.UUID.randomUUID().toString()
+
+                    val xmppMsg = XmppMessage(
+                        id = stanzaId,
+                        roomJid = roomJid,
+                        senderJid = fromJid?.toString() ?: roomJid,
+                        senderNickname = senderNick,
+                        body = body,
+                        timestamp = timestamp,
+                        isMine = isMine,
+                        messageType = if (smackMsg.type == org.jivesoftware.smack.packet.Message.Type.groupchat) MessageType.GROUPCHAT else MessageType.CHAT,
+                        status = DeliveryStatus.DELIVERED,
+                        isHistory = true
+                    )
+                    processIncomingMessage(xmppMsg)
+                    countAdded++
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Error parsing older MAM message: ${e.message}")
+                }
+            }
+        }
+        return countAdded
     }
 
     fun getRoomConfig(roomJid: String): Flow<RoomConfigEntity?> {
@@ -1598,14 +1749,35 @@ class XmppRepository(
 
         Log.d("XmppRepository", "Sending message to $cleanJid (isUrl=$isUrl)")
 
+        // Check if outgoing auto-translate is enabled to translate the text BEFORE sending out
+        var textToSend = text
+        try {
+            val prefs = translationPreferencesManager.translationPreferences.first()
+            val isGroup = isMucJid(cleanJid)
+            val shouldTranslateOutgoing = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
+                    if (isGroup) prefs.translateRooms else prefs.translateContacts
+
+            if (text.isNotBlank() && !isUrl && shouldTranslateOutgoing) {
+                val translated = translationService.translateText(text, prefs.targetLanguageCode)
+                if (!translated.isNullOrBlank()) {
+                    textToSend = translated
+                    Log.i("XmppRepository", "Translated outgoing message from '${text.take(20)}...' to '${textToSend.take(20)}...' (${prefs.targetLanguageCode})")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Failed to translate outgoing message: ${e.message}")
+        }
+
+        val isUrlFinal = textToSend.trim().startsWith("http")
+
         // 1. If Smack MUC is connected and room joined, send via Smack MUC
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             try {
-                if (isUrl) {
-                    engine.sendGroupFile(cleanJid, text, "File", "image/jpeg", 0L, myNickname)
+                if (isUrlFinal) {
+                    engine.sendGroupFile(cleanJid, textToSend, "File", "image/jpeg", 0L, myNickname)
                     isSentSuccessfully = true
                 } else {
-                    smackMucManager.sendMessage(cleanJid, text)
+                    smackMucManager.sendMessage(cleanJid, textToSend)
                     isSentSuccessfully = true
                 }
                 Log.i("XmppRepository", "Sent MUC message to $cleanJid via Smack")
@@ -1617,15 +1789,15 @@ class XmppRepository(
         // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) - Only if not already sent via MUC
         if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             try {
-                if (isUrl) {
-                    engine.sendDirectOobMessage(cleanJid, text, myNickname)
+                if (isUrlFinal) {
+                    engine.sendDirectOobMessage(cleanJid, textToSend, myNickname)
                     isSentSuccessfully = true
                     Log.i("XmppRepository", "Sent 1-on-1 direct OOB message to $cleanJid")
                 } else {
                     val conn = smackConnectionManager.getRawConnection()
                     if (conn != null) {
                         val msgStanza = org.jivesoftware.smack.packet.Message(cleanJidJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
-                            body = text
+                            body = textToSend
                             setStanzaId(stanzaId)
                             org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
                         }
@@ -1642,7 +1814,7 @@ class XmppRepository(
         // 3. Fallback to raw engine if still not sent (e.g. demo mode or connection issues)
         if (!isSentSuccessfully) {
             try {
-                engine.sendGroupMessage(cleanJid, text, myNickname)
+                engine.sendGroupMessage(cleanJid, textToSend, myNickname)
                 isSentSuccessfully = true
                 Log.i("XmppRepository", "Sent message to $cleanJid via raw engine fallback")
             } catch (e: Exception) {
@@ -1651,13 +1823,13 @@ class XmppRepository(
         }
 
         // 4. SAVE sent message locally in Room DB so it appears in UI immediately
-        val isImage = isUrl && (
-            text.contains(".jpg", ignoreCase = true) ||
-            text.contains(".jpeg", ignoreCase = true) ||
-            text.contains(".png", ignoreCase = true) ||
-            text.contains(".gif", ignoreCase = true) ||
-            text.contains(".webp", ignoreCase = true) ||
-            text.contains("/preview/", ignoreCase = true)
+        val isImage = isUrlFinal && (
+            textToSend.contains(".jpg", ignoreCase = true) ||
+            textToSend.contains(".jpeg", ignoreCase = true) ||
+            textToSend.contains(".png", ignoreCase = true) ||
+            textToSend.contains(".gif", ignoreCase = true) ||
+            textToSend.contains(".webp", ignoreCase = true) ||
+            textToSend.contains("/preview/", ignoreCase = true)
         )
         
         val msg = XmppMessage(
@@ -1665,7 +1837,7 @@ class XmppRepository(
             roomJid = cleanJid,
             senderJid = myJid,
             senderNickname = myNickname,
-            body = text,
+            body = text, // Keep original text locally so the sender can see what they wrote
             timestamp = timestamp,
             isMine = true,
             messageType = when {
@@ -1677,39 +1849,20 @@ class XmppRepository(
             replyToMessageId = replyToMessageId,
             replyToSender = replyToSender,
             replyToText = replyToText,
-            fileUrl = if (isUrl) text.trim() else null,
+            fileUrl = if (isUrl) textToSend.trim() else null,
             fileMimeType = if (isImage) "image/jpeg" else if (isUrl) "application/octet-stream" else null,
-            fileName = if (isUrl) "Lampiran" else null
+            fileName = if (isUrl) "Lampiran" else null,
+            translatedBody = if (textToSend != text) textToSend else null,
+            translationLanguage = if (textToSend != text) try { translationPreferencesManager.translationPreferences.first().targetLanguageCode } catch (_: Exception) { "id" } else null
         )
         
         try {
             database.messageDao().insertMessage(msg.toEntity())
             Log.d("XmppRepository", "Saved sent message to local DB: $stanzaId")
-
-            // Auto-translate outgoing message if enabled
-            if (text.isNotBlank() && !isImage) {
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val prefs = translationPreferencesManager.translationPreferences.first()
-                        val isGroup = isMucJid(cleanJid)
-                        val shouldTranslate = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
-                                if (isGroup) prefs.translateRooms else prefs.translateContacts
-
-                        if (shouldTranslate) {
-                            val translated = translationService.translateText(text, prefs.targetLanguageCode)
-                            if (!translated.isNullOrBlank()) {
-                                database.messageDao().updateMessageTranslation(msg.id, translated, prefs.targetLanguageCode)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w("XmppRepository", "Outgoing message auto-translate error: ${e.message}")
-                    }
-                }
-            }
         } catch (e: Exception) {
             Log.e("XmppRepository", "Failed to save sent message to DB: ${e.message}")
         }
-
+        
         // 5. Update or Create Room Entity to ensure it stays in the list
         try {
             val existing = database.roomDao().getRoomByJid(cleanJid)

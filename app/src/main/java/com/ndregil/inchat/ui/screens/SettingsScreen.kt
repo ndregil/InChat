@@ -763,7 +763,7 @@ fun AccountSubSettings(
             title = { Text("Konfirmasi Keluar Akun", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial pada perangkat akan dihapus, koneksi ditutup, dan aplikasi akan berhenti berjalan.",
+                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial dan data room akun ini akan dibersihkan, koneksi diputus, dan Anda dapat masuk dengan akun lain.",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -772,7 +772,6 @@ fun AccountSubSettings(
                     onClick = {
                         showSignOutDialog = false
                         onSignOut()
-                        activity?.finishAffinity()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AwayAmber, contentColor = Color.White),
                     shape = RoundedCornerShape(12.dp)

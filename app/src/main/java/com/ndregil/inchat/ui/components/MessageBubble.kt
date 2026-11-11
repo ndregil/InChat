@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -480,7 +481,7 @@ fun MessageBubble(
                         }
                     }
 
-                    // Main Content
+                    // Main Content (with snippet preview if translated and toggle Pesan Asli)
                     Box(modifier = Modifier.padding(bottom = 2.dp)) {
                         SelectionContainer {
                             when (message.messageType) {
@@ -497,14 +498,39 @@ fun MessageBubble(
                                     if (message.body.contains("geo:") || message.body.contains("Berbagi Lokasi")) {
                                         LocationMessageBubbleContent(message = message, textColor = textColor)
                                     } else {
-                                        FormattedMessageText(
-                                            text = message.body,
-                                            myNickname = myNickname,
-                                            textColor = textColor,
-                                            accentColor = palette.accentColor,
-                                            onMentionClick = onMentionClick,
-                                            onQuoteClick = { onReplyClick(message) }
-                                        )
+                                        var showFullOriginal by remember(message.id, message.body) { mutableStateOf(false) }
+                                        val isTranslated = !message.translatedBody.isNullOrBlank()
+                                        val displayBody = if (isTranslated && !showFullOriginal && message.body.length > 15) {
+                                            message.body.take(15).trimEnd() + " .. "
+                                        } else {
+                                            message.body
+                                        }
+
+                                        Column {
+                                            FormattedMessageText(
+                                                text = displayBody,
+                                                myNickname = myNickname,
+                                                textColor = textColor,
+                                                accentColor = palette.accentColor,
+                                                onMentionClick = onMentionClick,
+                                                onQuoteClick = { onReplyClick(message) }
+                                            )
+                                            if (isTranslated) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                TextButton(
+                                                    onClick = { showFullOriginal = !showFullOriginal },
+                                                    contentPadding = PaddingValues(0.dp),
+                                                    modifier = Modifier.height(20.dp)
+                                                ) {
+                                                    Text(
+                                                        text = if (showFullOriginal) "tutup pesan asli" else "lihat pesan asli",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = palette.accentColor
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

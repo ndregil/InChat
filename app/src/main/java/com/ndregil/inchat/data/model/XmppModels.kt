@@ -128,6 +128,8 @@ data class ClientCaps(
     val rawNode: String = "",
     val features: List<String> = emptyList()
 ) {
+    fun isIdentified(): Boolean = iconResId != null && iconResId != 0
+
     val summaryText: String
         get() = "$clientName $version ($os)"
 
@@ -488,7 +490,11 @@ data class ClientCaps(
                 definition = com.ndregil.inchat.data.network.ClientRegistryManager.findDefByName("Jabber Bot")
             }
 
-            val resolvedName = cleanName
+            val resolvedName = if (cleanName.isNotBlank() && cleanName != "unknown") {
+                cleanName
+            } else {
+                definition?.clientName ?: ""
+            }
             val resolvedVersion = cleanVersion.ifBlank { definition?.defaultVersion ?: "" }
             val resolvedOs = cleanOs.ifBlank { definition?.defaultOs ?: "" }
             val resolvedIcon = definition?.iconResId
