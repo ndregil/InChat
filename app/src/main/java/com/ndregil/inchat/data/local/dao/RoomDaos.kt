@@ -165,6 +165,12 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND body = :body AND isMine = :isMine ORDER BY timestamp DESC LIMIT 1")
     suspend fun findRecentMessage(roomJid: String, body: String, isMine: Boolean): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND isMine = 1 AND (body = :text OR translatedBody = :text) ORDER BY timestamp DESC LIMIT 1")
+    suspend fun findRecentOutgoingMessage(roomJid: String, text: String): MessageEntity?
+
+    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND isMine = 1 ORDER BY timestamp DESC LIMIT 1")
+    suspend fun findLatestMineMessage(roomJid: String): MessageEntity?
+
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateMessageStatus(id: String, status: DeliveryStatus)
 

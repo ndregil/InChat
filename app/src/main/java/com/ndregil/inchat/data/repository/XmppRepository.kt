@@ -1009,6 +1009,23 @@ class XmppRepository(
                 }
             }
 
+            // Deduplication for outgoing echoes/reflections (isMine == true)
+            if (msg.isMine) {
+                val recentMine = database.messageDao().findRecentOutgoingMessage(msg.roomJid, msg.body)
+                if (recentMine != null && Math.abs(recentMine.timestamp - msg.timestamp) < 60000) {
+                    Log.d("XmppRepository", "Deduplicating outgoing echo message by content/time: ${msg.id}")
+                    database.messageDao().updateMessageStatus(recentMine.id, DeliveryStatus.SENT)
+                    return
+                }
+
+                val latestMine = database.messageDao().findLatestMineMessage(msg.roomJid)
+                if (latestMine != null && Math.abs(latestMine.timestamp - msg.timestamp) < 15000) {
+                    Log.d("XmppRepository", "Deduplicating outgoing echo message by time window: ${msg.id}")
+                    database.messageDao().updateMessageStatus(latestMine.id, DeliveryStatus.SENT)
+                    return
+                }
+            }
+
             // Deduplication by recent message content/timestamp
             val existing = database.messageDao().findRecentMessage(msg.roomJid, msg.body, msg.isMine)
             if (existing != null && Math.abs(existing.timestamp - msg.timestamp) < 60000) {
@@ -1217,32 +1234,12 @@ class XmppRepository(
         val existing = database.roomDao().getRoomByJid(roomJid)
         if (existing != null) {
             if (existing.isBookmarked) {
-                // If bookmarked, keep it in the list as not joined and turn off autoJoin
-                database.roomDao().insertOrUpdateRoom(existing.copy(isJoined = false, isAutoJoin = false))
+                // If bookmarked, keep it in the list as not joined while preserving its autoJoin setting
+                database.roomDao().insertOrUpdateRoom(existing.copy(isJoined = false))
             } else {
                 // If not bookmarked, completely remove from active rooms list
                 database.roomDao().deleteRoom(roomJid)
             }
-        }
-
-        database.roomConfigDao().getRoomConfigSync(roomJid)?.let { cfg ->
-            database.roomConfigDao().insertOrUpdateConfig(cfg.copy(isAutoJoin = false))
-        }
-
-        // Also update server bookmark autoJoin to false so server does not auto-join on reconnect
-        if (smackConnectionManager.isConnected()) {
-            try {
-                val serverBm = smackMucManager.serverBookmarks.value.find { it.jid.toString().equals(roomJid, ignoreCase = true) }
-                if (serverBm != null && serverBm.isAutoJoin) {
-                    smackMucManager.saveBookmark(
-                        roomJid = roomJid,
-                        name = serverBm.name,
-                        autoJoin = false,
-                        nickname = serverBm.nickname?.toString() ?: nickname,
-                        password = serverBm.password
-                    )
-                }
-            } catch (_: Exception) {}
         }
 
         if (smackConnectionManager.isConnected()) {

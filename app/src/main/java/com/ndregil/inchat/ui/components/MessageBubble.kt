@@ -248,7 +248,7 @@ fun MessageBubble(
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .testTag("message_bubble_${message.id}"),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.Top
     ) {
         if (!isMine) {
             IncomingAvatar(message, senderColor, { showAvatarMenu = true }, { showAvatarMenu = true })
@@ -500,15 +500,12 @@ fun MessageBubble(
                                     } else {
                                         var showFullOriginal by remember(message.id, message.body) { mutableStateOf(false) }
                                         val isTranslated = !message.translatedBody.isNullOrBlank()
-                                        val displayBody = if (isTranslated && !showFullOriginal && message.body.length > 15) {
-                                            message.body.take(15).trimEnd() + " .. "
-                                        } else {
-                                            message.body
-                                        }
+                                        val origText = message.translatedBody ?: ""
+                                        val origSnippet = if (origText.length > 15) origText.take(15).trimEnd() + " .. " else origText
 
                                         Column {
                                             FormattedMessageText(
-                                                text = displayBody,
+                                                text = message.body,
                                                 myNickname = myNickname,
                                                 textColor = textColor,
                                                 accentColor = palette.accentColor,
@@ -517,16 +514,23 @@ fun MessageBubble(
                                             )
                                             if (isTranslated) {
                                                 Spacer(modifier = Modifier.height(2.dp))
-                                                TextButton(
-                                                    onClick = { showFullOriginal = !showFullOriginal },
-                                                    contentPadding = PaddingValues(0.dp),
-                                                    modifier = Modifier.height(20.dp)
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(top = 1.dp)
                                                 ) {
+                                                    Text(
+                                                        text = if (showFullOriginal) origText else origSnippet,
+                                                        fontSize = 11.sp,
+                                                        fontStyle = FontStyle.Italic,
+                                                        color = textColor.copy(alpha = 0.75f)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
                                                         text = if (showFullOriginal) "tutup pesan asli" else "lihat pesan asli",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = palette.accentColor
+                                                        color = palette.accentColor,
+                                                        modifier = Modifier.clickable { showFullOriginal = !showFullOriginal }
                                                     )
                                                 }
                                             }
@@ -1278,11 +1282,12 @@ fun IncomingAvatar(
     message: XmppMessage,
     senderColor: Color,
     onClick: (XmppMessage) -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp = 32.dp
 ) {
     Box(
         modifier = Modifier
-            .size(32.dp)
+            .size(size)
             .clip(CircleShape)
             .background(senderColor.copy(alpha = 0.2f))
             .border(1.dp, senderColor, CircleShape)

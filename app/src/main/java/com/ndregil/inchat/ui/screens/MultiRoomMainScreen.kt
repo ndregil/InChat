@@ -68,6 +68,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.SentimentSatisfied
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Reply
@@ -85,6 +88,8 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.draw.scale
+import androidx.compose.material3.Switch
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -243,6 +248,7 @@ fun MultiRoomMainScreen(
     val roomAdminInfo by viewModel.roomAdminInfo.collectAsStateWithLifecycle()
     val isTopicModalOpen by viewModel.isTopicModalOpen.collectAsStateWithLifecycle()
     val isLoadingOlder by viewModel.isLoadingOlderMessages.collectAsStateWithLifecycle()
+    val translationPrefs by viewModel.translationPreferences.collectAsStateWithLifecycle()
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
 
@@ -256,7 +262,7 @@ fun MultiRoomMainScreen(
     val rosterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val stanzaSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    val listState = remember(activeRoom?.jid) { androidx.compose.foundation.lazy.LazyListState() }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -291,12 +297,22 @@ fun MultiRoomMainScreen(
     val lastMsgId = remember(messages) { messages.lastOrNull()?.id }
     val isLastMsgMine = remember(messages) { messages.lastOrNull()?.isMine == true }
 
-    LaunchedEffect(activeRoom?.jid, messages.size, lastMsgId) {
+    // Scroll to bottom when room changes
+    LaunchedEffect(activeRoom?.jid) {
         if (messages.isNotEmpty()) {
-            val totalCount = messages.size
-            val targetIndex = (totalCount - 1).coerceAtLeast(0)
-            val isNearBottom = listState.firstVisibleItemIndex >= (totalCount - 6).coerceAtLeast(0)
-            if (isLastMsgMine || isNearBottom || listState.firstVisibleItemIndex == 0) {
+            val targetIndex = messages.size
+            try {
+                listState.scrollToItem(targetIndex)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Auto scroll when user sends a message or when already near bottom
+    LaunchedEffect(messages.size, lastMsgId) {
+        if (messages.isNotEmpty()) {
+            val targetIndex = messages.size
+            val isNearBottom = listState.firstVisibleItemIndex >= (messages.size - 5).coerceAtLeast(0)
+            if (isLastMsgMine || isNearBottom) {
                 try {
                     listState.animateScrollToItem(targetIndex)
                 } catch (_: Exception) {
@@ -923,7 +939,7 @@ fun MultiRoomMainScreen(
                                                         }
                                                     }
                                                 }
-                                                items(messages, key = { it.id }) { msg ->
+                                                items(messages, key = { msg -> "${msg.id}_${msg.timestamp}" }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
                                                         myNickname = room.myNickname ?: currentAccount.nickname,
@@ -1115,7 +1131,9 @@ fun MultiRoomMainScreen(
                                             whisperTarget = whisperTarget,
                                             replyingToMessage = replyingToMessage,
                                             onCancelReply = { viewModel.clearReplyMessage() },
-                                            onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) }
+                                            onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) },
+                                            translationPreferences = translationPrefs,
+                                            onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) }
                                         )
                                     }
                                 }
@@ -1601,7 +1619,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 }
                                             }
-                                            items(messages, key = { it.id }) { msg ->
+                                            items(messages, key = { msg -> "${msg.id}_${msg.timestamp}" }) { msg ->
                                                 MessageBubble(
                                                     message = msg,
                                                     myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
@@ -1663,7 +1681,9 @@ fun MultiRoomMainScreen(
                                     onCancelReply = { viewModel.clearReplyMessage() },
                                     onSendVoice = { audioFile, durationSeconds ->
                                         viewModel.sendVoiceMessage(audioFile, durationSeconds)
-                                    }
+                                    },
+                                    translationPreferences = translationPrefs,
+                                    onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) }
                                 )
                             }
                         }
@@ -2752,11 +2772,14 @@ fun ChatInputBar(
     whisperTarget: RoomOccupant?,
     replyingToMessage: XmppMessage? = null,
     onCancelReply: () -> Unit = {},
-    onSendVoice: ((java.io.File, Int) -> Unit)? = null
+    onSendVoice: ((java.io.File, Int) -> Unit)? = null,
+    translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
+    onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null
 ) {
     var showEmojiKeyboard by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
+    var showTranslationMenu by remember { mutableStateOf(false) }
     var isRecording by remember { mutableStateOf(false) }
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var currentAmpRatio by remember { mutableFloatStateOf(0f) }
@@ -2950,6 +2973,64 @@ fun ChatInputBar(
                 }
             }
 
+            // Outgoing Translation Active Badge Bar
+            AnimatedVisibility(visible = translationPreferences.translateOutgoing) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val activeLangName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(translationPreferences.targetLanguageCode)
+                    Surface(
+                        onClick = { showTranslationMenu = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Translate,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Terjemahkan Outgoing: $activeLangName (${translationPreferences.targetLanguageCode.uppercase()})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = {
+                            onUpdateTranslationPreferences?.invoke(translationPreferences.copy(translateOutgoing = false))
+                        },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Nonaktifkan",
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
             // Main Input Row or Recording Active Row
             if (isRecording) {
                 VoiceRecordingActiveBar(
@@ -3053,11 +3134,24 @@ fun ChatInputBar(
                             }
 
                             // 3. Compact Action Row
-                            if (inputText.isBlank()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(1.dp)
+                            ) {
+                                // Tombol Terjemahan Outgoing
+                                IconButton(
+                                    onClick = { showTranslationMenu = true },
+                                    modifier = Modifier.size(32.dp).testTag("btn_translate_input")
                                 ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Translate,
+                                        contentDescription = "Pilihan Bahasa Terjemahan",
+                                        tint = if (translationPreferences.translateOutgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+
+                                if (inputText.isBlank()) {
                                     // Lokasi
                                     IconButton(
                                         onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
@@ -3085,6 +3179,88 @@ fun ChatInputBar(
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // Dropdown Menu Pilihan Bahasa Terjemahan
+                    DropdownMenu(
+                        expanded = showTranslationMenu,
+                        onDismissRequest = { showTranslationMenu = false },
+                        modifier = Modifier
+                            .width(260.dp)
+                            .heightIn(max = 380.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Terjemahkan Outgoing",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                    Switch(
+                                        checked = translationPreferences.translateOutgoing,
+                                        onCheckedChange = { isChecked: Boolean ->
+                                            onUpdateTranslationPreferences?.invoke(
+                                                translationPreferences.copy(
+                                                    isAutoTranslateEnabled = true,
+                                                    translateOutgoing = isChecked
+                                                )
+                                            )
+                                        },
+                                        modifier = Modifier.scale(0.85f)
+                                    )
+                                }
+                            },
+                            onClick = { }
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                        Text(
+                            text = "Pilih Bahasa Terjemahan Pesan Keluar:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+
+                        com.ndregil.inchat.data.network.TranslationService.SUPPORTED_LANGUAGES.forEach { lang ->
+                            val isSelected = lang.code.equals(translationPreferences.targetLanguageCode, ignoreCase = true)
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "${lang.displayName} (${lang.nativeName})",
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    onUpdateTranslationPreferences?.invoke(
+                                        translationPreferences.copy(
+                                            isAutoTranslateEnabled = true,
+                                            translateOutgoing = true,
+                                            targetLanguageCode = lang.code
+                                        )
+                                    )
+                                    showTranslationMenu = false
+                                }
+                            )
                         }
                     }
 
@@ -3347,12 +3523,12 @@ fun ScrollNavigationButtons(
     val coroutineScope = rememberCoroutineScope()
     val showScrollToBottom by remember(totalMessagesCount) {
         derivedStateOf {
-            totalMessagesCount > 0 && listState.firstVisibleItemIndex < (totalMessagesCount - 4).coerceAtLeast(0)
+            totalMessagesCount > 0 && listState.firstVisibleItemIndex < (totalMessagesCount - 3).coerceAtLeast(0)
         }
     }
-    val showScrollToTop by remember {
+    val showScrollToTop by remember(totalMessagesCount) {
         derivedStateOf {
-            totalMessagesCount > 0 && listState.firstVisibleItemIndex > 3
+            totalMessagesCount > 0 && listState.firstVisibleItemIndex > 2
         }
     }
 
@@ -3392,7 +3568,7 @@ fun ScrollNavigationButtons(
                 FloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            val lastIndex = (totalMessagesCount - 1).coerceAtLeast(0)
+                            val lastIndex = totalMessagesCount
                             listState.animateScrollToItem(lastIndex)
                         }
                     },
