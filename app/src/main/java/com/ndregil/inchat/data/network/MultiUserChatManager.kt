@@ -106,6 +106,8 @@ class MultiUserChatManager(
 
     // Real-time occupant client caps cache per room: roomJid -> (nickname -> ClientCaps)
     private val roomOccupantCapsCache = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>>()
+    // Global cache for consistent icon mapping: jid -> ClientCaps
+    private val globalOccupantCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
     private val queriedOccupantVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val updateJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
@@ -1524,8 +1526,17 @@ class MultiUserChatManager(
      * Retrieves cached ClientCaps for an occupant in a room.
      */
     fun getOccupantCaps(roomJid: String, nickname: String): com.ndregil.inchat.data.model.ClientCaps? {
+        val occupant = _roomOccupants.value[roomJid]?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
+        val realJid = occupant?.fullJid ?: occupant?.jid
+        
+        // 1. Try global cache first if realJid exists
+        if (!realJid.isNullOrBlank() && globalOccupantCapsCache.containsKey(realJid)) {
+            return globalOccupantCapsCache[realJid]
+        }
+        
+        // 2. Fallback to room-specific cache or occupant property
         return roomOccupantCapsCache[roomJid]?.get(nickname)
-            ?: _roomOccupants.value[roomJid]?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }?.clientCaps
+            ?: occupant?.clientCaps
     }
 
     /**
@@ -1543,6 +1554,14 @@ class MultiUserChatManager(
                     if (caps != null && caps.iconResId != null) {
                         Log.i(TAG, "Successfully resolved version caps for $queryKey: ${caps.clientName} (icon=${caps.iconResId})")
                         roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+                        
+                        // Populate global cache
+                        val roomOccupants = _roomOccupants.value[roomJid]
+                        val occupant = roomOccupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
+                        val realJid = occupant?.fullJid ?: occupant?.jid
+                        if (!realJid.isNullOrBlank()) {
+                            globalOccupantCapsCache[realJid] = caps
+                        }
 
                         // Update current room occupants state flow so UI immediately displays client icon
                         val currentMap = _roomOccupants.value.toMutableMap()
