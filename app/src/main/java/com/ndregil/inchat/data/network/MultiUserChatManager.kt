@@ -107,9 +107,6 @@ class MultiUserChatManager(
 
     // Real-time occupant client caps cache per room: roomJid -> (nickname -> ClientCaps)
     private val roomOccupantCapsCache = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>>()
-    // Global cache for consistent icon mapping: jid -> ClientCaps
-    private val globalOccupantCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
-    private val queriedOccupantVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val updateJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     
@@ -796,7 +793,6 @@ class MultiUserChatManager(
         _roomOccupants.value = emptyMap()
         _serverBookmarks.value = emptyList()
         roomOccupantCapsCache.clear()
-        queriedOccupantVersions.clear()
     }
 
     /**
@@ -1530,17 +1526,27 @@ class MultiUserChatManager(
      * Retrieves cached ClientCaps for an occupant in a room.
      */
     fun getOccupantCaps(roomJid: String, nickname: String): com.ndregil.inchat.data.model.ClientCaps? {
-        val occupant = _roomOccupants.value[roomJid]?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
-        val realJid = occupant?.fullJid ?: occupant?.jid
+        val occupants = _roomOccupants.value[roomJid]
+        val occupant = occupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
         
-        // 1. Try global cache first if realJid exists
-        if (!realJid.isNullOrBlank() && globalOccupantCapsCache.containsKey(realJid)) {
-            return globalOccupantCapsCache[realJid]
+        // 1. Try Room Nick cache first (most specific for this session)
+        val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
+        if (roomCached != null && roomCached.iconResId != null) return roomCached
+
+        // 2. Try global cache if we have a REAL JID or full JID
+        val realJid = occupant?.jid?.takeIf { it.isNotBlank() }
+        if (!realJid.isNullOrBlank()) {
+            val global = ClientRegistryManager.getCachedCaps(realJid)
+            if (global != null) return global
         }
         
-        // 2. Fallback to room-specific cache or occupant property
-        return roomOccupantCapsCache[roomJid]?.get(nickname)
-            ?: occupant?.clientCaps
+        // 3. Try global cache using the full MUC JID
+        val fullJid = occupant?.fullJid ?: "$roomJid/$nickname"
+        val globalFull = ClientRegistryManager.getCachedCaps(fullJid)
+        if (globalFull != null) return globalFull
+
+        // 4. Fallback to occupant property
+        return occupant?.clientCaps
     }
 
     /**
@@ -1548,7 +1554,7 @@ class MultiUserChatManager(
      */
     fun queryOccupantVersionIfNeeded(roomJid: String, nickname: String) {
         val queryKey = "$roomJid/$nickname"
-        if (!queriedOccupantVersions.add(queryKey)) return
+        if (!ClientRegistryManager.markAsQueried(queryKey)) return
 
         scope.launch(Dispatchers.IO) {
             try {
@@ -1562,10 +1568,14 @@ class MultiUserChatManager(
                         // Populate global cache
                         val roomOccupants = _roomOccupants.value[roomJid]
                         val occupant = roomOccupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
-                        val realJid = occupant?.fullJid ?: occupant?.jid
-                        if (!realJid.isNullOrBlank()) {
-                            globalOccupantCapsCache[realJid] = caps
+                        val realBareJid = occupant?.jid?.takeIf { it.isNotBlank() }
+                        val fullMUCJid = occupant?.fullJid ?: "$roomJid/$nickname"
+                        
+                        if (!realBareJid.isNullOrBlank()) {
+                            ClientRegistryManager.putCachedCaps(realBareJid, caps)
                         }
+                        // Always cache by full MUC JID too for this session's consistency
+                        ClientRegistryManager.putCachedCaps(fullMUCJid, caps)
 
                         // Update current room occupants state flow so UI immediately displays client icon
                         val currentMap = _roomOccupants.value.toMutableMap()
@@ -1647,15 +1657,25 @@ class MultiUserChatManager(
                         occupant?.jid?.toString() ?: occupantJid.toString()
                     }
 
-                    // Check cached caps first (from raw presence listener or previous version query)
-                    val cachedCaps = roomOccupantCapsCache[roomJid]?.get(nickname)
+                    // Check cached caps first (Global JID cache -> Room Nick cache -> Presence extraction)
+                    val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
+                    val globalCached = if (realJid.isNotBlank()) com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(realJid) else null
+                    
+                    val cachedCaps = if (globalCached != null) {
+                        globalCached
+                    } else if (roomCached != null && roomCached.iconResId != null) {
+                        roomCached
+                    } else {
+                        null
+                    }
+
                     val extractedCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                         null
                     } else {
                         ClientRegistryManager.extractCapsFromPresence(smackPresence)
                     }
 
-                    val occupantCaps = when {
+                    val occupantCaps: com.ndregil.inchat.data.model.ClientCaps = when {
                         isMe -> {
                             com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                                 name = "InChat",
@@ -1675,6 +1695,9 @@ class MultiUserChatManager(
                             )
                             if (caps.iconResId != null) {
                                 roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+                                if (realJid.isNotBlank()) {
+                                    ClientRegistryManager.putCachedCaps(realJid, caps)
+                                }
                             }
                             caps
                         }

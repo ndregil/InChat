@@ -1013,48 +1013,54 @@ class XmppRepository(
                 }
             }
 
+            // Enhanced Client Caps Resolution: Try global cache if not identified or is placeholder
+            val finalMsg = if (msg.senderClientCaps.iconResId == null) {
+                val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(msg.senderJid)
+                if (cached != null) msg.copy(senderClientCaps = cached) else msg
+            } else msg
+
             // Deduplication for outgoing echoes/reflections (isMine == true)
-            if (msg.isMine) {
-                val recentMine = database.messageDao().findRecentOutgoingMessage(msg.roomJid, msg.body)
-                if (recentMine != null && Math.abs(recentMine.timestamp - msg.timestamp) < 60000) {
-                    Log.d("XmppRepository", "Deduplicating outgoing echo message by content/time: ${msg.id}")
+            if (finalMsg.isMine) {
+                val recentMine = database.messageDao().findRecentOutgoingMessage(finalMsg.roomJid, finalMsg.body)
+                if (recentMine != null && Math.abs(recentMine.timestamp - finalMsg.timestamp) < 60000) {
+                    Log.d("XmppRepository", "Deduplicating outgoing echo message by content/time: ${finalMsg.id}")
                     database.messageDao().updateMessageStatus(recentMine.id, DeliveryStatus.SENT)
                     return
                 }
 
-                val latestMine = database.messageDao().findLatestMineMessage(msg.roomJid)
-                if (latestMine != null && Math.abs(latestMine.timestamp - msg.timestamp) < 15000) {
-                    Log.d("XmppRepository", "Deduplicating outgoing echo message by time window: ${msg.id}")
+                val latestMine = database.messageDao().findLatestMineMessage(finalMsg.roomJid)
+                if (latestMine != null && Math.abs(latestMine.timestamp - finalMsg.timestamp) < 15000) {
+                    Log.d("XmppRepository", "Deduplicating outgoing echo message by time window: ${finalMsg.id}")
                     database.messageDao().updateMessageStatus(latestMine.id, DeliveryStatus.SENT)
                     return
                 }
             }
 
             // Deduplication by recent message content/timestamp
-            val existing = database.messageDao().findRecentMessage(msg.roomJid, msg.body, msg.isMine)
-            if (existing != null && Math.abs(existing.timestamp - msg.timestamp) < 60000) {
-                Log.d("XmppRepository", "Deduplicating message by content/time: ${msg.id}")
+            val existing = database.messageDao().findRecentMessage(finalMsg.roomJid, finalMsg.body, finalMsg.isMine)
+            if (existing != null && Math.abs(existing.timestamp - finalMsg.timestamp) < 60000) {
+                Log.d("XmppRepository", "Deduplicating message by content/time: ${finalMsg.id}")
                 return
             }
 
             // 0. Ensure room exists in database so it appears in Chat list
-            if (database.roomDao().getRoomByJid(msg.roomJid) == null) {
-                val isGroup = msg.messageType == MessageType.GROUPCHAT || isMucJid(msg.roomJid)
-                val defaultName = if (isGroup) "# " + msg.roomJid.substringBefore("@") else msg.senderNickname.ifBlank { msg.roomJid.substringBefore("@") }
+            if (database.roomDao().getRoomByJid(finalMsg.roomJid) == null) {
+                val isGroup = finalMsg.messageType == MessageType.GROUPCHAT || isMucJid(finalMsg.roomJid)
+                val defaultName = if (isGroup) "# " + finalMsg.roomJid.substringBefore("@") else finalMsg.senderNickname.ifBlank { finalMsg.roomJid.substringBefore("@") }
                 val newRoom = RoomEntity(
-                    jid = msg.roomJid,
+                    jid = finalMsg.roomJid,
                     name = defaultName,
                     topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
                     myNickname = currentAccount.value.nickname,
                     occupantCount = if (isGroup) 1 else 2,
                     unreadCount = 0,
                     lastMessageText = "",
-                    lastMessageTime = msg.timestamp,
+                    lastMessageTime = finalMsg.timestamp,
                     isJoined = isGroup,
                     isBookmarked = false,
                     myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.NONE,
                     myAffiliation = if (isGroup) OccupantAffiliation.MEMBER else OccupantAffiliation.NONE,
-                    colorHex = randomColorForRoom(msg.roomJid),
+                    colorHex = randomColorForRoom(finalMsg.roomJid),
                     isAutoJoin = isGroup,
                     isGroupChat = isGroup
                 )
@@ -1062,23 +1068,23 @@ class XmppRepository(
             }
 
             // 1. Efficient Insert
-            database.messageDao().insertMessage(msg.toEntity())
+            database.messageDao().insertMessage(finalMsg.toEntity())
 
             // Auto-translate incoming message if enabled
-            if (!msg.isMine && !msg.isHistory && msg.body.isNotBlank() &&
-                msg.messageType != MessageType.FILE && msg.messageType != MessageType.VOICE
+            if (!finalMsg.isMine && !finalMsg.isHistory && finalMsg.body.isNotBlank() &&
+                finalMsg.messageType != MessageType.FILE && finalMsg.messageType != MessageType.VOICE
             ) {
                 scope.launch(Dispatchers.IO) {
                     try {
                         val prefs = translationPreferencesManager.translationPreferences.first()
-                        val isGroup = isMucJid(msg.roomJid)
+                        val isGroup = isMucJid(finalMsg.roomJid)
                         val shouldTranslate = prefs.isAutoTranslateEnabled &&
                                 if (isGroup) prefs.translateRooms else prefs.translateContacts
 
                         if (shouldTranslate) {
-                            val translated = translationService.translateText(msg.body, prefs.targetLanguageCode)
+                            val translated = translationService.translateText(finalMsg.body, prefs.targetLanguageCode)
                             if (!translated.isNullOrBlank()) {
-                                database.messageDao().updateMessageTranslation(msg.id, translated, prefs.targetLanguageCode)
+                                database.messageDao().updateMessageTranslation(finalMsg.id, translated, prefs.targetLanguageCode)
                             }
                         }
                     } catch (e: Exception) {
@@ -1088,40 +1094,40 @@ class XmppRepository(
             }
 
             // 2. Optimized Room Update
-            val lastText = when(msg.messageType) {
-                MessageType.WHISPER -> "[Bisikan] ${msg.body}"
-                MessageType.CHAT -> msg.body
-                MessageType.FILE -> "[Berkas] ${msg.fileName ?: "Lampiran"}"
+            val lastText = when(finalMsg.messageType) {
+                MessageType.WHISPER -> "[Bisikan] ${finalMsg.body}"
+                MessageType.CHAT -> finalMsg.body
+                MessageType.FILE -> "[Berkas] ${finalMsg.fileName ?: "Lampiran"}"
                 MessageType.VOICE -> "[Pesan Suara]"
-                MessageType.ACTION -> "* ${msg.senderNickname} ${msg.body}"
-                else -> msg.body
+                MessageType.ACTION -> "* ${finalMsg.senderNickname} ${finalMsg.body}"
+                else -> finalMsg.body
             }
             
             // Only increment unread if NOT mine AND NOT history
-            val unreadIncrement = if (msg.isMine || msg.isHistory) 0 else 1
+            val unreadIncrement = if (finalMsg.isMine || finalMsg.isHistory) 0 else 1
             
             // Use specialized update query to avoid overwriting lastMessageTime if older history
-            val updatedRows = database.roomDao().updateLastMessage(msg.roomJid, lastText, msg.timestamp, unreadIncrement)
+            val updatedRows = database.roomDao().updateLastMessage(finalMsg.roomJid, lastText, finalMsg.timestamp, unreadIncrement)
             if (updatedRows == 0 && unreadIncrement > 0) {
-                database.roomDao().incrementUnreadCount(msg.roomJid, unreadIncrement)
+                database.roomDao().incrementUnreadCount(finalMsg.roomJid, unreadIncrement)
             }
 
             // 3. Conditional Notification (Skip history, skip system messages)
-            if (!msg.isMine && !msg.isHistory &&
-                msg.messageType != MessageType.SYSTEM_JOIN &&
-                msg.messageType != MessageType.SYSTEM_LEAVE &&
-                msg.messageType != MessageType.SYSTEM_STATUS &&
-                msg.messageType != MessageType.SYSTEM_TOPIC &&
-                (msg.body.isNotBlank() || !msg.fileName.isNullOrBlank())
+            if (!finalMsg.isMine && !finalMsg.isHistory &&
+                finalMsg.messageType != MessageType.SYSTEM_JOIN &&
+                finalMsg.messageType != MessageType.SYSTEM_LEAVE &&
+                finalMsg.messageType != MessageType.SYSTEM_STATUS &&
+                finalMsg.messageType != MessageType.SYSTEM_TOPIC &&
+                (finalMsg.body.isNotBlank() || !finalMsg.fileName.isNullOrBlank())
             ) {
-                val isRecent = (System.currentTimeMillis() - msg.timestamp) < 30_000L
+                val isRecent = (System.currentTimeMillis() - finalMsg.timestamp) < 30_000L
                 if (isRecent) {
-                    val roomConfig = database.roomConfigDao().getRoomConfigSync(msg.roomJid)
+                    val roomConfig = database.roomConfigDao().getRoomConfigSync(finalMsg.roomJid)
                     val globalEnabled = FcmPushManager.isPushEnabled.value
                     val notificationMode = roomConfig?.notificationMode ?: 0 // 0: All, 1: Mentions, 2: Muted
 
-                    val isMention = msg.body.contains(currentAccount.value.nickname, ignoreCase = true) ||
-                                  msg.body.contains(currentAccount.value.username, ignoreCase = true)
+                    val isMention = finalMsg.body.contains(currentAccount.value.nickname, ignoreCase = true) ||
+                                  finalMsg.body.contains(currentAccount.value.username, ignoreCase = true)
 
                     val shouldNotify = globalEnabled && when (notificationMode) {
                         0 -> true // All messages
@@ -1131,19 +1137,19 @@ class XmppRepository(
                     }
 
                     if (shouldNotify) {
-                        val isDirect = msg.messageType == MessageType.CHAT ||
-                                (!msg.roomJid.contains("conference.", ignoreCase = true) && !msg.roomJid.contains("muc.", ignoreCase = true))
-                        val senderName = msg.senderNickname.ifBlank { msg.senderJid.substringBefore("@") }
+                        val isDirect = finalMsg.messageType == MessageType.CHAT ||
+                                (!finalMsg.roomJid.contains("conference.", ignoreCase = true) && !finalMsg.roomJid.contains("muc.", ignoreCase = true))
+                        val senderName = finalMsg.senderNickname.ifBlank { finalMsg.senderJid.substringBefore("@") }
 
                         val payload = PushMessagePayload(
-                            messageId = msg.id,
-                            roomJid = msg.roomJid,
+                            messageId = finalMsg.id,
+                            roomJid = finalMsg.roomJid,
                             senderNickname = senderName,
                             body = lastText,
-                            isWhisper = msg.messageType == MessageType.WHISPER,
+                            isWhisper = finalMsg.messageType == MessageType.WHISPER,
                             isDirect = isDirect,
-                            roomTitle = msg.senderNickname, // Fallback title
-                            timestamp = msg.timestamp,
+                            roomTitle = finalMsg.senderNickname, // Fallback title
+                            timestamp = finalMsg.timestamp,
                             isMention = isMention
                         )
                         FcmPushManager.showSystemNotification(context, payload)

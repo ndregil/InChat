@@ -839,11 +839,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun leaveRoom(roomJid: String) {
         val currentRooms = allRooms.value
-        // Find another room to switch to (prefer joined rooms)
+        // Find another room to switch to (ONLY joined rooms)
         val nextRoomJid = currentRooms.firstOrNull { it.jid != roomJid && it.isJoined }?.jid
-            ?: currentRooms.firstOrNull { it.jid != roomJid }?.jid
             
-        // Move to the next room window immediately
+        // Move to the next room window or back to list immediately
         if (_selectedRoomJid.value == roomJid) {
             _selectedRoomJid.value = nextRoomJid
         }

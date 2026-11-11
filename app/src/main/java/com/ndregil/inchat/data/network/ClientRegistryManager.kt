@@ -15,6 +15,42 @@ import java.io.InputStreamReader
 object ClientRegistryManager {
     private const val TAG = "ClientRegistryManager"
     
+    // Global cache for consistent icon mapping: jid -> ClientCaps
+    private val globalCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
+    private val queriedVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun getCachedCaps(jid: String): com.ndregil.inchat.data.model.ClientCaps? {
+        if (jid.isBlank()) return null
+        val caps = globalCapsCache[jid]
+        if (caps != null && caps.iconResId != null) return caps
+        
+        // Try bare JID fallback
+        if (jid.contains("/")) {
+            val bare = jid.substringBefore("/")
+            val bareCaps = globalCapsCache[bare]
+            if (bareCaps != null && bareCaps.iconResId != null) return bareCaps
+        }
+        return null
+    }
+
+    fun putCachedCaps(jid: String, caps: com.ndregil.inchat.data.model.ClientCaps) {
+        if (jid.isBlank() || caps.iconResId == null) return
+        globalCapsCache[jid] = caps
+        
+        // If it's a full JID, also cache under bare JID IF it's not a MUC room JID
+        if (jid.contains("/")) {
+            val bare = jid.substringBefore("/")
+            val domain = bare.substringAfter("@", "")
+            val isLikelyMuc = domain.contains("conference", true) || domain.contains("muc.", true) || domain.contains("chat.", true)
+            
+            if (!isLikelyMuc) {
+                globalCapsCache[bare] = caps
+            }
+        }
+    }
+
+    fun markAsQueried(key: String): Boolean = queriedVersions.add(key)
+
     // Default static entries directly sourced from clients.txt
     private val staticRegistry: List<ClientDefinition> = listOf(
         ClientDefinition(
@@ -646,15 +682,17 @@ object ClientRegistryManager {
             if (def.clientName.equals("InChat", ignoreCase = true)) {
                 return@firstOrNull false
             }
-            // Direct name match
+            
+            // 1. Direct name match (STRICT)
             if (def.clientName.lowercase() == cleanName) return@firstOrNull true
             
-            // Or keyword match in patterns
+            // 2. Pattern match (STRICT for names)
             def.patterns.any { p ->
                 val keyword = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 if (keyword.isBlank()) return@any false
                 
-                cleanName.contains(keyword)
+                // Only allow exact match for name-based resolution to avoid "inchatuser" matching "inchat"
+                cleanName == keyword
             }
         }
     }
@@ -679,12 +717,25 @@ object ClientRegistryManager {
             }
         }
 
-        // 2. Cek apakah ini Bot (berdasarkan keyword bot di name, resource, jid, atau node)
-        if (cleanName.contains("bot", ignoreCase = true) ||
-            resource.contains("bot", ignoreCase = true) ||
-            cleanNode.contains("bot", ignoreCase = true) ||
-            jid.contains("bot", ignoreCase = true)) {
+        // 2. Cek apakah ini Bot (berdasarkan keyword bot di name, resource, atau khusus di resource JID)
+        val isBotName = cleanName.equals("bot", true) || cleanName.contains("-bot", true) || cleanName.contains("_bot", true) || cleanName.endsWith(" bot", true)
+        val isBotResource = resource.equals("bot", true) || resource.contains("-bot", true) || resource.contains("_bot", true) || resource.endsWith(" bot", true)
+        
+        if (isBotName || isBotResource || cleanNode.contains("bot", ignoreCase = true)) {
             findDefByName("Jabber Bot")?.let { return it }
+        }
+        
+        // Only check JID for bot if it's NOT a MUC full JID, or specifically in the resource part
+        if (jid.contains("bot", ignoreCase = true)) {
+            val jidResource = jid.substringAfterLast("/", "")
+            if (jidResource.isNotBlank()) {
+                if (jidResource.contains("bot", ignoreCase = true)) {
+                    findDefByName("Jabber Bot")?.let { return it }
+                }
+            } else if (jid.substringBefore("@").contains("bot", ignoreCase = true)) {
+                // For regular JIDs, check the localpart
+                findDefByName("Jabber Bot")?.let { return it }
+            }
         }
 
         // 3. Resolusi standar berdasarkan Node

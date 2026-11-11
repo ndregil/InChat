@@ -750,6 +750,10 @@ fun MultiRoomMainScreen(
                             if (roomPagerState.currentPage != targetPage) {
                                 roomPagerState.scrollToPage(targetPage)
                             }
+                        } else {
+                            if (roomPagerState.currentPage != 0) {
+                                roomPagerState.scrollToPage(0)
+                            }
                         }
                     }
 
