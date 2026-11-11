@@ -180,7 +180,7 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE roomJid = :roomJid AND isMine = 1 AND status != :status")
     suspend fun updateMineMessagesStatusForRoom(roomJid: String, status: DeliveryStatus)
 
-    @Query("SELECT MAX(timestamp) FROM messages WHERE roomJid = :roomJid")
+    @Query("SELECT MAX(timestamp) FROM messages WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
     suspend fun getLatestMessageTimestamp(roomJid: String): Long?
 
     @Query("DELETE FROM messages WHERE id = :id")

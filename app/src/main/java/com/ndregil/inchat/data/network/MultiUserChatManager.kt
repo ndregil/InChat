@@ -1714,12 +1714,16 @@ class MultiUserChatManager(
             val bareJid = JidCreate.entityBareFrom(roomJid)
             val mamManager = MamManager.getInstanceFor(conn, bareJid)
             val queryArgsBuilder = MamManager.MamQueryArgs.builder()
-                .setResultPageSize(limit)
             if (since > 0L) {
                 queryArgsBuilder.limitResultsSince(java.util.Date(since))
-            }
-            if (before > 0L) {
+                queryArgsBuilder.setResultPageSize(limit)
+            } else if (before > 0L) {
                 queryArgsBuilder.limitResultsBefore(java.util.Date(before))
+                queryArgsBuilder.setResultPageSize(limit)
+            } else {
+                // Fetch the MOST RECENT (latest) messages from the server archive
+                queryArgsBuilder.queryLastPage()
+                queryArgsBuilder.setResultPageSize(limit)
             }
             val query = mamManager.queryArchive(queryArgsBuilder.build())
             Result.success(query.messages)
