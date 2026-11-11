@@ -253,10 +253,11 @@ fun MultiRoomMainScreen(
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
 
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
+    val activeWindows = displayedRooms.filter { it.isJoined }
     var selectedOccupantForMenu by remember { mutableStateOf<RoomOccupant?>(null) }
     var selectedProfileOccupant by remember { mutableStateOf<Pair<RoomOccupant, org.jivesoftware.smackx.vcardtemp.packet.VCard?>?>(null) }
     var isLoadingProfile by remember { mutableStateOf(false) }
-    val roomPagerState = rememberPagerState(initialPage = 0) { displayedRooms.size + 1 }
+    val roomPagerState = rememberPagerState(initialPage = 0) { activeWindows.size + 1 }
 
 
     val rosterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -418,11 +419,6 @@ fun MultiRoomMainScreen(
                         selected = activeNavIndex == 0,
                         onClick = {
                             activeNavIndex = 0
-                            if (activeRoom == null || !activeRoom!!.isGroupChat) {
-                                groupRoomsList.firstOrNull()?.let { room ->
-                                    viewModel.selectRoom(room.jid)
-                                }
-                            }
                         },
                         icon = Icons.Default.Forum,
                         label = "Room",
@@ -541,7 +537,7 @@ fun MultiRoomMainScreen(
                                     }
                                 }
                                 Text(
-                                    text = if (activeRoom?.isGroupChat == true) (activeRoom?.name ?: "Ruang Obrolan") else (filteredRooms.firstOrNull()?.name ?: "InChat"),
+                                    text = if (activeRoom?.isGroupChat == true) (activeRoom?.name ?: "Ruang Obrolan") else (if (roomPagerState.currentPage == 0) "Ruang Obrolan" else (filteredRooms.firstOrNull()?.name ?: "InChat")),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -585,16 +581,6 @@ fun MultiRoomMainScreen(
                                     tint = if (isCurrentBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(19.dp)
                                 )
-                            }
-
-                            // Stanza Console Shortcut
-                            IconButton(
-                                onClick = { viewModel.isStanzaConsoleOpen.value = true },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_open_stanzas")
-                            ) {
-                                Icon(Icons.Default.Code, contentDescription = "Stanza XML Stream", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
                             }
 
                             // More options
@@ -681,27 +667,31 @@ fun MultiRoomMainScreen(
                                             }
                                         )
                                     }
-                                    if (activeRoom?.isJoined == true) {
-                                        DropdownMenuItem(
-                                            text = { Text("Tinggalkan Room Ini") },
-                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                            onClick = {
-                                                showRoomMenu = false
-                                                activeRoom?.let { viewModel.leaveRoom(it.jid) }
-                                            }
-                                        )
-                                    } else {
-                                        DropdownMenuItem(
-                                            text = { Text("Gabung ke Room Ini") },
-                                            leadingIcon = { Icon(Icons.Default.Login, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                                            onClick = {
-                                                showRoomMenu = false
-                                                activeRoom?.let { room ->
-                                                    val nick = room.myNickname.ifBlank { currentAccount.nickname.ifBlank { currentAccount.username } }
-                                                    viewModel.joinRoom(room.jid, nick, room.password)
+                                    if (activeRoom != null) {
+                                        if (activeRoom!!.isJoined) {
+                                            DropdownMenuItem(
+                                                text = { Text("Tinggalkan Room Ini") },
+                                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                                onClick = {
+                                                    showRoomMenu = false
+                                                    activeRoom?.let { room ->
+                                                        viewModel.leaveRoom(room.jid) 
+                                                    }
                                                 }
-                                            }
-                                        )
+                                            )
+                                        } else {
+                                            DropdownMenuItem(
+                                                text = { Text("Gabung ke Room Ini") },
+                                                leadingIcon = { Icon(Icons.Default.Login, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                                                onClick = {
+                                                    showRoomMenu = false
+                                                    activeRoom?.let { room ->
+                                                        val nick = room.myNickname.ifBlank { currentAccount.nickname.ifBlank { currentAccount.username } }
+                                                        viewModel.joinRoom(room.jid, nick, room.password)
+                                                    }
+                                                }
+                                            )
+                                        }
                                     }
                                     DropdownMenuItem(
                                          text = { Text("Bersihkan Riwayat Chat") },
@@ -745,9 +735,16 @@ fun MultiRoomMainScreen(
                     // Multi-Room Chat View with dynamic horizontal multi-room switcher tabs
                     // Page 0 = Room List, Page 1..N = Active Rooms
                     
-                    LaunchedEffect(activeRoom?.jid, displayedRooms.map { it.jid }) {
-                        val activeJid = activeRoom?.jid ?: return@LaunchedEffect
-                        val index = displayedRooms.indexOfFirst { it.jid == activeJid }
+                    LaunchedEffect(activeRoom?.jid, activeWindows.map { it.jid }) {
+                        val activeJid = activeRoom?.jid
+                        if (activeJid == null) {
+                            if (roomPagerState.currentPage != 0) {
+                                roomPagerState.scrollToPage(0)
+                            }
+                            return@LaunchedEffect
+                        }
+                        
+                        val index = activeWindows.indexOfFirst { it.jid == activeJid }
                         if (index >= 0) {
                             val targetPage = index + 1
                             if (roomPagerState.currentPage != targetPage) {
@@ -762,14 +759,14 @@ fun MultiRoomMainScreen(
                         }
                     }
 
-                    HorizontalPager(
-                        state = roomPagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = false
-                    ) { page ->
-                        if (page == 0) {
-                            // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
-                            Column(modifier = Modifier.fillMaxSize()) {
+                        HorizontalPager(
+                            state = roomPagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = false
+                        ) { page ->
+                            if (page == 0) {
+                                // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
+                                Column(modifier = Modifier.fillMaxSize()) {
                                 Surface(
                                     modifier = Modifier.fillMaxWidth().statusBarsPadding(),
                                     color = MaterialTheme.colorScheme.surface,
@@ -839,10 +836,6 @@ fun MultiRoomMainScreen(
                                                 isSelected = activeRoom?.jid == room.jid,
                                                 onClick = { 
                                                     viewModel.selectRoom(room.jid)
-                                                    coroutineScope.launch {
-                                                        val index = displayedRooms.indexOfFirst { it.jid == room.jid }
-                                                        if (index >= 0) roomPagerState.animateScrollToPage(index + 1)
-                                                    }
                                                 },
                                                 roomAvatar = viewModel.repository.getRoomAvatar(room.jid),
                                                 themePrefs = themePrefs
@@ -853,12 +846,12 @@ fun MultiRoomMainScreen(
                             }
                         } else {
                             // Page 1..N: Individual Chat Room Content
-                            val room = displayedRooms.getOrNull(page - 1)
+                            val room = activeWindows.getOrNull(page - 1)
                             if (room != null) {
                                 Column(modifier = Modifier.fillMaxSize()) {
                                     // Multi-Room Channel Switcher Tabs (Keeps context while in room)
                                     MultiRoomTabHeader(
-                                        rooms = displayedRooms,
+                                        rooms = activeWindows,
                                         selectedRoomJid = room.jid,
                                         showOnlySavedRooms = showOnlySavedRooms,
                                         onToggleSavedOnly = { showOnlySavedRooms = !showOnlySavedRooms },
@@ -1077,7 +1070,7 @@ fun MultiRoomMainScreen(
                                         }
                                     }
 
-                                    if (activeRoom?.isGroupChat == true && activeRoom?.isJoined == false) {
+                                    if (room.isGroupChat && !room.isJoined) {
                                         Surface(
                                             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                                             shape = RoundedCornerShape(16.dp),

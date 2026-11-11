@@ -232,8 +232,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     // Active room object with graceful fallback or virtual room for new chats
     val activeRoom: StateFlow<XmppRoom?> = combine(allRooms, _selectedRoomJid) { rooms, jid ->
         if (jid == null) {
-            // If no JID selected, pick the first room from the ALL list as a baseline
-            return@combine rooms.firstOrNull()
+            return@combine null
         }
         
         val found = rooms.find { it.jid == jid }
@@ -839,16 +838,20 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leaveRoom(roomJid: String) {
+        val currentRooms = allRooms.value
+        // Find another room to switch to (prefer joined rooms)
+        val nextRoomJid = currentRooms.firstOrNull { it.jid != roomJid && it.isJoined }?.jid
+            ?: currentRooms.firstOrNull { it.jid != roomJid }?.jid
+            
+        // Move to the next room window immediately
+        if (_selectedRoomJid.value == roomJid) {
+            _selectedRoomJid.value = nextRoomJid
+        }
+        
         viewModelScope.launch {
-            val room = allRooms.value.find { it.jid == roomJid }
+            val room = currentRooms.find { it.jid == roomJid }
             val nick = room?.myNickname ?: currentAccount.value.nickname
             repository.leaveRoom(roomJid, nick)
-            if (_selectedRoomJid.value == roomJid) {
-                val other = allRooms.value.firstOrNull { it.jid != roomJid && it.isJoined }
-                if (other != null) {
-                    _selectedRoomJid.value = other.jid
-                }
-            }
         }
     }
 

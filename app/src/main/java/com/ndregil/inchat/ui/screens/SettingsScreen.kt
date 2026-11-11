@@ -77,6 +77,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     TRANSLATION("Penerjemah Pesan", "Terjemahkan otomatis pesan masuk di kontak & room", Icons.Default.Translate),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
+    MISC("Pengaturan Lainnya", "Konfigurasi tingkat lanjut, stanza stream debug", Icons.Default.Build),
     ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info)
 }
 
@@ -601,11 +602,35 @@ fun SubSettingDetailScreen(
                     onDisconnect = onDisconnect
                 )
                 SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
+                SubSettingCategory.MISC -> MiscSubSettings()
                 SubSettingCategory.ABOUT -> AboutSubSettings()
             }
         }
     }
 }
+
+@Composable
+fun MiscSubSettings() {
+    val viewModel: com.ndregil.inchat.ui.XmppViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    Column(modifier = Modifier.padding(16.dp)) {
+        Surface(
+            onClick = { viewModel.isStanzaConsoleOpen.value = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text("Stanza XML Stream (Debug)", fontWeight = FontWeight.Bold)
+                    Text("Lihat lalu lintas data mentah XMPP.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
 
 // ==========================================
 // 1. PENGATURAN AKUN SUB-SETTING

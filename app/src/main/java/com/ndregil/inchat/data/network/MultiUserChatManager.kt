@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withPermit
 import org.jivesoftware.smack.MessageListener
 import org.jivesoftware.smack.PresenceListener
 import org.jivesoftware.smack.packet.Message
@@ -111,6 +112,9 @@ class MultiUserChatManager(
     private val queriedOccupantVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val updateJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    
+    // Limit concurrent MAM archive queries to avoid overwhelming the connection/server
+    private val mamSemaphore = kotlinx.coroutines.sync.Semaphore(2)
 
     init {
         // Listen for avatar updates to refresh UI automatically
@@ -1744,8 +1748,13 @@ class MultiUserChatManager(
                 queryArgsBuilder.queryLastPage()
                 queryArgsBuilder.setResultPageSize(limit)
             }
-            val query = mamManager.queryArchive(queryArgsBuilder.build())
+            val query = mamSemaphore.withPermit {
+                mamManager.queryArchive(queryArgsBuilder.build())
+            }
             Result.success(query.messages)
+        } catch (e: org.jivesoftware.smack.SmackException.NoResponseException) {
+            Log.w(TAG, "MAM history fetch TIMEOUT for $roomJid (30s). Server may be busy or archive is large.")
+            Result.failure(e)
         } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
             if (e.stanzaError?.condition == org.jivesoftware.smack.packet.StanzaError.Condition.feature_not_implemented) {
                 Log.i(TAG, "MAM not supported by $roomJid, skipping history fetch.")
@@ -1755,7 +1764,12 @@ class MultiUserChatManager(
                 Result.failure(e)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch MAM history for $roomJid: ${e.message}")
+            val msg = e.message ?: "Unknown error"
+            if (msg.contains("Broken pipe") || msg.contains("not connected")) {
+                Log.w(TAG, "MAM fetch failed for $roomJid due to connection issue: $msg")
+            } else {
+                Log.e(TAG, "Failed to fetch MAM history for $roomJid: $msg")
+            }
             Result.failure(e)
         }
     }
