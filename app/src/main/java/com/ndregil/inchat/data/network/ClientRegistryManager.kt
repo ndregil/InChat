@@ -20,8 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
  * - Cache dikunci per JID persis (occupant JID lengkap di MUC), tanpa fallback ke bare JID.
  * - Klien tidak dikenal => null (UI menampilkan icon platform netral), bukan icon bot.
  *
- * CATATAN: kode ini mengasumsikan ClientDefinition.iconResId bertipe Int?
- * (ubah di data class jika sekarang Int non-null).
+ * CATATAN: ClientDefinition.iconResId bertipe Int; nilai 0 berarti "tanpa icon"
+ * (UI jatuh ke icon platform netral).
  */
 object ClientRegistryManager {
     private const val TAG = "ClientRegistryManager"
@@ -43,11 +43,11 @@ object ClientRegistryManager {
     fun getCachedCaps(jid: String): ClientCaps? {
         if (jid.isBlank()) return null
         val caps = globalCapsCache[cacheKey(jid)]
-        return if (caps?.iconResId != null) caps else null
+        return if (caps != null && (caps.iconResId ?: 0) != 0) caps else null
     }
 
     fun putCachedCaps(jid: String, caps: ClientCaps) {
-        if (jid.isBlank() || caps.iconResId == null) return
+        if (jid.isBlank() || (caps.iconResId ?: 0) == 0) return
         globalCapsCache[cacheKey(jid)] = caps
     }
 
@@ -80,7 +80,7 @@ object ClientRegistryManager {
         name: String,
         canonical: String,
         platform: ClientPlatform,
-        icon: Int?,
+        icon: Int,
         version: String,
         os: String,
         vararg patterns: String
@@ -266,20 +266,20 @@ object ClientRegistryManager {
         explicitIconName: String?,
         known: ClientDefinition?,
         context: Context
-    ): Int? {
+    ): Int {
         fun lookup(name: String): Int? {
             val id = context.resources.getIdentifier(name, "drawable", context.packageName)
             return if (id != 0) id else null
         }
 
         explicitIconName?.takeIf { it.isNotEmpty() }?.let { lookup(it)?.let { id -> return id } }
-        known?.iconResId?.let { return it }
+        if (known != null && known.iconResId != 0) return known.iconResId
 
         val sanitized = clientName.lowercase().trim()
             .replace("+", "_plus")
             .replace(Regex("[^a-z0-9]+"), "_")
             .trim('_')
-        return if (sanitized.isEmpty()) null else lookup("ic_client_$sanitized")
+        return if (sanitized.isEmpty()) 0 else (lookup("ic_client_$sanitized") ?: 0)
     }
 
     // ---------------------------------------------------------------------
