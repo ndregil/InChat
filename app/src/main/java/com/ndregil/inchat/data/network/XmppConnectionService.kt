@@ -61,7 +61,24 @@ class XmppConnectionService(
         val activeNetwork = connectivityManager.activeNetwork
         val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
         isNetworkAvailable = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        
+        startWatchdog()
     }
+
+    private fun startWatchdog() {
+        scope.launch {
+            while (true) {
+                delay(30000) // Check every 30 seconds
+                if (isNetworkAvailable && 
+                    (repository.connectionStatus.value == ConnectionStatus.DISCONNECTED || 
+                     repository.connectionStatus.value == ConnectionStatus.ERROR)) {
+                    Log.d(TAG, "Watchdog detected disconnected state, triggering reconnection.")
+                    triggerReconnection()
+                }
+            }
+        }
+    }
+
 
     private fun observeConnectionStatus() {
         scope.launch {

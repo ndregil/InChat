@@ -29,6 +29,9 @@ class ThemePreferencesManager(private val context: Context) {
         val WALLPAPER_OPACITY = floatPreferencesKey("wallpaper_opacity")
         val IS_CUSTOM_THEME_ENABLED = booleanPreferencesKey("is_custom_theme_enabled")
         val IS_DARK_MODE_MODE = intPreferencesKey("is_dark_mode_mode")
+        val MESSAGE_FONT_SIZE = floatPreferencesKey("message_font_size")
+        val APP_FONT_SIZE = floatPreferencesKey("app_font_size")
+        val CONTACT_FONT_SIZE = floatPreferencesKey("contact_font_size")
     }
 
     val themePreferences: Flow<ThemePreferences> = context.dataStore.data
@@ -55,7 +58,10 @@ class ThemePreferencesManager(private val context: Context) {
                 customWallpaperUri = preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI],
                 wallpaperOpacity = preferences[PreferencesKeys.WALLPAPER_OPACITY] ?: 0.5f,
                 isCustomThemeEnabled = preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] ?: false,
-                isDarkModeOverride = darkOverride
+                isDarkModeOverride = darkOverride,
+                messageFontSizeSp = preferences[PreferencesKeys.MESSAGE_FONT_SIZE] ?: 14f,
+                appFontSizeSp = preferences[PreferencesKeys.APP_FONT_SIZE] ?: 14f,
+                contactFontSizeSp = preferences[PreferencesKeys.CONTACT_FONT_SIZE] ?: 14f
             )
         }
 
@@ -76,12 +82,16 @@ class ThemePreferencesManager(private val context: Context) {
             prefs.customWallpaperUri?.let { preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI] = it } ?: preferences.remove(PreferencesKeys.CUSTOM_WALLPAPER_URI)
             preferences[PreferencesKeys.WALLPAPER_OPACITY] = prefs.wallpaperOpacity
             preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] = prefs.isCustomThemeEnabled
+            preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] = prefs.isCustomThemeEnabled
             val darkInt = when (prefs.isDarkModeOverride) {
                 true -> 1
                 false -> 2
                 null -> 0
             }
             preferences[PreferencesKeys.IS_DARK_MODE_MODE] = darkInt
+            preferences[PreferencesKeys.MESSAGE_FONT_SIZE] = prefs.messageFontSizeSp
+            preferences[PreferencesKeys.APP_FONT_SIZE] = prefs.appFontSizeSp
+            preferences[PreferencesKeys.CONTACT_FONT_SIZE] = prefs.contactFontSizeSp
         }
     }
 }

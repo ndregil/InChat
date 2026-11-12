@@ -29,10 +29,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -261,12 +263,24 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     // Messages for active room
     val activeRoomMessages: StateFlow<List<XmppMessage>> = combine(activeRoom, _roomMessageLimits) { room, limits ->
-        room to (limits[room?.jid] ?: 30)
-    }.flatMapLatest { (room, limit) ->
-        if (room != null) {
-            repository.getMessagesForRoom(room.jid, maxCount = limit)
+        room to (limits[room?.jid] ?: 100)
+    }.transformLatest { (room, limit) ->
+        val repo = repository
+        if (room != null && repo != null && room.jid.isNotBlank()) {
+            try {
+                val flow = repo.getMessagesForRoom(room.jid, maxCount = limit)
+                if (flow != null) {
+                    emitAll(flow)
+                } else {
+                    Log.e("XmppViewModel", "repository.getMessagesForRoom returned null flow for ${room.jid}")
+                    emit(emptyList())
+                }
+            } catch (e: Throwable) {
+                Log.e("XmppViewModel", "Error getting messages flow for ${room.jid}", e)
+                emit(emptyList())
+            }
         } else {
-            flowOf(emptyList())
+            emit(emptyList())
         }
     }.stateIn(
         scope = viewModelScope,
@@ -276,19 +290,20 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadOlderMessagesForActiveRoom(onComplete: (Int) -> Unit = {}) {
         val room = activeRoom.value ?: return
-        val currentLimit = _roomMessageLimits.value[room.jid] ?: 30
-        if (currentLimit >= 150) {
+        val currentLimit = _roomMessageLimits.value[room.jid] ?: 100
+        if (currentLimit >= 300) {
             onComplete(0)
             return
         }
 
-        val newLimit = (currentLimit + 30).coerceAtMost(150)
+        val newLimit = (currentLimit + 50).coerceAtMost(300)
         _roomMessageLimits.value = _roomMessageLimits.value + (room.jid to newLimit)
+
 
         viewModelScope.launch {
             isLoadingOlderMessages.value = true
             try {
-                val fetchedCount = repository.loadOlderMamHistory(room.jid, limit = 50)
+                val fetchedCount = repository.loadOlderMamHistory(room.jid, limit = 100)
                 onComplete(fetchedCount)
             } catch (e: Exception) {
                 Log.w("XmppViewModel", "Gagal memuat MAM history terdahulu untuk ${room.jid}: ${e.message}")
@@ -1224,10 +1239,6 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchAccount(onReadyForNewAccount: () -> Unit = {}) {
         viewModelScope.launch {
-            try {
-                com.ndregil.inchat.data.network.fcm.XmppForegroundService.stopService(getApplication())
-            } catch (_: Exception) {}
-            repository.prepareSwitchAccount()
             onReadyForNewAccount()
         }
     }

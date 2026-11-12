@@ -479,6 +479,10 @@ data class ClientCaps(
             val cleanVersion = version.trim()
             val cleanOs = os.trim()
 
+            // 1. Try global cache first for stability
+            val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(jid, ver)
+            if (cached != null && cached.iconResId != null) return cached
+
             // Strictly resolve against clients.txt definitions
             var definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
                 name = cleanName,
@@ -490,22 +494,22 @@ data class ClientCaps(
                 definition = com.ndregil.inchat.data.network.ClientRegistryManager.findDefByName("Jabber Bot")
             }
 
-            val resolvedName = if (cleanName.isNotBlank() && cleanName != "unknown") {
-                cleanName
-            } else {
-                definition?.clientName ?: ""
-            }
+            val resolvedName = definition?.clientName ?: (if (cleanName.isNotBlank() && cleanName != "unknown") cleanName else "")
             val resolvedVersion = cleanVersion.ifBlank { definition?.defaultVersion ?: "" }
             val resolvedOs = cleanOs.ifBlank { definition?.defaultOs ?: "" }
             val resolvedIcon = definition?.iconResId
             val resolvedPlatform = definition?.platform ?: ClientPlatform.UNKNOWN
+
+            // Ensure nodeUri doesn't take technical session strings (nicks, resources) as node URL
+            val isLikelyNode = cleanNode.contains(".") || cleanNode.contains("://") || cleanNode.startsWith("http")
+            val resolvedNodeUri = if (isLikelyNode) cleanNode else (definition?.canonicalNodeUri ?: "")
 
             return ClientCaps(
                 clientName = resolvedName,
                 version = resolvedVersion,
                 os = resolvedOs,
                 platform = resolvedPlatform,
-                nodeUri = cleanNode.ifBlank { definition?.canonicalNodeUri ?: "" },
+                nodeUri = resolvedNodeUri,
                 hash = hash,
                 ver = ver.ifBlank { "kFwX23eY765qL90mN12aBcDeFgH=" },
                 iconResId = resolvedIcon,
@@ -675,7 +679,10 @@ data class ThemePreferences(
     val customWallpaperUri: String? = null,
     val wallpaperOpacity: Float = 0.5f,
     val isCustomThemeEnabled: Boolean = false,
-    val isDarkModeOverride: Boolean? = null
+    val isDarkModeOverride: Boolean? = null,
+    val messageFontSizeSp: Float = 14f,
+    val appFontSizeSp: Float = 14f,
+    val contactFontSizeSp: Float = 14f
 )
 
 data class TranslationPreferences(

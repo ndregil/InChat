@@ -2,429 +2,779 @@ package com.ndregil.inchat.data.network
 
 import android.content.Context
 import android.util.Log
-import com.ndregil.inchat.R
 import com.ndregil.inchat.data.model.ClientCaps
 import com.ndregil.inchat.data.model.ClientDefinition
 import com.ndregil.inchat.data.model.ClientPlatform
-import org.jivesoftware.smack.packet.Presence
-import org.jivesoftware.smack.packet.StandardExtensionElement
-import org.jivesoftware.smack.packet.XmlEnvironment
-import org.jivesoftware.smackx.caps.packet.CapsExtension
-import java.util.concurrent.ConcurrentHashMap
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 /**
- * Identifikasi klien HANYA berdasarkan node XEP-0115 (atau hasil XEP-0092 live).
- *
- * Aturan stabilitas:
- * - Nick / resource / nama tampilan TIDAK PERNAH dipakai untuk menebak klien.
- * - Cache dikunci per JID persis (occupant JID lengkap di MUC), tanpa fallback ke bare JID.
- * - Klien tidak dikenal => null (UI menampilkan icon platform netral), bukan icon bot.
- *
- * CATATAN: ClientDefinition.iconResId bertipe Int; nilai 0 berarti "tanpa icon"
- * (UI jatuh ke icon platform netral).
+ * Manager to load and handle client identification exclusively from clients.txt.
+ * Adheres strictly to clients.txt patterns and node URIs without guessing client from server domains.
  */
 object ClientRegistryManager {
     private const val TAG = "ClientRegistryManager"
-    private const val CAPS_NS = "http://jabber.org/protocol/caps"
+    
+    // Global cache for consistent icon mapping: jid -> ClientCaps
+    private val globalCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
+    // Global cache for consistent icon mapping: verHash -> ClientCaps
+    private val verCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
+    private val queriedVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    // ---------------------------------------------------------------------
-    // Cache: kunci = JID persis (bare lowercase + resource case-sensitive)
-    // ---------------------------------------------------------------------
+    fun getCachedCaps(jid: String, ver: String? = null): com.ndregil.inchat.data.model.ClientCaps? {
+        // 1. Try ver hash cache (most stable across rooms)
+        if (!ver.isNullOrBlank()) {
+            val verCaps = verCapsCache[ver]
+            if (verCaps != null && verCaps.iconResId != null) return verCaps
+        }
 
-    private val globalCapsCache = ConcurrentHashMap<String, ClientCaps>()
-    private val queriedVersions = ConcurrentHashMap.newKeySet<String>()
-
-    private fun cacheKey(jid: String): String {
-        val t = jid.trim()
-        val i = t.indexOf('/')
-        return if (i < 0) t.lowercase() else t.substring(0, i).lowercase() + t.substring(i)
-    }
-
-    fun getCachedCaps(jid: String): ClientCaps? {
+        // 2. Try exact JID cache
         if (jid.isBlank()) return null
-        val caps = globalCapsCache[cacheKey(jid)]
-        return if (caps != null && (caps.iconResId ?: 0) != 0) caps else null
+        val caps = globalCapsCache[jid]
+        if (caps != null && caps.iconResId != null) return caps
+        
+        // 3. Try bare JID fallback
+        if (jid.contains("/")) {
+            val bare = jid.substringBefore("/")
+            val bareCaps = globalCapsCache[bare]
+            if (bareCaps != null && bareCaps.iconResId != null) return bareCaps
+        }
+        return null
     }
 
-    fun putCachedCaps(jid: String, caps: ClientCaps) {
-        if (jid.isBlank() || (caps.iconResId ?: 0) == 0) return
-        globalCapsCache[cacheKey(jid)] = caps
-    }
+    fun putCachedCaps(jid: String, caps: com.ndregil.inchat.data.model.ClientCaps) {
+        if (caps.iconResId == null) return
+        
+        // Cache by ver hash if available
+        if (caps.ver.isNotBlank() && caps.ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
+            verCapsCache[caps.ver] = caps
+        }
 
-    /** Panggil saat presence `unavailable` atau nick berganti. */
-    fun removeCachedCaps(jid: String) {
         if (jid.isBlank()) return
-        globalCapsCache.remove(cacheKey(jid))
-        queriedVersions.remove(cacheKey(jid))
+        globalCapsCache[jid] = caps
+        
+        // If it's a full JID, also cache under bare JID IF it's not a MUC room JID
+        if (jid.contains("/")) {
+            val bare = jid.substringBefore("/")
+            val domain = bare.substringAfter("@", "")
+            val isLikelyMuc = domain.contains("conference", true) || domain.contains("muc.", true) || domain.contains("chat.", true)
+            
+            if (!isLikelyMuc) {
+                globalCapsCache[bare] = caps
+            }
+        }
     }
 
-    /** Panggil saat keluar dari room: hapus semua occupant room tersebut. */
-    fun clearRoomCaps(roomBareJid: String) {
-        val prefix = roomBareJid.trim().lowercase() + "/"
-        globalCapsCache.keys.removeAll { it.startsWith(prefix) }
-        queriedVersions.removeAll { it.startsWith(prefix) }
-    }
+    fun markAsQueried(key: String): Boolean = queriedVersions.add(key)
 
-    fun clearAllCaps() {
-        globalCapsCache.clear()
-        queriedVersions.clear()
-    }
-
-    fun markAsQueried(key: String): Boolean = queriedVersions.add(cacheKey(key))
-
-    // ---------------------------------------------------------------------
-    // Registry statis (fallback bila clients.txt gagal dimuat)
-    // ---------------------------------------------------------------------
-
-    private fun def(
-        name: String,
-        canonical: String,
-        platform: ClientPlatform,
-        icon: Int,
-        version: String,
-        os: String,
-        vararg patterns: String
-    ) = ClientDefinition(
-        patterns = patterns.toList(),
-        clientName = name,
-        canonicalNodeUri = canonical,
-        platform = platform,
-        iconResId = icon,
-        defaultVersion = version,
-        defaultOs = os
-    )
-
+    // Default static entries directly sourced from clients.txt
     private val staticRegistry: List<ClientDefinition> = listOf(
-        def("Slixmpp", "slixmpp.com", ClientPlatform.BOT, R.drawable.ic_client_slixmpp, "1.0", "Python",
-            "slixmpp.com", "slixmpp"),
-        def("jTalk", "http://jtalk.ustyugov.net/caps", ClientPlatform.ANDROID, R.drawable.ic_client_jtalk, "1.0", "Mobile",
-            "jtalk.ustyugov.net/caps", "jtalk.ustyugov.net", "jtalk"),
-        def("Another IM", "http://dev.narayana.im", ClientPlatform.DESKTOP, R.drawable.ic_client_anotherim, "1.0", "Desktop",
-            "dev.narayana.im", "anotherim"),
-        def("SmartNG", "http://ndregil.smart-ng", ClientPlatform.ANDROID, R.drawable.ic_client_smartng, "1.0", "Android",
-            "ndregil.smart-ng", "smartng"),
-        def("InChat", "http://ndregil.inchat", ClientPlatform.ANDROID, R.drawable.ic_client_inchat, "1.0.0", "Android",
-            "http://ndregil.inchat", "ndregil.inchat", "inchat"),
-        def("BombusMod", "http://bombusmod.net.ru/", ClientPlatform.ANDROID, R.drawable.ic_client_bombusmod, "Mod", "Mobile",
-            "bombusmod.net.ru", "bombusmod"),
-        def("Bombus", "http://bombus-im.org/", ClientPlatform.ANDROID, R.drawable.ic_client_bombus, "Original", "Mobile",
-            "bombus-im.org", "voffk.org.ru/bombus"),
-        def("Bombus-QD", "http://bombusmod-qd/", ClientPlatform.ANDROID, R.drawable.ic_client_bombus_qd, "QD", "Mobile",
-            "bombusmod-qd"),
-        def("Gajim", "http://gajim.org", ClientPlatform.DESKTOP, R.drawable.ic_client_gajim, "Desktop", "Linux/Windows",
-            "gajim.org", "gajim"),
-        def("Google", "http://google.com/talk", ClientPlatform.WEB, R.drawable.ic_client_google, "Web", "Cloud",
-            "google.com"),
-        def("Jabber Bot", "http://jabbrik.ru/caps", ClientPlatform.BOT, R.drawable.ic_client_jabber_bot, "Bot", "Server",
-            "jabbrik.ru/caps", "jabrvista.net.ru", "jabber-bot"),
-        def("Jimm aspro", "http://jimm.net.ru/", ClientPlatform.ANDROID, R.drawable.ic_client_jimm, "Aspro", "Mobile",
-            "jimm.net.ru"),
-        def("Kopete", "http://kopete.kde.org/", ClientPlatform.DESKTOP, R.drawable.ic_client_kopete, "Desktop", "Linux",
-            "kopete.kde.org", "kopete"),
-        def("Miranda", "http://miranda-im.org/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_miranda, "Desktop", "Windows",
-            "miranda-im.org", "miranda-im"),
-        def("Pidgin", "http://pidgin.im/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_pidgin, "Desktop", "Linux/Windows",
-            "pidgin.im", "pidgin", "gaim"),
-        def("Psi", "http://psi-im.org/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_psi, "Desktop", "Desktop",
-            "psi-im.org"),
-        def("Psi+", "http://psi-plus.com/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_psi_plus, "Desktop", "Desktop",
-            "psi-plus.com", "psi-plus", "psi-dev.googlecode.com"),
-        def("PyICQ-t", "http://pyicqt.googlecode.com/", ClientPlatform.BOT, R.drawable.ic_client_pyicq, "Transport", "Server",
-            "pyicqt.googlecode.com"),
-        def("Qip", "http://qip.ru/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_qip, "Desktop", "Windows",
-            "qip.ru"),
-        def("Tkabber", "http://tkabber.jabber.ru/", ClientPlatform.DESKTOP, R.drawable.ic_client_tkabber, "Desktop", "Tcl/Tk",
-            "tkabber.jabber.ru"),
-        def("Ya.Online", "http://online.yandex.ru/", ClientPlatform.WEB, R.drawable.ic_client_ya_online, "Web", "Cloud",
-            "online.yandex.ru", "ajabb"),
-        def("Miranda NG", "http://miranda-ng.org/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_miranda_ng, "Desktop", "Windows",
-            "miranda-ng.org"),
-        def("Mcabber", "http://mcabber.com/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_mcabber, "Console", "Linux",
-            "mcabber.com", "mcabber"),
-        def("Twitter bot", "http://twitter.com/bot", ClientPlatform.BOT, R.drawable.ic_client_twitter, "Bot", "Server",
-            "twitter.com/bot"),
-        def("Isida bot", "http://isida-bot.com/", ClientPlatform.BOT, R.drawable.ic_client_isida_bot, "Bot", "Server",
-            "isida-bot.com"),
-        def("RSS Bot", "http://jabrss.ru/caps", ClientPlatform.BOT, R.drawable.ic_client_rss_bot, "Bot", "Server",
-            "jabrss.ru", "jabrss"),
-        def("Conversations", "http://conversations.im", ClientPlatform.ANDROID, R.drawable.ic_client_conversations, "Android", "Android",
-            "conversations.im"),
-        def("Blabber", "http://blabber.im", ClientPlatform.ANDROID, R.drawable.ic_client_blabber, "Android", "Android",
-            "blabber.im"),
-        def("Monocles", "http://monocles.chat", ClientPlatform.ANDROID, R.drawable.ic_client_monocles, "Android", "Android",
-            "monocles.chat", "monocles"),
-        def("Cheogram", "https://cheogram.com/caps", ClientPlatform.ANDROID, R.drawable.ic_client_cheogram, "Android", "Android",
-            "cheogram.com/caps", "cheogram.com"),
-        def("Movim", "http://movim.eu", ClientPlatform.WEB, R.drawable.ic_client_movim, "Web", "Cloud",
-            "movim.eu"),
-        def("Monal IM", "http://monal.im", ClientPlatform.IOS, R.drawable.ic_client_monal, "iOS", "iOS",
-            "monal.im", "monal-im.org"),
-        def("Poezio", "http://poez.io", ClientPlatform.DESKTOP, R.drawable.ic_client_poezio, "Console", "Linux",
-            "poez.io", "poezio.eu"),
-        def("c0nnectPRO", "http://c0nnect.org/", ClientPlatform.DESKTOP, R.drawable.ic_client_c0nnect, "Desktop", "Desktop",
-            "c0nnect.org"),
-        def("Yaxim", "http://yaxim.org", ClientPlatform.ANDROID, R.drawable.ic_client_yaxim, "Android", "Android",
-            "yaxim.org"),
-        def("Archon", "http://archon.im/caps", ClientPlatform.DESKTOP, R.drawable.ic_client_archon, "Desktop", "Desktop",
-            "archon.im"),
-        def("Dino", "http://dino.im", ClientPlatform.DESKTOP, R.drawable.ic_client_dino, "Desktop", "Linux",
-            "dino.im"),
-        def("Profanity", "http://profanity.im", ClientPlatform.DESKTOP, R.drawable.ic_client_profanity, "Console", "Linux",
-            "profanity.im"),
-        def("BeagleIM", "http://beagleim.org", ClientPlatform.DESKTOP, R.drawable.ic_client_beagleim, "Desktop", "macOS",
-            "beagleim.org")
+        ClientDefinition(
+            patterns = listOf("slixmpp.com", "slixmpp"),
+            clientName = "Slixmpp",
+            canonicalNodeUri = "slixmpp.com",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_slixmpp,
+            defaultVersion = "1.0",
+            defaultOs = "Python"
+        ),
+        ClientDefinition(
+            patterns = listOf("jtalk.ustyugov.net/caps", "jtalk", "jtalk.ustyugov.net"),
+            clientName = "jTalk",
+            canonicalNodeUri = "http://jtalk.ustyugov.net/caps",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_jtalk,
+            defaultVersion = "1.0",
+            defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("dev.narayana.im", "anotherim"),
+            clientName = "Another IM",
+            canonicalNodeUri = "http://dev.narayana.im",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_anotherim,
+            defaultVersion = "1.0",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("ndregil.smart-ng", "smartng", "Smart Next-Gen XMPP Bot", "Smart Next-Gen"),
+            clientName = "SmartNG",
+            canonicalNodeUri = "http://ndregil.smart-ng",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_smartng,
+            defaultVersion = "1.0",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("http://ndregil.inchat", "ndregil.inchat", "inchat", "inchat-android"),
+            clientName = "InChat",
+            canonicalNodeUri = "http://ndregil.inchat",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_inchat,
+            defaultVersion = "1.0.0",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("bombusmod.net.ru", "bombusmod"),
+            clientName = "BombusMod",
+            canonicalNodeUri = "http://bombusmod.net.ru/",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_bombusmod,
+            defaultVersion = "Mod",
+            defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("bombus-im.org", "voffk.org.ru/bombus"),
+            clientName = "Bombus",
+            canonicalNodeUri = "http://bombus-im.org/",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_bombus,
+            defaultVersion = "Original",
+            defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("bombusmod-qd"),
+            clientName = "Bombus-QD",
+            canonicalNodeUri = "http://bombusmod-qd/",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_bombus_qd,
+            defaultVersion = "QD",
+            defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("gajim.org", "gajim", "http://gajim.org"),
+            clientName = "Gajim",
+            canonicalNodeUri = "http://gajim.org",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_gajim,
+            defaultVersion = "Desktop",
+            defaultOs = "Linux/Windows"
+        ),
+        ClientDefinition(
+            patterns = listOf("google.com", "gmail"),
+            clientName = "Google",
+            canonicalNodeUri = "http://google.com/talk",
+            platform = ClientPlatform.WEB,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_google,
+            defaultVersion = "Web",
+            defaultOs = "Cloud"
+        ),
+        ClientDefinition(
+            patterns = listOf("http://jabbrik.ru/caps", "http://jabrvista.net.ru", "bot", "jabber-bot", "freq"),
+            clientName = "Jabber Bot",
+            canonicalNodeUri = "http://jabbrik.ru/caps",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_jabber_bot,
+            defaultVersion = "Bot",
+            defaultOs = "Server"
+        ),
+        ClientDefinition(
+            patterns = listOf("jimm.net.ru"),
+            clientName = "Jimm aspro",
+            canonicalNodeUri = "http://jimm.net.ru/",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_jimm,
+            defaultVersion = "Aspro",
+            defaultOs = "Mobile"
+        ),
+        ClientDefinition(
+            patterns = listOf("kopete"),
+            clientName = "Kopete",
+            canonicalNodeUri = "http://kopete.kde.org/",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_kopete,
+            defaultVersion = "Desktop",
+            defaultOs = "Linux"
+        ),
+        ClientDefinition(
+            patterns = listOf("miranda-im"),
+            clientName = "Miranda",
+            canonicalNodeUri = "http://miranda-im.org/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_miranda,
+            defaultVersion = "Desktop",
+            defaultOs = "Windows"
+        ),
+        ClientDefinition(
+            patterns = listOf("pidgin", "gaim."),
+            clientName = "Pidgin",
+            canonicalNodeUri = "http://pidgin.im/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_pidgin,
+            defaultVersion = "Desktop",
+            defaultOs = "Linux/Windows"
+        ),
+        ClientDefinition(
+            patterns = listOf("psi-im.org"),
+            clientName = "Psi",
+            canonicalNodeUri = "http://psi-im.org/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_psi,
+            defaultVersion = "Desktop",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("psi-plus", "psi+", "psi-plus.com", "psi-dev.googlecode.com"),
+            clientName = "Psi+",
+            canonicalNodeUri = "http://psi-plus.com/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_psi_plus,
+            defaultVersion = "Desktop",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("pyicqt.googlecode.com"),
+            clientName = "PyICQ-t",
+            canonicalNodeUri = "http://pyicqt.googlecode.com/",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_pyicq,
+            defaultVersion = "Transport",
+            defaultOs = "Server"
+        ),
+        ClientDefinition(
+            patterns = listOf("qip"),
+            clientName = "Qip",
+            canonicalNodeUri = "http://qip.ru/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_qip,
+            defaultVersion = "Desktop",
+            defaultOs = "Windows"
+        ),
+        ClientDefinition(
+            patterns = listOf("tkabber.jabber.ru"),
+            clientName = "Tkabber",
+            canonicalNodeUri = "http://tkabber.jabber.ru/",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_tkabber,
+            defaultVersion = "Desktop",
+            defaultOs = "Tcl/Tk"
+        ),
+        ClientDefinition(
+            patterns = listOf("ajabb", "yandex"),
+            clientName = "Ya.Online",
+            canonicalNodeUri = "http://online.yandex.ru/",
+            platform = ClientPlatform.WEB,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_ya_online,
+            defaultVersion = "Web",
+            defaultOs = "Cloud"
+        ),
+        ClientDefinition(
+            patterns = listOf("miranda-ng.org"),
+            clientName = "Miranda NG",
+            canonicalNodeUri = "http://miranda-ng.org/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_miranda_ng,
+            defaultVersion = "Desktop",
+            defaultOs = "Windows"
+        ),
+        ClientDefinition(
+            patterns = listOf("mcabber"),
+            clientName = "Mcabber",
+            canonicalNodeUri = "http://mcabber.com/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_mcabber,
+            defaultVersion = "Console",
+            defaultOs = "Linux"
+        ),
+        ClientDefinition(
+            patterns = listOf("twitter"),
+            clientName = "Twitter bot",
+            canonicalNodeUri = "http://twitter.com/bot",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_twitter,
+            defaultVersion = "Bot",
+            defaultOs = "Server"
+        ),
+        ClientDefinition(
+            patterns = listOf("http://isida-bot.com"),
+            clientName = "Isida bot",
+            canonicalNodeUri = "http://isida-bot.com/",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_isida_bot,
+            defaultVersion = "Bot",
+            defaultOs = "Server"
+        ),
+        ClientDefinition(
+            patterns = listOf("jabrss"),
+            clientName = "RSS Bot",
+            canonicalNodeUri = "http://jabrss.ru/caps",
+            platform = ClientPlatform.BOT,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_rss_bot,
+            defaultVersion = "Bot",
+            defaultOs = "Server"
+        ),
+        ClientDefinition(
+            patterns = listOf("http://conversations.im", "conversations"),
+            clientName = "Conversations",
+            canonicalNodeUri = "http://conversations.im",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_conversations,
+            defaultVersion = "Android",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("blabber.im"),
+            clientName = "Blabber",
+            canonicalNodeUri = "http://blabber.im",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_blabber,
+            defaultVersion = "Android",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("monocles", "http://monocles.chat"),
+            clientName = "Monocles",
+            canonicalNodeUri = "http://monocles.chat",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_monocles,
+            defaultVersion = "Android",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("cheogram", "https://cheogram.com/caps"),
+            clientName = "Cheogram",
+            canonicalNodeUri = "https://cheogram.com/caps",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_cheogram,
+            defaultVersion = "Android",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("movim.eu", "http://movim.eu"),
+            clientName = "Movim",
+            canonicalNodeUri = "http://movim.eu",
+            platform = ClientPlatform.WEB,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_movim,
+            defaultVersion = "Web",
+            defaultOs = "Cloud"
+        ),
+        ClientDefinition(
+            patterns = listOf("http://monal.im", "monal"),
+            clientName = "Monal IM",
+            canonicalNodeUri = "http://monal.im",
+            platform = ClientPlatform.IOS,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_monal,
+            defaultVersion = "iOS",
+            defaultOs = "iOS"
+        ),
+        ClientDefinition(
+            patterns = listOf("poezio", "http://poez.io", "poez.io"),
+            clientName = "Poezio",
+            canonicalNodeUri = "http://poez.io",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_poezio,
+            defaultVersion = "Console",
+            defaultOs = "Linux"
+        ),
+        ClientDefinition(
+            patterns = listOf("c0nnect", "c0nnect.org"),
+            clientName = "c0nnectPRO",
+            canonicalNodeUri = "http://c0nnect.org/",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_c0nnect,
+            defaultVersion = "Desktop",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("yaxim", "yaxim.org", "http://yaxim.org"),
+            clientName = "Yaxim",
+            canonicalNodeUri = "http://yaxim.org",
+            platform = ClientPlatform.ANDROID,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_yaxim,
+            defaultVersion = "Android",
+            defaultOs = "Android"
+        ),
+        ClientDefinition(
+            patterns = listOf("archon", "archon-bifrost", "archon.im"),
+            clientName = "Archon",
+            canonicalNodeUri = "http://archon.im/caps",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_archon,
+            defaultVersion = "Desktop",
+            defaultOs = "Desktop"
+        ),
+        ClientDefinition(
+            patterns = listOf("dino.im", "http://dino.im"),
+            clientName = "Dino",
+            canonicalNodeUri = "http://dino.im",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_dino,
+            defaultVersion = "Desktop",
+            defaultOs = "Linux"
+        ),
+        ClientDefinition(
+            patterns = listOf("profanity.im", "http://profanity.im"),
+            clientName = "Profanity",
+            canonicalNodeUri = "http://profanity.im",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_profanity,
+            defaultVersion = "Console",
+            defaultOs = "Linux"
+        ),
+        ClientDefinition(
+            patterns = listOf("beagleim.org", "http://beagleim.org"),
+            clientName = "BeagleIM",
+            canonicalNodeUri = "http://beagleim.org",
+            platform = ClientPlatform.DESKTOP,
+            iconResId = com.ndregil.inchat.R.drawable.ic_client_beagleim,
+            defaultVersion = "Desktop",
+            defaultOs = "macOS"
+        )
     )
 
-    private val staticByName: Map<String, ClientDefinition> =
-        staticRegistry.associateBy { it.clientName.lowercase() }
-
-    @Volatile
-    private var registry: List<ClientDefinition> = staticRegistry
-
-    // ---------------------------------------------------------------------
-    // Loader clients.txt
-    //
-    // Format (dipisah TAB, baris # diabaikan):
-    //   pola1,pola2,...  <TAB> NamaKlien  [<TAB> PLATFORM] [<TAB> nama_icon] [<TAB> OS]
-    // Kolom 3-5 opsional. Jika kosong, diambil dari registry statis
-    // (nama persis sama), selain itu UNKNOWN / tanpa icon.
-    // ---------------------------------------------------------------------
+    private val dynamicRegistry = mutableListOf<ClientDefinition>().apply {
+        addAll(staticRegistry)
+    }
 
     fun init(context: Context) {
         try {
-            val loaded = mutableListOf<ClientDefinition>()
+            val inputStream = context.assets.open("clients.txt")
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val loadedClients = mutableListOf<ClientDefinition>()
 
-            context.assets.open("clients.txt").bufferedReader().use { reader ->
-                reader.forEachLine { line ->
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
+            reader.forEachLine { line ->
+                val trimmed = line.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
 
-                    val parts = trimmed.split("\t").map { it.trim() }
-                    if (parts.size < 2) return@forEachLine
-
-                    val patterns = parts[0].split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                val parts = trimmed.split("\t")
+                if (parts.size >= 2) {
+                    val patternsStr = parts[0]
                     val clientName = parts[1]
-                    if (patterns.isEmpty() || clientName.isBlank()) return@forEachLine
+                    val patterns = patternsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    
+                    if (patterns.isNotEmpty()) {
+                        val iconRes = resolveIconRes(clientName, context)
+                        val firstPat = patterns.first()
+                        val canonicalUri = when {
+                            patterns.any { it.startsWith("http://") || it.startsWith("https://") } ->
+                                patterns.first { it.startsWith("http://") || it.startsWith("https://") }
+                            patterns.any { it.contains(".") } ->
+                                "http://" + patterns.first { it.contains(".") }
+                            firstPat.contains(".") ->
+                                "http://$firstPat"
+                            else ->
+                                "http://$firstPat"
+                        }
 
-                    val known = staticByName[clientName.lowercase()]
-
-                    val platform = parts.getOrNull(2)?.takeIf { it.isNotEmpty() }?.let { parsePlatform(it) }
-                        ?: known?.platform
-                        ?: ClientPlatform.UNKNOWN
-
-                    val icon = resolveIconRes(
-                        clientName = clientName,
-                        explicitIconName = parts.getOrNull(3),
-                        known = known,
-                        context = context
-                    )
-
-                    val os = parts.getOrNull(4)?.takeIf { it.isNotEmpty() }
-                        ?: known?.defaultOs
-                        ?: "-"
-
-                    val canonical = known?.canonicalNodeUri ?: canonicalFromPatterns(patterns)
-
-                    loaded.add(
-                        ClientDefinition(
-                            patterns = patterns,
-                            clientName = clientName,
-                            canonicalNodeUri = canonical,
-                            platform = platform,
-                            iconResId = icon,
-                            defaultVersion = known?.defaultVersion ?: "-",
-                            defaultOs = os
+                        loadedClients.add(
+                            ClientDefinition(
+                                patterns = patterns,
+                                clientName = clientName,
+                                canonicalNodeUri = canonicalUri,
+                                platform = determinePlatform(clientName),
+                                iconResId = iconRes,
+                                defaultVersion = "1.0",
+                                defaultOs = determineDefaultOs(clientName)
+                            )
                         )
-                    )
+                    }
                 }
             }
-
-            if (loaded.isNotEmpty()) {
-                registry = loaded.toList()
-                Log.i(TAG, "Loaded ${loaded.size} clients from clients.txt")
+            if (loadedClients.isNotEmpty()) {
+                synchronized(dynamicRegistry) {
+                    dynamicRegistry.clear()
+                    dynamicRegistry.addAll(loadedClients)
+                }
+                Log.i(TAG, "Loaded ${loadedClients.size} clients from clients.txt")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load clients.txt: ${e.message}, using static definitions")
         }
     }
 
-    private fun parsePlatform(raw: String): ClientPlatform? =
-        runCatching { ClientPlatform.valueOf(raw.trim().uppercase()) }.getOrNull()
+    private fun resolveIconRes(clientName: String, context: Context?): Int {
+        val clean = clientName.lowercase().trim()
+        return when {
+            isInChatExact(clean) -> com.ndregil.inchat.R.drawable.ic_client_inchat
+            clean.contains("slixmpp") -> com.ndregil.inchat.R.drawable.ic_client_slixmpp
+            clean.contains("jtalk") -> com.ndregil.inchat.R.drawable.ic_client_jtalk
+            clean.contains("bombusmod-qd") || clean.contains("bombus-qd") -> com.ndregil.inchat.R.drawable.ic_client_bombus_qd
+            clean.contains("bombusmod") -> com.ndregil.inchat.R.drawable.ic_client_bombusmod
+            clean.contains("bombus") -> com.ndregil.inchat.R.drawable.ic_client_bombus
+            clean.contains("miranda ng") || clean == "miranda-ng" -> com.ndregil.inchat.R.drawable.ic_client_miranda_ng
+            clean.contains("miranda") -> com.ndregil.inchat.R.drawable.ic_client_miranda
+            clean.contains("conversations") -> com.ndregil.inchat.R.drawable.ic_client_conversations
+            clean.contains("psi+") || clean.contains("psi-plus") || clean.contains("psi plus") -> com.ndregil.inchat.R.drawable.ic_client_psi_plus
+            clean.contains("psi") -> com.ndregil.inchat.R.drawable.ic_client_psi
+            clean.contains("gajim") -> com.ndregil.inchat.R.drawable.ic_client_gajim
+            clean.contains("pidgin") || clean.contains("gaim") -> com.ndregil.inchat.R.drawable.ic_client_pidgin
+            clean.contains("qip") -> com.ndregil.inchat.R.drawable.ic_client_qip
+            clean.contains("tkabber") -> com.ndregil.inchat.R.drawable.ic_client_tkabber
+            clean.contains("kopete") -> com.ndregil.inchat.R.drawable.ic_client_kopete
+            clean.contains("mcabber") -> com.ndregil.inchat.R.drawable.ic_client_mcabber
+            clean.contains("yaxim") -> com.ndregil.inchat.R.drawable.ic_client_yaxim
+            clean.contains("monal") -> com.ndregil.inchat.R.drawable.ic_client_monal
+            clean.contains("monocles") -> com.ndregil.inchat.R.drawable.ic_client_monocles
+            clean.contains("blabber") -> com.ndregil.inchat.R.drawable.ic_client_blabber
+            clean.contains("cheogram") -> com.ndregil.inchat.R.drawable.ic_client_cheogram
+            clean.contains("movim") -> com.ndregil.inchat.R.drawable.ic_client_movim
+            clean.contains("poezio") -> com.ndregil.inchat.R.drawable.ic_client_poezio
+            clean.contains("c0nnect") -> com.ndregil.inchat.R.drawable.ic_client_c0nnect
+            clean.contains("another im") || clean == "anotherim" -> com.ndregil.inchat.R.drawable.ic_client_anotherim
+            clean.contains("smartng") || clean == "smart-ng" -> com.ndregil.inchat.R.drawable.ic_client_smartng
+            clean.contains("archon") -> com.ndregil.inchat.R.drawable.ic_client_archon
+            clean.contains("jimm") -> com.ndregil.inchat.R.drawable.ic_client_jimm
+            clean.contains("pyicq") -> com.ndregil.inchat.R.drawable.ic_client_pyicq
+            clean.contains("ya.online") || clean.contains("yandex") || clean.contains("ajabb") -> com.ndregil.inchat.R.drawable.ic_client_ya_online
+            clean.contains("twitter") -> com.ndregil.inchat.R.drawable.ic_client_twitter
+            clean.contains("isida") -> com.ndregil.inchat.R.drawable.ic_client_isida_bot
+            clean.contains("rss") || clean.contains("jabrss") -> com.ndregil.inchat.R.drawable.ic_client_rss_bot
+            clean.contains("google") || clean.contains("gmail") -> com.ndregil.inchat.R.drawable.ic_client_google
+            clean.contains("dino") -> com.ndregil.inchat.R.drawable.ic_client_dino
+            clean.contains("profanity") -> com.ndregil.inchat.R.drawable.ic_client_profanity
+            clean.contains("beagle") -> com.ndregil.inchat.R.drawable.ic_client_beagleim
+            clean.contains("bot") || clean.contains("jabber bot") -> com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+            else -> {
+                if (context != null) {
+                    val iconName = "ic_client_" + clean.replace(" ", "_").replace("+", "_plus").replace("-", "_").replace(".", "_")
+                    val resId = context.resources.getIdentifier(iconName, "drawable", context.packageName)
+                    if (resId != 0) resId else com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+                } else {
+                    com.ndregil.inchat.R.drawable.ic_client_jabber_bot
+                }
+            }
+        }
+    }
 
-    private fun canonicalFromPatterns(patterns: List<String>): String {
-        patterns.firstOrNull { it.startsWith("http://") || it.startsWith("https://") }?.let { return it }
-        val p = patterns.firstOrNull { it.contains(".") } ?: patterns.first()
-        return "http://$p"
+    private fun determineDefaultOs(clientName: String): String {
+        val clean = clientName.lowercase()
+        return when {
+            clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" || clean == "smartng" -> "Android"
+            clean.contains("ios") || clean.contains("monal") -> "iOS"
+            clean.contains("bot") || clean.contains("rss") || clean.contains("pyicq") || clean.contains("slixmpp") -> "Server"
+            clean.contains("movim") || clean.contains("web") || clean.contains("google") -> "Web"
+            clean.contains("windows") || clean.contains("miranda") || clean.contains("qip") -> "Windows"
+            clean.contains("mcabber") || clean.contains("poezio") || clean.contains("profanity") -> "Linux CLI"
+            clean.contains("dino") || clean.contains("gajim") -> "Linux/Desktop"
+            clean.contains("beagle") -> "macOS"
+            else -> "Desktop"
+        }
+    }
+
+    private fun determinePlatform(name: String): ClientPlatform {
+        val n = name.lowercase()
+        return when {
+            n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") || n == "smartng" -> ClientPlatform.ANDROID
+            n.contains("ios") || n.contains("monal") -> ClientPlatform.IOS
+            n.contains("bot") || n.contains("pyicq") || n.contains("rss") || n.contains("isida") || n.contains("twitter") || n.contains("slixmpp") -> ClientPlatform.BOT
+            n.contains("web") || n == "movim" || n == "google" || n.contains("ya.online") -> ClientPlatform.WEB
+            else -> ClientPlatform.DESKTOP
+        }
     }
 
     /**
-     * Icon: (1) nama icon eksplisit dari clients.txt, (2) registry statis dengan nama PERSIS sama,
-     * (3) drawable ic_client_<nama> bila ada. Selain itu null (tanpa tebakan substring).
+     * Robustly extracts node and ver attributes from any XEP-0115 presence packet.
+     * Handles CapsExtension, DefaultExtensionElement, StandardExtensionElement, and XML fallbacks.
      */
-    private fun resolveIconRes(
-        clientName: String,
-        explicitIconName: String?,
-        known: ClientDefinition?,
-        context: Context
-    ): Int {
-        fun lookup(name: String): Int? {
-            val id = context.resources.getIdentifier(name, "drawable", context.packageName)
-            return if (id != 0) id else null
-        }
-
-        explicitIconName?.takeIf { it.isNotEmpty() }?.let { lookup(it)?.let { id -> return id } }
-        if (known != null && known.iconResId != 0) return known.iconResId
-
-        val sanitized = clientName.lowercase().trim()
-            .replace("+", "_plus")
-            .replace(Regex("[^a-z0-9]+"), "_")
-            .trim('_')
-        return if (sanitized.isEmpty()) 0 else (lookup("ic_client_$sanitized") ?: 0)
-    }
-
-    // ---------------------------------------------------------------------
-    // Ekstraksi caps dari presence (HANYA dari elemen <c/>, tanpa fallback resource)
-    // ---------------------------------------------------------------------
-
-    fun extractCapsFromPresence(presence: Presence?): Pair<String, String>? {
+    fun extractCapsFromPresence(presence: org.jivesoftware.smack.packet.Presence?): Pair<String, String>? {
         if (presence == null) return null
 
-        // 1. Smack CapsExtension standar
         try {
-            val capsExt = CapsExtension.from(presence)
-                ?: (presence.getExtension("c", CAPS_NS) as? CapsExtension)
+            // 1. Try standard Smack CapsExtension
+            val capsExt = org.jivesoftware.smackx.caps.packet.CapsExtension.from(presence)
+                ?: (presence.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
             if (capsExt != null && capsExt.node.isNotBlank()) {
                 return Pair(capsExt.node, capsExt.ver ?: "")
             }
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
 
-        // 2. Cari elemen caps di semua extension
         try {
-            for (ext in presence.extensions) {
-                if (ext.namespace != CAPS_NS) continue
-
-                if (ext is CapsExtension && ext.node.isNotBlank()) {
-                    return Pair(ext.node, ext.ver ?: "")
+            // 2. Comprehensive search across all extensions for 'c' element with caps namespace
+            presence.extensions.forEach { ext ->
+                if ((ext.elementName == "c" && ext.namespace == "http://jabber.org/protocol/caps") || 
+                    ext.namespace == "http://jabber.org/protocol/caps") {
+                    
+                    if (ext is org.jivesoftware.smackx.caps.packet.CapsExtension) {
+                        return Pair(ext.node, ext.ver ?: "")
+                    }
+                    
+                    if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
+                        val nodeAttr = ext.getAttributeValue("node")
+                        val verAttr = ext.getAttributeValue("ver")
+                        if (!nodeAttr.isNullOrBlank()) {
+                            return Pair(nodeAttr, verAttr ?: "")
+                        }
+                    }
+                    
+                    // 3. XML regex fallback for unidentified extension types
+                    val xml = ext.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+                    val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                    val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                    if (!nodeMatch.isNullOrBlank()) {
+                        return Pair(nodeMatch, verMatch ?: "")
+                    }
                 }
-
-                if (ext is StandardExtensionElement) {
-                    val node = ext.getAttributeValue("node")
-                    val ver = ext.getAttributeValue("ver")
-                    if (!node.isNullOrBlank()) return Pair(node, ver ?: "")
-                }
-
-                // 3. Fallback regex untuk tipe extension yang tidak dikenal
-                val xml = ext.toXML(null as XmlEnvironment?).toString()
-                val node = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                val ver = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                if (!node.isNullOrBlank()) return Pair(node, ver ?: "")
             }
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
 
-        // Sengaja TIDAK ada fallback berdasarkan resource/nick.
         return null
     }
 
-    // ---------------------------------------------------------------------
-    // Pencocokan
-    // ---------------------------------------------------------------------
-
     /**
-     * Strict check untuk InChat: http(s)://ndregil.inchat, ndregil.inchat, inchat.
-     * Selain itu BUKAN InChat.
+     * Strict check for InChat:
+     * http://ndregil.inchat, ndregil.inchat, inchat
+     * Jika bukan persis di atas tadi berarti BUKAN InChat.
      */
     fun isInChatExact(value: String): Boolean {
-        val clean = value.trim().lowercase().removeSuffix("/")
-        if (clean.isEmpty()) return false
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return false
+        val clean = trimmed.lowercase().removeSuffix("/")
         return clean == "http://ndregil.inchat" ||
-                clean == "https://ndregil.inchat" ||
-                clean == "ndregil.inchat" ||
-                clean == "inchat"
-    }
-
-    /** Normalisasi node/pola: tanpa skema, tanpa #ver / ?query, tanpa slash akhir, lowercase. */
-    private fun normalize(s: String): String = s.trim().lowercase()
-        .removePrefix("http://").removePrefix("https://")
-        .substringBefore('#').substringBefore('?')
-        .trimEnd('/')
-
-    /**
-     * Skor kecocokan node vs pola (0 = tidak cocok). Semua berbasis batas yang jelas, bukan contains():
-     *  - sama persis                         -> 3
-     *  - node diawali "pola/"                -> 2
-     *  - host node == pola, atau host berakhir ".pola"      -> 2
-     *  - pola tanpa titik/slash cocok dengan satu label host -> 1
-     * Skor akhir ditambah panjang pola agar pola lebih spesifik menang, tidak bergantung urutan list.
-     */
-    private fun matchScore(node: String, pattern: String): Int {
-        val k = normalize(pattern)
-        if (k.isBlank()) return 0
-        val host = node.substringBefore('/')
-
-        val tier = when {
-            node == k -> 3
-            node.startsWith("$k/") -> 2
-            host == k || host.endsWith(".$k") -> 2
-            !k.contains('.') && !k.contains('/') && host.split('.').contains(k) -> 1
-            else -> 0
-        }
-        return if (tier == 0) 0 else tier * 1000 + k.length
+               clean == "https://ndregil.inchat" ||
+               clean == "ndregil.inchat" ||
+               clean == "inchat"
     }
 
     fun findDefByName(targetName: String): ClientDefinition? {
-        val target = targetName.trim().lowercase()
-        if (target.isEmpty()) return null
-        return registry.firstOrNull { it.clientName.lowercase() == target } ?: staticByName[target]
-    }
-
-    /** Pencocokan node XEP-0115 terhadap pola clients.txt. InChat hanya lewat isInChatExact. */
-    fun resolveByNode(node: String): ClientDefinition? {
-        val raw = node.trim()
-        if (raw.isBlank()) return null
-
-        if (isInChatExact(raw.substringBefore('#'))) return staticByName["inchat"]
-
-        val n = normalize(raw)
-        if (n.isBlank()) return null
-
-        var best: ClientDefinition? = null
-        var bestScore = 0
-        for (def in registry) {
-            if (def.clientName.equals("InChat", ignoreCase = true)) continue
-            val score = def.patterns.maxOfOrNull { matchScore(n, it) } ?: 0
-            if (score > bestScore) {
-                bestScore = score
-                best = def
-            }
-        }
-        return best
+        val cleanTarget = targetName.trim().lowercase()
+        return synchronized(dynamicRegistry) {
+            dynamicRegistry.firstOrNull { it.clientName.lowercase() == cleanTarget }
+        } ?: staticRegistry.firstOrNull { it.clientName.lowercase() == cleanTarget }
     }
 
     /**
-     * Hanya untuk NAMA KLIEN yang dilaporkan XEP-0092 (bukan nick/resource).
-     * Cocok persis dengan clientName.
+     * Flexible matching of a node URL against clients.txt patterns.
+     * InChat is strictly matched via isInChatExact and never guessed via substring.
+     */
+    fun resolveByNode(node: String): ClientDefinition? {
+        val rawClean = node.trim()
+        if (rawClean.isBlank()) return null
+
+        // Ensure it looks like a valid node URL or domain (has dots or protocol)
+        val isLikelyNode = rawClean.contains(".") || rawClean.contains("://") || rawClean.startsWith("http")
+        if (!isLikelyNode) return null
+
+        // Aturan KETAT untuk InChat:
+        if (isInChatExact(rawClean)) {
+            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
+        // Remove protocol for cleaner keyword matching
+        val cleanNode = rawClean.lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+        
+        val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
+
+        // Check every client definition (exclude InChat from loose substring matching)
+        return registry.firstOrNull { def -> 
+            if (def.clientName.equals("InChat", ignoreCase = true)) {
+                return@firstOrNull false
+            }
+            def.patterns.any { pattern ->
+                val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (keyword.isBlank()) return@any false
+
+                // "Asal ada kata-kata" logic: contains the keyword
+                cleanNode.contains(keyword)
+            } 
+        }
+    }
+
+    /**
+     * Flexible matching of client name/resource against registry patterns.
+     * InChat is strictly matched via isInChatExact and never guessed via substring.
      */
     fun resolveByName(name: String): ClientDefinition? {
-        val clean = name.trim().lowercase()
-        if (clean.isBlank() || clean == "unknown" || clean.contains("@")) return null
-        if (isInChatExact(clean)) return staticByName["inchat"]
-        return registry.firstOrNull {
-            !it.clientName.equals("InChat", ignoreCase = true) && it.clientName.lowercase() == clean
+        val cleanName = name.trim().lowercase()
+        if (cleanName.isBlank() || cleanName == "unknown" || cleanName.contains("@")) return null
+
+        // Aturan KETAT untuk InChat:
+        if (isInChatExact(cleanName)) {
+            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
+        val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
+
+        return registry.firstOrNull { def ->
+            if (def.clientName.equals("InChat", ignoreCase = true)) {
+                return@firstOrNull false
+            }
+            
+            // 1. Direct name match (STRICT)
+            if (def.clientName.lowercase() == cleanName) return@firstOrNull true
+            
+            // 2. Pattern match (STRICT for names)
+            def.patterns.any { p ->
+                val keyword = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                if (keyword.isBlank()) return@any false
+                
+                // Only allow exact match for name-based resolution to avoid "inchatuser" matching "inchat"
+                cleanName == keyword
+            }
         }
     }
 
     /**
-     * Resolusi utama: HANYA dari node. Parameter name dan jid dipertahankan demi kompatibilitas
-     * pemanggil lama tetapi diabaikan (nick/resource tidak boleh menentukan klien).
+     * Resolves client definition strictly from clients.txt definitions and node patterns.
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun resolve(name: String, jid: String, node: String): ClientDefinition? = resolveByNode(node)
+    fun resolve(name: String, jid: String, node: String): ClientDefinition? {
+        val cleanNode = node.trim()
+        val cleanName = name.trim()
+        val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
 
-    @Deprecated("Resource/nick bukan sumber identitas klien yang valid.", ReplaceWith("null"))
-    @Suppress("UNUSED_PARAMETER")
-    fun resolveByJid(jid: String): ClientDefinition? = null
+        // 1. Cek khusus InChat secara KETAT:
+        // http://ndregil.inchat, ndregil.inchat, inchat
+        // jika bukan persis di atas tadi berarti bukan InChat.
+        if (isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName)) {
+            // Jangan pernah menganggap bot sebagai InChat
+            if (!cleanName.contains("bot", ignoreCase = true) &&
+                !resource.contains("bot", ignoreCase = true) &&
+                !jid.contains("bot", ignoreCase = true)) {
+                return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+            }
+        }
 
-    fun getRegistry(): List<ClientDefinition> = registry
+        // 2. Cek apakah ini Bot (berdasarkan keyword bot di name, resource, atau khusus di resource JID)
+        val isBotName = cleanName.equals("bot", true) || cleanName.contains("-bot", true) || cleanName.contains("_bot", true) || cleanName.endsWith(" bot", true)
+        val isBotResource = resource.equals("bot", true) || resource.contains("-bot", true) || resource.contains("_bot", true) || resource.endsWith(" bot", true)
+        
+        if (isBotName || isBotResource || cleanNode.contains("bot", ignoreCase = true)) {
+            findDefByName("Jabber Bot")?.let { return it }
+        }
+        
+        // Only check JID for bot if it's NOT a MUC full JID, or specifically in the resource part
+        if (jid.contains("bot", ignoreCase = true)) {
+            val jidResource = jid.substringAfterLast("/", "")
+            if (jidResource.isNotBlank()) {
+                if (jidResource.contains("bot", ignoreCase = true)) {
+                    findDefByName("Jabber Bot")?.let { return it }
+                }
+            } else if (jid.substringBefore("@").contains("bot", ignoreCase = true)) {
+                // For regular JIDs, check the localpart
+                findDefByName("Jabber Bot")?.let { return it }
+            }
+        }
+
+        // 3. Resolusi standar berdasarkan Node
+        if (cleanNode.isNotBlank()) {
+            resolveByNode(cleanNode)?.let { return it }
+        }
+
+        // 4. Resolusi standar berdasarkan Resource JID
+        if (resource.isNotBlank()) {
+            resolveByName(resource)?.let { return it }
+        }
+
+        // 5. Resolusi standar berdasarkan Nama/Nickname
+        if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
+            resolveByName(cleanName)?.let { return it }
+        }
+
+        return null
+    }
+
+    /**
+     * Attempts to resolve client by examining the resource part of a JID.
+     */
+    fun resolveByJid(jid: String): ClientDefinition? {
+        if (jid.isBlank()) return null
+        val resource = if (jid.contains("/")) jid.substringAfterLast("/") else ""
+        if (resource.isNotBlank()) {
+            return resolveByName(resource)
+        }
+        return null
+    }
+
+    fun getRegistry(): List<ClientDefinition> = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 }
+
+

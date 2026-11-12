@@ -75,6 +75,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
     DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
     TRANSLATION("Penerjemah Pesan", "Terjemahkan otomatis pesan masuk di kontak & room", Icons.Default.Translate),
+    FONT("Pengaturan Font", "Ukuran font pesan, aplikasi & kontak", Icons.Default.TextFields),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
     MISC("Pengaturan Lainnya", "Konfigurasi tingkat lanjut, stanza stream debug", Icons.Default.Build),
@@ -108,6 +109,8 @@ fun SettingsScreen(
     onToggleAutoApproveSubscription: (Boolean) -> Unit,
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
     onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit = {},
+    themePreferences: com.ndregil.inchat.data.model.ThemePreferences = com.ndregil.inchat.data.model.ThemePreferences(),
+    onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -156,6 +159,8 @@ fun SettingsScreen(
                 onToggleAutoApproveSubscription = onToggleAutoApproveSubscription,
                 translationPreferences = translationPreferences,
                 onUpdateTranslationPreferences = onUpdateTranslationPreferences,
+                themePreferences = themePreferences,
+                onUpdateThemePreferences = onUpdateThemePreferences,
                 onSignOut = onSignOut,
                 onExitApp = onExitApp,
                 onBack = { selectedCategory = null },
@@ -226,7 +231,7 @@ fun MainSubSettingsMenu(
                     currentAccount = currentAccount,
                     connectionStatus = connectionStatus,
                     myAvatar = myAvatar,
-                    onManageAccountClick = onSwitchToAccountTab,
+                    onManageAccountClick = { onSelectCategory(SubSettingCategory.ACCOUNT) },
                     onUpdateAvatarClick = { avatarPicker.launch("image/*") }
                 )
             }
@@ -526,6 +531,8 @@ fun SubSettingDetailScreen(
     onToggleAutoApproveSubscription: (Boolean) -> Unit,
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
     onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit = {},
+    themePreferences: com.ndregil.inchat.data.model.ThemePreferences = com.ndregil.inchat.data.model.ThemePreferences(),
+    onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
     onBack: () -> Unit,
@@ -592,6 +599,10 @@ fun SubSettingDetailScreen(
                 SubSettingCategory.TRANSLATION -> TranslationSubSettings(
                     translationPreferences = translationPreferences,
                     onUpdateTranslationPreferences = onUpdateTranslationPreferences
+                )
+                SubSettingCategory.FONT -> FontSettings(
+                    themePreferences = themePreferences,
+                    onUpdateThemePreferences = onUpdateThemePreferences
                 )
                 SubSettingCategory.CONNECTION -> ConnectionSubSettings(
                     currentAccount = currentAccount,
@@ -709,9 +720,9 @@ fun AccountSubSettings(
                             onClick = onSwitchToAccountTab,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.SwitchAccount, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Ganti Akun")
+                            Text("Konfigurasi Server")
                         }
 
                         if (connectionStatus == ConnectionStatus.CONNECTED) {
@@ -2020,3 +2031,56 @@ fun TranslationSubSettings(
         )
     }
 }
+
+@Composable
+fun FontSettings(
+    themePreferences: com.ndregil.inchat.data.model.ThemePreferences,
+    onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text("Pengaturan Font", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Sesuaikan ukuran font untuk berbagai bagian aplikasi.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        item {
+            FontSizeSlider(
+                label = "Ukuran Font Pesan",
+                value = themePreferences.messageFontSizeSp,
+                onValueChange = { onUpdateThemePreferences(themePreferences.copy(messageFontSizeSp = it)) }
+            )
+        }
+        item {
+            FontSizeSlider(
+                label = "Ukuran Font Aplikasi",
+                value = themePreferences.appFontSizeSp,
+                onValueChange = { onUpdateThemePreferences(themePreferences.copy(appFontSizeSp = it)) }
+            )
+        }
+        item {
+            FontSizeSlider(
+                label = "Ukuran Font Kontak",
+                value = themePreferences.contactFontSizeSp,
+                onValueChange = { onUpdateThemePreferences(themePreferences.copy(contactFontSizeSp = it)) }
+            )
+        }
+    }
+}
+
+@Composable
+fun FontSizeSlider(label: String, value: Float, onValueChange: (Float) -> Unit) {
+    Column {
+        Text(text = "$label: ${value.toInt()}sp", fontWeight = FontWeight.SemiBold)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 10f..24f,
+            steps = 14
+        )
+    }
+}
+

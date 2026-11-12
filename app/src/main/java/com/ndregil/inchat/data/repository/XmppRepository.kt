@@ -45,6 +45,7 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -214,11 +215,18 @@ class XmppRepository(
             try {
                 smackConnectionManager.connectionStatus.collect { status ->
                     if (status == ConnectionStatus.CONNECTED) {
+                        Log.i("XmppRepository", "Connection established, setting up listeners and rejoining rooms.")
                         setupIncomingStanzaListener()
+                        
+                        // REJOIN logic: Join rooms that were previously joined or are marked for auto-join
+                        scope.launch {
+                            kotlinx.coroutines.delay(2000) // Give the connection a moment to stabilize
+                            autoJoinConfiguredRooms()
+                        }
                     }
                 }
             } catch (e: Exception) {
-                // Handled safely
+                Log.w("XmppRepository", "Error in connection status observer: ${e.message}")
             }
         }
 
@@ -298,11 +306,19 @@ class XmppRepository(
     }
 
     fun getMessagesForRoom(roomJid: String, maxCount: Int = 30): Flow<List<XmppMessage>> {
+        if (roomJid.isBlank()) return flowOf(emptyList())
+        val roomFlow = try {
+            database.messageDao().getRecentMessagesForRoom(roomJid, maxCount)
+        } catch (e: Throwable) {
+            Log.e("XmppRepository", "Error accessing messageDao for $roomJid", e)
+            flowOf(emptyList())
+        }
         return combine(
-            database.messageDao().getRecentMessagesForRoom(roomJid, maxCount),
+            roomFlow,
             smackAvatarManager.avatarUpdates.onStart { emit("") }
         ) { entities, _ ->
-            if (entities.isNotEmpty()) {
+            val list = entities ?: emptyList()
+            if (list.isNotEmpty()) {
                 scope.launch(Dispatchers.IO) {
                     try {
                         val prefs = translationPreferencesManager.translationPreferences.first()
@@ -311,7 +327,7 @@ class XmppRepository(
                                 if (isGroup) prefs.translateRooms else prefs.translateContacts
 
                         if (shouldTranslate) {
-                            val untranslated = entities.filter { entity ->
+                            val untranslated = list.filter { entity ->
                                 val translateThis = if (entity.isMine) prefs.translateOutgoing else true
                                 translateThis && entity.translatedBody.isNullOrBlank() && entity.body.isNotBlank() &&
                                         entity.messageType != MessageType.FILE && entity.messageType != MessageType.VOICE &&
@@ -331,7 +347,7 @@ class XmppRepository(
                 }
             }
 
-            entities.map { entity ->
+            list.map { entity ->
                 val model = entity.toModel()
                 val myJid = currentAccount.value.jid
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
@@ -1230,7 +1246,7 @@ class XmppRepository(
                 scope.launch {
                     try {
                         kotlinx.coroutines.delay(1500)
-                        syncMamHistory(roomJid)
+                        syncMamHistory(roomJid, limit = 100)
                     } catch (e: Exception) {
                         Log.w("XmppRepository", "MAM Sync failed for $roomJid: ${e.message}")
                     }
@@ -1345,7 +1361,7 @@ class XmppRepository(
         }
     }
 
-    suspend fun syncMamHistory(roomJid: String, limit: Int = 30) {
+    suspend fun syncMamHistory(roomJid: String, limit: Int = 100) {
         if (!smackConnectionManager.isConnected()) return
 
         // Deduplicate sync requests for the same room
@@ -1412,7 +1428,7 @@ class XmppRepository(
         mamSyncJobs[roomJid] = job
     }
 
-    suspend fun loadOlderMamHistory(roomJid: String, limit: Int = 50): Int {
+    suspend fun loadOlderMamHistory(roomJid: String, limit: Int = 100): Int {
         if (!smackConnectionManager.isConnected()) return 0
 
         val earliestTimestamp = database.messageDao().getEarliestMessageTimestamp(roomJid) ?: 0L

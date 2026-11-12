@@ -57,14 +57,22 @@ class TranslationService {
         }
 
         // 1. Try Google Dict Client Endpoint (Fast, autodetect source language)
+        // returns translated text and detected language
         val googleDictResult = translateGoogleDict(cleanText, targetLangCode)
         if (!googleDictResult.isNullOrBlank()) {
             return@withContext googleDictResult
         }
 
-        // 2. Fallback to MyMemory API with English or explicit source languages
+        // If Google Dict failed, it might be that source == target. 
+        // We cannot easily know source for MyMemory without detection,
+        // but let's avoid it if we know the target is already 'en'.
+        if (targetLangCode.equals("en", ignoreCase = true)) {
+            return@withContext null
+        }
+
+        // 2. Fallback to MyMemory API with English as assumed source
         val myMemoryResult = translateMyMemory(cleanText, targetLangCode, "en")
-        if (!myMemoryResult.isNullOrBlank()) {
+        if (!myMemoryResult.isNullOrBlank() && !myMemoryResult.contains("DISTINCT LANGUAGES", ignoreCase = true)) {
             return@withContext myMemoryResult
         }
 

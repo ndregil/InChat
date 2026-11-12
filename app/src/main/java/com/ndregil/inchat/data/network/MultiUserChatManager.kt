@@ -67,7 +67,7 @@ class MultiUserChatManager(
 ) {
     companion object {
         private const val TAG = "MultiUserChatManager"
-        private const val DEFAULT_HISTORY_STANZAS = 30
+        private const val DEFAULT_HISTORY_STANZAS = 100
     }
 
     // Active joined MUC instances mapped by Bare JID string
@@ -1444,16 +1444,25 @@ class MultiUserChatManager(
 
                 // Extract XEP-0115 Entity Capabilities directly from raw incoming presence
                 val extracted = ClientRegistryManager.extractCapsFromPresence(presence)
+                
+                // Also try to extract real JID from MUCUser extension for better caching
+                val mucUser = org.jivesoftware.smackx.muc.packet.MUCUser.from(presence)
+                val realJid = mucUser?.item?.jid?.toString() ?: fromJid.toString()
+
                 if (extracted != null) {
                     val (node, ver) = extracted
                     val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                         name = "",
-                        jid = fromJid.toString(),
+                        jid = realJid,
                         node = node,
                         ver = ver
                     )
                     if (caps.iconResId != null) {
-                        roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nick] = caps
+                        roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nick] = caps
+                        ClientRegistryManager.putCachedCaps(realJid, caps)
+                        if (realJid != fromJid.toString()) {
+                            ClientRegistryManager.putCachedCaps(fromJid.toString(), caps)
+                        }
                     }
                 }
 
@@ -1529,21 +1538,26 @@ class MultiUserChatManager(
         val occupants = _roomOccupants.value[roomJid]
         val occupant = occupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
         
+        // Try to get ver hash from current presence
+        val muc = activeMucs[roomJid]
+        val smackPresence = try { 
+            muc?.getOccupantPresence(org.jxmpp.jid.impl.JidCreate.entityFullFrom("$roomJid/$nickname")) 
+        } catch (e: Exception) { null }
+        val verHash = ClientRegistryManager.extractCapsFromPresence(smackPresence)?.second
+
         // 1. Try Room Nick cache first (most specific for this session)
         val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
         if (roomCached != null && roomCached.iconResId != null) return roomCached
 
-        // 2. Try global cache if we have a REAL JID or full JID
+        // 2. Try global cache if we have a REAL JID or ver hash
         val realJid = occupant?.jid?.takeIf { it.isNotBlank() }
-        if (!realJid.isNullOrBlank()) {
-            val global = ClientRegistryManager.getCachedCaps(realJid)
-            if (global != null) return global
-        }
+        val global = ClientRegistryManager.getCachedCaps(realJid ?: "", verHash)
+        if (global != null && global.iconResId != null) return global
         
         // 3. Try global cache using the full MUC JID
         val fullJid = occupant?.fullJid ?: "$roomJid/$nickname"
-        val globalFull = ClientRegistryManager.getCachedCaps(fullJid)
-        if (globalFull != null) return globalFull
+        val globalFull = ClientRegistryManager.getCachedCaps(fullJid, verHash)
+        if (globalFull != null && globalFull.iconResId != null) return globalFull
 
         // 4. Fallback to occupant property
         return occupant?.clientCaps
@@ -1563,7 +1577,7 @@ class MultiUserChatManager(
                     val caps = result.getOrNull()
                     if (caps != null && caps.iconResId != null) {
                         Log.i(TAG, "Successfully resolved version caps for $queryKey: ${caps.clientName} (icon=${caps.iconResId})")
-                        roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+                        roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
                         
                         // Populate global cache
                         val roomOccupants = _roomOccupants.value[roomJid]
@@ -1576,6 +1590,16 @@ class MultiUserChatManager(
                         }
                         // Always cache by full MUC JID too for this session's consistency
                         ClientRegistryManager.putCachedCaps(fullMUCJid, caps)
+                        
+                        // Also cache by ver hash if possible
+                        val muc = activeMucs[roomJid]
+                        val smackPresence = try { 
+                            muc?.getOccupantPresence(org.jxmpp.jid.impl.JidCreate.entityFullFrom(fullMUCJid)) 
+                        } catch (e: Exception) { null }
+                        val verHash = ClientRegistryManager.extractCapsFromPresence(smackPresence)?.second
+                        if (!verHash.isNullOrBlank()) {
+                            ClientRegistryManager.putCachedCaps("", caps.copy(ver = verHash))
+                        }
 
                         // Update current room occupants state flow so UI immediately displays client icon
                         val currentMap = _roomOccupants.value.toMutableMap()
@@ -1613,6 +1637,7 @@ class MultiUserChatManager(
             try {
                 val myNickname = roomNicknames[roomJid] ?: ""
                 val occupantsList = mutableListOf<RoomOccupant>()
+                val myJid = connectionManager.credentials.value.jid
 
                 for (occupantJid in muc.occupants) {
                     val occupant: Occupant? = muc.getOccupant(occupantJid)
@@ -1650,18 +1675,21 @@ class MultiUserChatManager(
                         UserPresence.DND -> "Jangan Ganggu"
                         UserPresence.OFFLINE -> "Offline"
                     }
-                    val myJid = connectionManager.credentials.value.jid
+                    val mucUser = smackPresence?.let { org.jivesoftware.smackx.muc.packet.MUCUser.from(it) }
                     val realJid = if (isMe && myJid.isNotBlank()) {
                         myJid
                     } else {
-                        occupant?.jid?.toString() ?: occupantJid.toString()
+                        mucUser?.item?.jid?.toString() ?: occupant?.jid?.toString() ?: occupantJid.toString()
                     }
 
-                    // Check cached caps first (Global JID cache -> Room Nick cache -> Presence extraction)
+                    val extractedCaps = ClientRegistryManager.extractCapsFromPresence(smackPresence)
+                    val verHash = extractedCaps?.second
+
+                    // Check cached caps first (Ver Hash -> Global Real JID cache -> Room Nick cache)
                     val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
-                    val globalCached = if (realJid.isNotBlank()) com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(realJid) else null
+                    val globalCached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(realJid, verHash)
                     
-                    val cachedCaps = if (globalCached != null) {
+                    val cachedCaps = if (globalCached != null && globalCached.iconResId != null) {
                         globalCached
                     } else if (roomCached != null && roomCached.iconResId != null) {
                         roomCached
@@ -1669,10 +1697,10 @@ class MultiUserChatManager(
                         null
                     }
 
-                    val extractedCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
+                    val extracted = if (cachedCaps != null && cachedCaps.iconResId != null) {
                         null
                     } else {
-                        ClientRegistryManager.extractCapsFromPresence(smackPresence)
+                        extractedCaps // Reuse the one extracted at line 1684
                     }
 
                     val occupantCaps: com.ndregil.inchat.data.model.ClientCaps = when {
@@ -1686,15 +1714,15 @@ class MultiUserChatManager(
                         cachedCaps != null && cachedCaps.iconResId != null -> {
                             cachedCaps
                         }
-                        extractedCaps != null -> {
+                        extracted != null -> {
                             val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                                 name = "",
                                 jid = realJid,
-                                node = extractedCaps.first,
-                                ver = extractedCaps.second
+                                node = extracted.first,
+                                ver = extracted.second
                             )
                             if (caps.iconResId != null) {
-                                roomOccupantCapsCache.getOrPut(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
+                                roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
                                 if (realJid.isNotBlank()) {
                                     ClientRegistryManager.putCachedCaps(realJid, caps)
                                 }

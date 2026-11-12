@@ -498,41 +498,86 @@ fun MessageBubble(
                                     if (message.body.contains("geo:") || message.body.contains("Berbagi Lokasi")) {
                                         LocationMessageBubbleContent(message = message, textColor = textColor)
                                     } else {
-                                        var showFullOriginal by remember(message.id, message.body) { mutableStateOf(false) }
+                                        var showOriginal by remember(message.id) { mutableStateOf(false) }
                                         val isTranslated = !message.translatedBody.isNullOrBlank()
-                                        val origText = message.translatedBody ?: ""
-                                        val origSnippet = if (origText.length > 15) origText.take(15).trimEnd() + " .. " else origText
 
                                         Column {
-                                            FormattedMessageText(
-                                                text = message.body,
-                                                myNickname = myNickname,
-                                                textColor = textColor,
-                                                accentColor = palette.accentColor,
-                                                onMentionClick = onMentionClick,
-                                                onQuoteClick = { onReplyClick(message) }
-                                            )
                                             if (isTranslated) {
-                                                Spacer(modifier = Modifier.height(2.dp))
+                                                val langName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(message.translationLanguage ?: "id")
+                                                
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(top = 1.dp)
+                                                    modifier = Modifier.padding(bottom = 4.dp)
                                                 ) {
-                                                    Text(
-                                                        text = if (showFullOriginal) origText else origSnippet,
-                                                        fontSize = 11.sp,
-                                                        fontStyle = FontStyle.Italic,
-                                                        color = textColor.copy(alpha = 0.75f)
+                                                    Icon(
+                                                        imageVector = Icons.Default.Translate,
+                                                        contentDescription = null,
+                                                        tint = palette.accentColor,
+                                                        modifier = Modifier.size(11.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
-                                                        text = if (showFullOriginal) "tutup pesan asli" else "lihat pesan asli",
+                                                        text = "Diterjemahkan ke $langName",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = palette.accentColor,
-                                                        modifier = Modifier.clickable { showFullOriginal = !showFullOriginal }
+                                                        color = palette.accentColor
                                                     )
                                                 }
+
+                                                FormattedMessageText(
+                                                    text = message.translatedBody!!,
+                                                    myNickname = myNickname,
+                                                    textColor = textColor,
+                                                    accentColor = palette.accentColor,
+                                                    onMentionClick = onMentionClick,
+                                                    onQuoteClick = { onReplyClick(message) }
+                                                )
+
+                                                if (showOriginal) {
+                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(textColor.copy(alpha = 0.08f))
+                                                            .padding(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "Pesan Asli:",
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.ExtraBold,
+                                                            color = textColor.copy(alpha = 0.5f),
+                                                            modifier = Modifier.padding(bottom = 2.dp)
+                                                        )
+                                                        FormattedMessageText(
+                                                            text = message.body,
+                                                            myNickname = myNickname,
+                                                            textColor = textColor.copy(alpha = 0.85f),
+                                                            accentColor = palette.accentColor,
+                                                            onMentionClick = onMentionClick,
+                                                            onQuoteClick = { onReplyClick(message) }
+                                                        )
+                                                    }
+                                                }
+
+                                                Text(
+                                                    text = if (showOriginal) "Tutup pesan asli" else "Pesan asli",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = palette.accentColor,
+                                                    modifier = Modifier
+                                                        .padding(top = 4.dp)
+                                                        .clickable { showOriginal = !showOriginal }
+                                                )
+                                            } else {
+                                                FormattedMessageText(
+                                                    text = message.body,
+                                                    myNickname = myNickname,
+                                                    textColor = textColor,
+                                                    accentColor = palette.accentColor,
+                                                    onMentionClick = onMentionClick,
+                                                    onQuoteClick = { onReplyClick(message) }
+                                                )
                                             }
                                         }
                                     }
@@ -541,64 +586,6 @@ fun MessageBubble(
                         }
                     }
 
-                    // Render Telegram-style Translation Card if translatedBody is present
-                    if (!message.translatedBody.isNullOrBlank()) {
-                        var showTranslationCard by remember(message.id, message.translatedBody) { mutableStateOf(true) }
-                        if (showTranslationCard) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp, bottom = 2.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(textColor.copy(alpha = 0.1f))
-                                    .border(
-                                        BorderStroke(0.8.dp, palette.accentColor.copy(alpha = 0.5f)),
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(7.dp)
-                            ) {
-                                Column {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Default.Translate,
-                                                contentDescription = "Terjemahan",
-                                                tint = palette.accentColor,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            val langName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(message.translationLanguage ?: "id")
-                                            Text(
-                                                text = "Diterjemahkan ke $langName",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = palette.accentColor
-                                            )
-                                        }
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Sembunyikan Terjemahan",
-                                            tint = textColor.copy(alpha = 0.6f),
-                                            modifier = Modifier
-                                                .size(13.dp)
-                                                .clickable { showTranslationCard = false }
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text(
-                                        text = message.translatedBody ?: "",
-                                        fontSize = 12.sp,
-                                        fontStyle = FontStyle.Italic,
-                                        color = textColor.copy(alpha = 0.95f)
-                                    )
-                                }
-                            }
-                        }
-                    }
 
                     Spacer(modifier = Modifier.height(6.dp))
 

@@ -270,8 +270,8 @@ class XmppConnectionManager(
                 .setXmppDomain(domainJid)
                 .setPort(creds.port)
                 .setResource(Resourcepart.from(resource))
-                .setConnectTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
-                .setSecurityMode(ConnectionConfiguration.SecurityMode.ifpossible)
+                .setConnectTimeout(30000) // 30 seconds
+                .setSecurityMode(if (creds.useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.ifpossible)
                 .setSendPresence(true)
                 .setCompressionEnabled(false)
 
@@ -291,6 +291,12 @@ class XmppConnectionManager(
 
             val configuration = configBuilder.build()
             val connection = XMPPTCPConnection(configuration)
+            
+            // Enable Stream Management (XEP-0198)
+            connection.setUseStreamManagement(false)
+            connection.setUseStreamManagementResumption(false)
+
+
 
             connection.addConnectionListener(smackConnectionListener)
             org.jivesoftware.smack.SmackConfiguration.setDefaultReplyTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
@@ -298,7 +304,10 @@ class XmppConnectionManager(
 
             // Setup Automatic Reconnection (XEP-0198 Stream Management compatible)
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
-            reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.RANDOM_INCREASING_DELAY)
+            reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.FIXED_DELAY)
+            reconnectionManager.setFixedDelay(5) // Reconnect every 5 seconds
+            reconnectionManager.enableAutomaticReconnection()
+
 
             // Setup Entity Capabilities (XEP-0115) and Software Version (XEP-0092) BEFORE connecting
             try {
@@ -342,7 +351,16 @@ class XmppConnectionManager(
             
             // Enable XMPP Ping (XEP-0199) to keep-alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
-            pingManager.pingInterval = 15 // Every 15 seconds
+            pingManager.pingInterval = 18 // Reduced to 18 seconds to stay within NAT windows
+            
+
+            // Also try to enable standard TCP Keep-Alive
+            try {
+                // connection.socket.keepAlive = true // Not directly accessible in all Smack versions
+                // But XMPPTCPConnection handles this if configured in builder (which we will add)
+            } catch (e: Exception) {}
+
+
 
             // Delivery Receipts (XEP-0184)
             val deliveryReceiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)

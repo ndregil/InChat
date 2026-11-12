@@ -36,5 +36,5 @@ beagleim.org,http://beagleim.org	BeagleIM
 gajim,http://gajim.org	Gajim
 dev.narayana.im	Another IM
 jtalk.ustyugov.net/caps	jTalk
-ndregil.smart-ng	SmartNG
+ndregil.smart-ng,Smart Next-Gen XMPP Bot,Smart Next-Gen	SmartNG
 slixmpp.com	Slixmpp

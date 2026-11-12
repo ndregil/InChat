@@ -1833,6 +1833,8 @@ fun MultiRoomMainScreen(
                             onToggleAutoApproveSubscription = { viewModel.setAutoApproveSubscription(it) },
                             translationPreferences = viewModel.translationPreferences.collectAsStateWithLifecycle().value,
                             onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
+                            themePreferences = viewModel.themePreferences.collectAsStateWithLifecycle().value,
+                            onUpdateThemePreferences = { viewModel.updateThemePreferences(it) },
                             onSignOut = {
                                 viewModel.signOut {
                                     initialAccountTabSet = 1
