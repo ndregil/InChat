@@ -31,6 +31,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Prevent sudden app crashes / unexpected exits
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("MainActivity", "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
+            try {
+                defaultHandler?.uncaughtException(thread, throwable)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error in default uncaught exception handler", e)
+            }
+        }
+
         // Initialize client registry and FCM push channels
         com.ndregil.inchat.data.network.ClientRegistryManager.init(this)
         FcmPushManager.init(this)

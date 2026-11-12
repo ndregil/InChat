@@ -206,10 +206,6 @@ class RosterManager(
                     contact
                 }
             }
-
-            if (userPresence != UserPresence.OFFLINE && contactCaps.iconResId == null && !fromJid.contains("bot", ignoreCase = true)) {
-                queryContactVersionIfNeeded(fullJid, fromJid)
-            }
         }
     }
 

@@ -1355,10 +1355,10 @@ fun VCardProfileDialog(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
+                        .size(130.dp)
+                        .clip(RoundedCornerShape(16.dp))
                         .background(senderColor.copy(alpha = 0.2f))
-                        .border(2.dp, senderColor, CircleShape)
+                        .border(1.5.dp, senderColor, RoundedCornerShape(16.dp))
                         .clickable { if (avatarData != null) showFullPhoto = true },
                     contentAlignment = Alignment.Center
                 ) {
@@ -1368,7 +1368,7 @@ fun VCardProfileDialog(
                             contentDescription = "Foto vCard ${message.senderNickname}",
                             modifier = Modifier
                                 .fillMaxSize()
-                                .clip(CircleShape),
+                                .clip(RoundedCornerShape(16.dp)),
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop
                         )
                     } else {
@@ -1424,8 +1424,8 @@ fun VCardProfileDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(280.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .height(360.dp)
+                        .clip(RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     coil.compose.AsyncImage(

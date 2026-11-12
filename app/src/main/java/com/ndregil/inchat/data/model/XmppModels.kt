@@ -481,7 +481,13 @@ data class ClientCaps(
 
             // 1. Try global cache first for stability
             val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(jid, ver)
-            if (cached != null && cached.iconResId != null) return cached
+            if (cached != null && cached.iconResId != null) {
+                return if (cleanName.isNotBlank() && cleanName != "unknown" && cleanName != cached.clientName) {
+                    cached.copy(clientName = cleanName)
+                } else {
+                    cached
+                }
+            }
 
             // Strictly resolve against clients.txt definitions
             var definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
@@ -494,9 +500,16 @@ data class ClientCaps(
                 definition = com.ndregil.inchat.data.network.ClientRegistryManager.findDefByName("Jabber Bot")
             }
 
-            val resolvedName = definition?.clientName ?: (if (cleanName.isNotBlank() && cleanName != "unknown") cleanName else "")
-            val resolvedVersion = cleanVersion.ifBlank { definition?.defaultVersion ?: "" }
-            val resolvedOs = cleanOs.ifBlank { definition?.defaultOs ?: "" }
+            // If cleanName is explicitly provided (occupant nick, contact name), preserve it.
+            // Otherwise use the recognized software name from the definition.
+            val resolvedName = if (cleanName.isNotBlank() && cleanName != "unknown") {
+                cleanName
+            } else {
+                definition?.clientName ?: ""
+            }
+
+            val resolvedVersion = cleanVersion
+            val resolvedOs = cleanOs
             val resolvedIcon = definition?.iconResId
             val resolvedPlatform = definition?.platform ?: ClientPlatform.UNKNOWN
 

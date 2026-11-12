@@ -489,7 +489,7 @@ fun OccupantItemRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Client Caps Badge (Clickable to view XEP-0115 info)
-                if (occupant.clientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
+                if (occupant.clientCaps.isIdentified() || occupant.clientCaps.clientName.isNotBlank() || occupant.clientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
                     ClientCapsBadge(
                         clientCaps = occupant.clientCaps,
                         onClick = onViewCaps,

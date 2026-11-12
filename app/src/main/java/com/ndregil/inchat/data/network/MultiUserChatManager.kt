@@ -1130,11 +1130,13 @@ class MultiUserChatManager(
                 val cachedCaps = getOccupantCaps(roomJid, msg.senderNickname)
                 val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                     cachedCaps
-                } else {
+                } else if (msg.senderClientCaps.iconResId != null) {
                     msg.senderClientCaps
-                }
-                if (finalCaps.iconResId == null && !msg.senderNickname.contains("bot", ignoreCase = true) && !msg.isMine) {
-                    queryOccupantVersionIfNeeded(roomJid, msg.senderNickname)
+                } else {
+                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = msg.senderNickname,
+                        jid = senderJid
+                    )
                 }
                 onMessageReceived(msg.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             }
@@ -1160,11 +1162,13 @@ class MultiUserChatManager(
                 val cachedCaps = getOccupantCaps(roomJid, xmppMessage.senderNickname)
                 val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                     cachedCaps
-                } else {
+                } else if (xmppMessage.senderClientCaps.iconResId != null) {
                     xmppMessage.senderClientCaps
-                }
-                if (finalCaps.iconResId == null && !xmppMessage.senderNickname.contains("bot", ignoreCase = true) && !xmppMessage.isMine) {
-                    queryOccupantVersionIfNeeded(roomJid, xmppMessage.senderNickname)
+                } else {
+                    com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = xmppMessage.senderNickname,
+                        jid = senderJid
+                    )
                 }
                 _incomingMessages.tryEmit(xmppMessage.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
             },
@@ -1564,63 +1568,11 @@ class MultiUserChatManager(
     }
 
     /**
-     * Queries software version on-demand for an occupant if not yet identified.
+     * Legacy hook decoupled from client capabilities.
+     * Software version querying (XEP-0092) is solely performed on-demand via user interaction.
      */
     fun queryOccupantVersionIfNeeded(roomJid: String, nickname: String) {
-        val queryKey = "$roomJid/$nickname"
-        if (!ClientRegistryManager.markAsQueried(queryKey)) return
-
-        scope.launch(Dispatchers.IO) {
-            try {
-                val result = connectionManager.querySoftwareVersion(queryKey)
-                if (result.isSuccess) {
-                    val caps = result.getOrNull()
-                    if (caps != null && caps.iconResId != null) {
-                        Log.i(TAG, "Successfully resolved version caps for $queryKey: ${caps.clientName} (icon=${caps.iconResId})")
-                        roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
-                        
-                        // Populate global cache
-                        val roomOccupants = _roomOccupants.value[roomJid]
-                        val occupant = roomOccupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
-                        val realBareJid = occupant?.jid?.takeIf { it.isNotBlank() }
-                        val fullMUCJid = occupant?.fullJid ?: "$roomJid/$nickname"
-                        
-                        if (!realBareJid.isNullOrBlank()) {
-                            ClientRegistryManager.putCachedCaps(realBareJid, caps)
-                        }
-                        // Always cache by full MUC JID too for this session's consistency
-                        ClientRegistryManager.putCachedCaps(fullMUCJid, caps)
-                        
-                        // Also cache by ver hash if possible
-                        val muc = activeMucs[roomJid]
-                        val smackPresence = try { 
-                            muc?.getOccupantPresence(org.jxmpp.jid.impl.JidCreate.entityFullFrom(fullMUCJid)) 
-                        } catch (e: Exception) { null }
-                        val verHash = ClientRegistryManager.extractCapsFromPresence(smackPresence)?.second
-                        if (!verHash.isNullOrBlank()) {
-                            ClientRegistryManager.putCachedCaps("", caps.copy(ver = verHash))
-                        }
-
-                        // Update current room occupants state flow so UI immediately displays client icon
-                        val currentMap = _roomOccupants.value.toMutableMap()
-                        val occupants = currentMap[roomJid]
-                        if (occupants != null) {
-                            val updated = occupants.map { occ ->
-                                if (occ.nickname.equals(nickname, ignoreCase = true)) {
-                                    occ.copy(clientCaps = caps)
-                                } else {
-                                    occ
-                                }
-                            }
-                            currentMap[roomJid] = updated
-                            _roomOccupants.value = currentMap
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Version query failed for $queryKey: ${e.message}")
-            }
-        }
+        // Strictly decoupled: XEP-0092 is on-demand only and never alters presence capabilities.
     }
 
     /**

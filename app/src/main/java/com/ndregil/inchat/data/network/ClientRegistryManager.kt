@@ -607,6 +607,18 @@ object ClientRegistryManager {
             }
         } catch (_: Exception) {}
 
+        // 4. Stanza XML check fallback if extensions list didn't include caps element
+        try {
+            val xml = presence.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+            if (xml.contains("http://jabber.org/protocol/caps")) {
+                val nodeMatch = Regex("""\bnode=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                val verMatch = Regex("""\bver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                if (!nodeMatch.isNullOrBlank()) {
+                    return Pair(nodeMatch, verMatch ?: "")
+                }
+            }
+        } catch (_: Exception) {}
+
         return null
     }
 

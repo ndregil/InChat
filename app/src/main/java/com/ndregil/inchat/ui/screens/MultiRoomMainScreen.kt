@@ -2004,10 +2004,10 @@ fun MultiRoomMainScreen(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(96.dp)
-                            .clip(CircleShape)
+                            .size(130.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.primaryContainer)
-                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
                             .clickable { if (avatarBytes != null) showFullPhoto = true },
                         contentAlignment = Alignment.Center
                     ) {
@@ -2015,14 +2015,14 @@ fun MultiRoomMainScreen(
                             coil.compose.AsyncImage(
                                 model = avatarBytes,
                                 contentDescription = "Foto Profil ${occupant.nickname}",
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
                         } else {
                             Text(
                                 text = occupant.nickname.take(1).uppercase(Locale.getDefault()),
                                 fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = MaterialTheme.typography.headlineLarge,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
@@ -2089,8 +2089,8 @@ fun MultiRoomMainScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(280.dp)
-                            .clip(RoundedCornerShape(12.dp)),
+                            .height(360.dp)
+                            .clip(RoundedCornerShape(16.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         coil.compose.AsyncImage(
@@ -2493,8 +2493,8 @@ fun RoomOccupantsCapsBar(
                                 maxLines = 1
                             )
 
-                            // Client icon only if strictly identified
-                            if (occupant.clientCaps.clientName.isNotBlank()) {
+                            // Client icon only if identified
+                            if (occupant.clientCaps.isIdentified() || occupant.clientCaps.clientName.isNotBlank() || occupant.clientCaps.platform != com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN) {
                                 ClientCapsIcon(
                                     platform = occupant.clientCaps.platform,
                                     clientCaps = occupant.clientCaps,

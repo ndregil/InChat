@@ -651,14 +651,22 @@ class XmppConnectionManager(
             
             if (version == null) return@withContext Result.failure(Exception("Tidak ada info versi dari user"))
             
-            val vName = version.name ?: "Unknown"
-            val isTargetInChat = vName.equals("InChat", ignoreCase = true)
-            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = vName,
-                jid = jid.toString(),
-                node = if (isTargetInChat) "http://ndregil.inchat" else "",
-                version = version.version ?: "1.0.0",
-                os = version.os ?: "Android"
+            val vName = version.name?.trim().takeIf { !it.isNullOrBlank() } ?: "Unknown"
+            val vVersion = version.version?.trim().takeIf { !it.isNullOrBlank() } ?: "Tidak diketahui"
+            val vOs = version.os?.trim().takeIf { !it.isNullOrBlank() } ?: "Tidak diketahui"
+
+            val definition = ClientRegistryManager.findDefByName(vName) ?: ClientRegistryManager.resolve(vName, jid.toString(), "")
+            val icon = definition?.iconResId
+            val platform = definition?.platform ?: com.ndregil.inchat.data.model.ClientPlatform.UNKNOWN
+
+            val caps = com.ndregil.inchat.data.model.ClientCaps(
+                clientName = vName,
+                version = vVersion,
+                os = vOs,
+                platform = platform,
+                nodeUri = definition?.canonicalNodeUri ?: "",
+                iconResId = icon,
+                rawNode = vName
             )
             Result.success(caps)
         } catch (e: Exception) {
