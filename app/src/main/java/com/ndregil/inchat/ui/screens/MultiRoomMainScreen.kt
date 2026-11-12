@@ -308,11 +308,11 @@ fun MultiRoomMainScreen(
         }
     }
 
-    // Auto scroll when user sends a message or when already near bottom
+    // Auto scroll when user sends a message or when already near bottom (only if user is NOT currently touch-scrolling)
     LaunchedEffect(messages.size, lastMsgId) {
-        if (messages.isNotEmpty()) {
+        if (messages.isNotEmpty() && !listState.isScrollInProgress) {
             val targetIndex = messages.size
-            val isNearBottom = listState.firstVisibleItemIndex >= (messages.size - 5).coerceAtLeast(0)
+            val isNearBottom = listState.firstVisibleItemIndex >= (messages.size - 4).coerceAtLeast(0)
             if (isLastMsgMine || isNearBottom) {
                 try {
                     listState.animateScrollToItem(targetIndex)
@@ -866,7 +866,11 @@ fun MultiRoomMainScreen(
                                                 if (idx >= 0) roomPagerState.animateScrollToPage(idx + 1)
                                             }
                                         },
-                                        onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true }
+                                        onAddRoomClick = {
+                                            coroutineScope.launch {
+                                                roomPagerState.animateScrollToPage(0)
+                                            }
+                                        }
                                     )
 
                                     // Room Occupancy and Capabilities Indicator
@@ -936,7 +940,7 @@ fun MultiRoomMainScreen(
                                                         }
                                                     }
                                                 }
-                                                items(messages, key = { msg -> "${msg.id}_${msg.timestamp}" }) { msg ->
+                                                items(messages, key = { msg -> msg.id }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
                                                         myNickname = room.myNickname ?: currentAccount.nickname,
@@ -1616,7 +1620,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 }
                                             }
-                                            items(messages, key = { msg -> "${msg.id}_${msg.timestamp}" }) { msg ->
+                                            items(messages, key = { msg -> msg.id }) { msg ->
                                                 MessageBubble(
                                                     message = msg,
                                                     myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
@@ -2684,8 +2688,8 @@ fun MultiRoomTabHeader(
                     .testTag("btn_quick_add_room")
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Tambah Ruangan",
+                    imageVector = Icons.Default.Forum,
+                    contentDescription = "Daftar Room Saat Ini",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(16.dp)
                 )
@@ -3520,12 +3524,12 @@ fun ScrollNavigationButtons(
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val showScrollToBottom by remember(totalMessagesCount) {
+    val showScrollToBottom by remember(listState, totalMessagesCount) {
         derivedStateOf {
             totalMessagesCount > 0 && listState.firstVisibleItemIndex < (totalMessagesCount - 3).coerceAtLeast(0)
         }
     }
-    val showScrollToTop by remember(totalMessagesCount) {
+    val showScrollToTop by remember(listState, totalMessagesCount) {
         derivedStateOf {
             totalMessagesCount > 0 && listState.firstVisibleItemIndex > 2
         }

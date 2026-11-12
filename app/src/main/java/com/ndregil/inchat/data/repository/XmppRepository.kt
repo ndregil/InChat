@@ -309,6 +309,8 @@ class XmppRepository(
         if (roomJid.isBlank()) return flowOf(emptyList())
         val roomFlow = try {
             database.messageDao().getRecentMessagesForRoom(roomJid, maxCount)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Log.e("XmppRepository", "Error accessing messageDao for $roomJid", e)
             flowOf(emptyList())
@@ -351,7 +353,9 @@ class XmppRepository(
                 val model = entity.toModel()
                 val myJid = currentAccount.value.jid
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
-                model.copy(senderAvatar = smackAvatarManager.getAvatar(avatarJid))
+                val avatar = smackAvatarManager.getAvatar(avatarJid)
+                    ?: if (model.senderNickname.isNotBlank()) smackAvatarManager.getAvatar(model.senderNickname) else null
+                model.copy(senderAvatar = avatar)
             }
         }.flowOn(Dispatchers.IO)
     }

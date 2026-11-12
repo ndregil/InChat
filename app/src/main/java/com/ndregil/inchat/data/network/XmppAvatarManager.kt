@@ -55,6 +55,12 @@ class XmppAvatarManager(
                 dbAvatars.forEach { entity ->
                     if (entity.avatarBytes.isNotEmpty()) {
                         avatarCache[entity.jid] = entity.avatarBytes
+                        if (entity.jid.contains("/")) {
+                            val nick = entity.jid.substringAfter("/").trim()
+                            if (nick.isNotEmpty()) {
+                                avatarCache[nick.lowercase()] = entity.avatarBytes
+                            }
+                        }
                     }
                 }
                 Log.i(TAG, "Preloaded ${dbAvatars.size} avatars from SQLite into memory cache.")
@@ -134,13 +140,24 @@ class XmppAvatarManager(
                 avatarCache[key] = bytes
                 noAvatarSet.remove(key)
                 
+                val nickname = if (fromJid.contains("/")) fromJid.substringAfter("/").trim() else ""
+                val nickKey = nickname.lowercase()
+                if (nickKey.isNotEmpty()) {
+                    avatarCache[nickKey] = bytes
+                    noAvatarSet.remove(nickKey)
+                }
+
                 // Save to database
                 scope.launch {
                     avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(key, bytes))
+                    if (nickKey.isNotEmpty()) {
+                        avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(nickKey, bytes))
+                    }
                 }
 
                 _avatarUpdates.emit(key)
                 _avatarUpdates.emit(fromJid)
+                if (nickKey.isNotEmpty()) _avatarUpdates.emit(nickKey)
                 Log.i(TAG, "Successfully fetched PEP avatar for $fromJid (size: ${bytes.size} bytes)")
             }
         } catch (e: Exception) {
@@ -325,6 +342,7 @@ class XmppAvatarManager(
 
     /**
      * Retrieves an avatar from cache, or triggers a fetch if not cached.
+     * Searches by full JID key, bare JID key, and nickname fallback.
      * @return The cached avatar bytes, or null if not yet available.
      */
     fun getAvatar(jid: String): ByteArray? {
@@ -334,6 +352,27 @@ class XmppAvatarManager(
         
         val memoryCached = avatarCache[key]
         if (memoryCached != null) return memoryCached
+
+        // Fallback search by nickname / resourcepart across rooms
+        val nickname = if (jid.contains("/")) jid.substringAfter("/").trim() else jid.trim()
+        if (nickname.isNotEmpty()) {
+            val nickKey = nickname.lowercase()
+            val nickCached = avatarCache[nickKey]
+            if (nickCached != null) {
+                avatarCache[key] = nickCached
+                return nickCached
+            }
+            // Search cache keys ending in /$nickKey or matching nickKey
+            val entry = avatarCache.entries.firstOrNull { 
+                it.key.endsWith("/$nickKey", ignoreCase = true) || it.key.equals(nickKey, ignoreCase = true)
+            }
+            if (entry != null) {
+                val bytes = entry.value
+                avatarCache[key] = bytes
+                avatarCache[nickKey] = bytes
+                return bytes
+            }
+        }
 
         if (!noAvatarSet.contains(key)) {
             // Check database and trigger network fetch if missing
@@ -351,12 +390,19 @@ class XmppAvatarManager(
 
         scope.launch {
             try {
+                val nickname = if (jid.contains("/")) jid.substringAfter("/").trim() else jid.trim()
+                val nickKey = nickname.lowercase()
+
                 // 1. Check database first
-                val dbAvatar = avatarDao.getAvatarByJid(cacheKey)
+                val dbAvatar = avatarDao.getAvatarByJid(cacheKey) 
+                    ?: if (nickKey.isNotEmpty()) avatarDao.getAvatarByJid(nickKey) else null
+
                 if (dbAvatar != null) {
                     avatarCache[cacheKey] = dbAvatar.avatarBytes
+                    if (nickKey.isNotEmpty()) avatarCache[nickKey] = dbAvatar.avatarBytes
                     _avatarUpdates.emit(cacheKey)
                     _avatarUpdates.emit(jid)
+                    if (nickKey.isNotEmpty()) _avatarUpdates.emit(nickKey)
                     return@launch
                 }
 
@@ -366,8 +412,13 @@ class XmppAvatarManager(
                     if (avatar != null) {
                         avatarCache[cacheKey] = avatar
                         avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(cacheKey, avatar))
+                        if (nickKey.isNotEmpty()) {
+                            avatarCache[nickKey] = avatar
+                            avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(nickKey, avatar))
+                        }
                         _avatarUpdates.emit(cacheKey)
                         _avatarUpdates.emit(jid)
+                        if (nickKey.isNotEmpty()) _avatarUpdates.emit(nickKey)
                     } else {
                         noAvatarSet.add(cacheKey)
                     }

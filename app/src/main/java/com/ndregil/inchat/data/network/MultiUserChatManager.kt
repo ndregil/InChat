@@ -1126,7 +1126,7 @@ class MultiUserChatManager(
             myNicknameProvider = { roomNicknames[roomJid] ?: "" },
             onMessageProcessed = { msg ->
                 val senderJid = msg.senderJid
-                val avatar = avatarManager.getAvatar(senderJid)
+                val avatar = avatarManager.getAvatar(senderJid) ?: avatarManager.getAvatar(msg.senderNickname)
                 val cachedCaps = getOccupantCaps(roomJid, msg.senderNickname)
                 val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                     cachedCaps
@@ -1156,7 +1156,7 @@ class MultiUserChatManager(
             myNicknameProvider = { roomNicknames[roomJid] ?: myNickname },
             onMessageProcessed = { xmppMessage ->
                 val senderJid = xmppMessage.senderJid
-                val avatar = avatarManager.getAvatar(senderJid)
+                val avatar = avatarManager.getAvatar(senderJid) ?: avatarManager.getAvatar(xmppMessage.senderNickname)
                 val cachedCaps = getOccupantCaps(roomJid, xmppMessage.senderNickname)
                 val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                     cachedCaps
@@ -1742,6 +1742,8 @@ class MultiUserChatManager(
                     // Memory cache check is fast, DB/Network fetch is async in Manager
                     val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)
                         ?: (if (isMe && myJid.isNotBlank()) avatarManager.getAvatar(myJid) else null)
+                        ?: avatarManager.getAvatar(occupantJid.toString())
+                        ?: avatarManager.getAvatar(nickname)
 
                     occupantsList.add(
                         RoomOccupant(

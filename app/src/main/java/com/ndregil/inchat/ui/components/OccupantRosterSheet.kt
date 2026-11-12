@@ -142,27 +142,23 @@ fun OccupantRosterSheet(
         }
     }
 
-    ModalBottomSheet(
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxHeight(0.95f),
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 12.dp)
-                    .width(40.dp)
-                    .height(4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-            )
-        }
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Column(
+        Surface(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.88f)
+                .clip(RoundedCornerShape(24.dp)),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -290,6 +286,7 @@ fun OccupantRosterSheet(
                         onOccupantClick = { selectedActionOccupant = occupant }
                     )
                 }
+            }
             }
         }
     }

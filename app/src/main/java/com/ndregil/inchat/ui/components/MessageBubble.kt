@@ -507,68 +507,61 @@ fun MessageBubble(
                                                 
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(bottom = 4.dp)
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(bottom = 6.dp)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Translate,
-                                                        contentDescription = null,
-                                                        tint = palette.accentColor,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "Diterjemahkan ke $langName",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = palette.accentColor
-                                                    )
-                                                }
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Translate,
+                                                            contentDescription = null,
+                                                            tint = palette.accentColor,
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text(
+                                                            text = "Diterjemahkan ke $langName",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = palette.accentColor
+                                                        )
+                                                    }
 
-                                                FormattedMessageText(
-                                                    text = message.translatedBody!!,
-                                                    myNickname = myNickname,
-                                                    textColor = textColor,
-                                                    accentColor = palette.accentColor,
-                                                    onMentionClick = onMentionClick,
-                                                    onQuoteClick = { onReplyClick(message) }
-                                                )
-
-                                                if (showOriginal) {
-                                                    Spacer(modifier = Modifier.height(6.dp))
-                                                    Column(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clip(RoundedCornerShape(6.dp))
-                                                            .background(textColor.copy(alpha = 0.08f))
-                                                            .padding(6.dp)
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = palette.accentColor.copy(alpha = 0.15f),
+                                                        modifier = Modifier.clickable { showOriginal = !showOriginal }
                                                     ) {
                                                         Text(
-                                                            text = "Pesan Asli:",
-                                                            fontSize = 9.sp,
-                                                            fontWeight = FontWeight.ExtraBold,
-                                                            color = textColor.copy(alpha = 0.5f),
-                                                            modifier = Modifier.padding(bottom = 2.dp)
-                                                        )
-                                                        FormattedMessageText(
-                                                            text = message.body,
-                                                            myNickname = myNickname,
-                                                            textColor = textColor.copy(alpha = 0.85f),
-                                                            accentColor = palette.accentColor,
-                                                            onMentionClick = onMentionClick,
-                                                            onQuoteClick = { onReplyClick(message) }
+                                                            text = if (showOriginal) "Tampilkan terjemahan" else "Lihat pesan asli",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = palette.accentColor,
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                         )
                                                     }
                                                 }
 
-                                                Text(
-                                                    text = if (showOriginal) "Tutup pesan asli" else "Pesan asli",
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = palette.accentColor,
-                                                    modifier = Modifier
-                                                        .padding(top = 4.dp)
-                                                        .clickable { showOriginal = !showOriginal }
-                                                )
+                                                if (showOriginal) {
+                                                    FormattedMessageText(
+                                                        text = message.body,
+                                                        myNickname = myNickname,
+                                                        textColor = textColor,
+                                                        accentColor = palette.accentColor,
+                                                        onMentionClick = onMentionClick,
+                                                        onQuoteClick = { onReplyClick(message) }
+                                                    )
+                                                } else {
+                                                    FormattedMessageText(
+                                                        text = message.translatedBody!!,
+                                                        myNickname = myNickname,
+                                                        textColor = textColor,
+                                                        accentColor = palette.accentColor,
+                                                        onMentionClick = onMentionClick,
+                                                        onQuoteClick = { onReplyClick(message) }
+                                                    )
+                                                }
                                             } else {
                                                 FormattedMessageText(
                                                     text = message.body,

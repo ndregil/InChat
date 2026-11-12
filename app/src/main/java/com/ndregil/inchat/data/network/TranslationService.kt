@@ -48,11 +48,61 @@ class TranslationService {
         fun getLanguageName(code: String): String {
             return SUPPORTED_LANGUAGES.find { it.code.equals(code, ignoreCase = true) }?.displayName ?: code.uppercase()
         }
+
+        fun isCodeMessage(text: String): Boolean {
+            val clean = text.trim()
+            if (clean.isEmpty()) return false
+
+            // Markdown code blocks or inline code
+            if (clean.contains("```")) return true
+
+            // Language headers
+            val lower = clean.lowercase()
+            val codeKeywords = listOf(
+                "python", "javascript", "js", "css", "html", "sql", "java", "kotlin", "cpp", "c++",
+                "php", "json", "xml", "typescript", "ts", "swift", "rust", "go", "bash", "shell"
+            )
+            for (kw in codeKeywords) {
+                if (lower.startsWith("$kw\n") || lower.startsWith("```$kw")) {
+                    return true
+                }
+            }
+
+            // Programming signatures
+            val codeSignatures = listOf(
+                "import ", "package ", "class ", "def ", "function ", "const ", "let ", "var ",
+                "public static void", "fun ", "val ", "var ", "<?php", "#include ", "using namespace ",
+                "console.log", "print(", "println(", "System.out.println", "printf(",
+                "document.getElementById", "addEventListener", "npm install", "pip install",
+                "select ", "insert into", "delete from", "body {", "html {",
+                "export default", "module.exports", "require(", "async function", "try {", "catch ("
+            )
+
+            var matchCount = 0
+            for (sig in codeSignatures) {
+                if (lower.contains(sig)) {
+                    matchCount++
+                    if (matchCount >= 1 && (clean.lines().size > 1 || clean.contains("{") || clean.contains(";") || clean.contains("=>") || clean.contains("def ") || clean.contains("->"))) {
+                        return true
+                    }
+                }
+            }
+
+            // High density of syntax symbols
+            if (clean.lines().size >= 2) {
+                val symbolCount = clean.count { it in setOf('{', '}', ';', '<', '>', '=', '(', ')', '[', ']', '$', '#', '&', '|', '!') }
+                if (symbolCount.toFloat() / clean.length > 0.12f) {
+                    return true
+                }
+            }
+
+            return false
+        }
     }
 
     suspend fun translateText(text: String, targetLangCode: String = getDefaultSystemLanguageCode()): String? = withContext(Dispatchers.IO) {
         val cleanText = text.trim()
-        if (cleanText.isEmpty() || cleanText.startsWith("http://") || cleanText.startsWith("https://") || cleanText.startsWith("geo:")) {
+        if (cleanText.isEmpty() || cleanText.startsWith("http://") || cleanText.startsWith("https://") || cleanText.startsWith("geo:") || isCodeMessage(cleanText)) {
             return@withContext null
         }
 
@@ -72,7 +122,10 @@ class TranslationService {
 
         // 2. Fallback to MyMemory API with English as assumed source
         val myMemoryResult = translateMyMemory(cleanText, targetLangCode, "en")
-        if (!myMemoryResult.isNullOrBlank() && !myMemoryResult.contains("DISTINCT LANGUAGES", ignoreCase = true)) {
+        if (!myMemoryResult.isNullOrBlank() && 
+            !myMemoryResult.contains("DISTINCT LANGUAGES", ignoreCase = true) &&
+            !myMemoryResult.contains("PLEASE SELECT", ignoreCase = true)
+        ) {
             return@withContext myMemoryResult
         }
 
@@ -112,7 +165,11 @@ class TranslationService {
                     return null
                 }
 
-                if (!translated.isNullOrBlank() && !translated.equals(text, ignoreCase = true)) {
+                if (!translated.isNullOrBlank() && 
+                    !translated.equals(text, ignoreCase = true) &&
+                    !translated.contains("DISTINCT LANGUAGES", ignoreCase = true) &&
+                    !translated.contains("PLEASE SELECT", ignoreCase = true)
+                ) {
                     translated
                 } else null
             }
@@ -139,8 +196,10 @@ class TranslationService {
                 val translatedText = responseData.optString("translatedText", "")
                 if (translatedText.isNotBlank() &&
                     !translatedText.equals(text, ignoreCase = true) &&
-                    !translatedText.contains("MYMEMORY WARNING") &&
-                    !translatedText.contains("INVALID SOURCE LANGUAGE")
+                    !translatedText.contains("MYMEMORY WARNING", ignoreCase = true) &&
+                    !translatedText.contains("INVALID SOURCE", ignoreCase = true) &&
+                    !translatedText.contains("DISTINCT LANGUAGES", ignoreCase = true) &&
+                    !translatedText.contains("PLEASE SELECT", ignoreCase = true)
                 ) {
                     translatedText
                 } else null

@@ -275,6 +275,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     Log.e("XmppViewModel", "repository.getMessagesForRoom returned null flow for ${room.jid}")
                     emit(emptyList())
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Throwable) {
                 Log.e("XmppViewModel", "Error getting messages flow for ${room.jid}", e)
                 emit(emptyList())
