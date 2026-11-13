@@ -87,107 +87,13 @@ object ClientRegistryManager {
     }
 
     fun getCachedCaps(jid: String, ver: String? = null): com.ndregil.inchat.data.model.ClientCaps? {
-        // 1. Try memory cache first
-        if (jid.isNotBlank()) {
-            val exactCaps = globalCapsCache[jid]
-            if (exactCaps != null && exactCaps.iconResId != null) return exactCaps
-
-            val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
-            if (bare.isNotBlank() && bare.contains("@")) {
-                val bareCaps = globalCapsCache[bare]
-                if (bareCaps != null && bareCaps.iconResId != null) return bareCaps
-            }
-        }
-
-        // 2. Try Room database persistence if not in memory cache
-        val ctx = appContext
-        if (ctx != null && jid.isNotBlank()) {
-            try {
-                val db = com.ndregil.inchat.data.local.AppDatabase.getDatabase(ctx)
-                val entity = runBlocking(Dispatchers.IO) {
-                    val exact = db.clientCapabilityDao().getCapability(jid)
-                    if (exact != null) return@runBlocking exact
-                    val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
-                    if (bare.isNotBlank()) {
-                        db.clientCapabilityDao().getCapability(bare)
-                    } else null
-                }
-                if (entity != null && entity.iconResId != null) {
-                    val caps = com.ndregil.inchat.data.model.ClientCaps(
-                        clientName = entity.clientName,
-                        version = entity.version,
-                        os = entity.os,
-                        platform = entity.platform,
-                        nodeUri = entity.nodeUri,
-                        hash = entity.hash,
-                        ver = entity.ver,
-                        iconResId = entity.iconResId,
-                        rawNode = entity.rawNode
-                    )
-                    globalCapsCache[jid] = caps
-                    return caps
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Error querying DB for capabilities: ${e.message}")
-            }
-        }
-
-        // 3. Try ver hash cache
-        if (!ver.isNullOrBlank() && ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
-            val verCaps = verCapsCache[ver]
-            if (verCaps != null && verCaps.iconResId != null) return verCaps
-        }
-
+        // Caching disabled to prevent stale/incorrect icon attribution across rooms and sessions.
+        // Client capabilities are resolved dynamically on demand from presence/node.
         return null
     }
 
     fun putCachedCaps(jid: String, caps: com.ndregil.inchat.data.model.ClientCaps) {
-        if (caps.iconResId == null) return
-        
-        if (caps.ver.isNotBlank() && caps.ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
-            verCapsCache[caps.ver] = caps
-        }
-
-        if (jid.isBlank()) return
-        globalCapsCache[jid] = caps
-
-        val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
-        if (bare.isNotBlank() && bare.contains("@")) {
-            val domain = bare.substringAfter("@", "")
-            val isLikelyMuc = domain.contains("conference", true) || domain.contains("muc.", true) || domain.contains("chat.", true)
-            if (!isLikelyMuc || !jid.contains("anonymous", true)) {
-                globalCapsCache[bare] = caps
-            }
-        }
-
-        // Persist to Room database asynchronously
-        val ctx = appContext
-        if (ctx != null) {
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val db = com.ndregil.inchat.data.local.AppDatabase.getDatabase(ctx)
-                    val entity = com.ndregil.inchat.data.local.entity.ClientCapabilityEntity(
-                        jid = jid,
-                        clientName = caps.clientName,
-                        version = caps.version,
-                        os = caps.os,
-                        platform = caps.platform,
-                        nodeUri = caps.nodeUri,
-                        hash = caps.hash,
-                        ver = caps.ver,
-                        iconResId = caps.iconResId,
-                        rawNode = caps.rawNode
-                    )
-                    db.clientCapabilityDao().insertCapability(entity)
-                    if (bare.isNotBlank() && bare != jid) {
-                        val bareEntity = entity.copy(jid = bare)
-                        db.clientCapabilityDao().insertCapability(bareEntity)
-                    }
-                } catch (e: Exception) {
-                    Log.d(TAG, "Error persisting capability to DB: ${e.message}")
-                }
-            }
-        }
+        // Caching disabled to ensure real-time accuracy directly from clients.txt / presence.
     }
 
     fun markAsQueried(key: String): Boolean = queriedVersions.add(key)
