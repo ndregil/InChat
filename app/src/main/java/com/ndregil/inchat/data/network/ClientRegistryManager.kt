@@ -5,12 +5,16 @@ import android.util.Log
 import com.ndregil.inchat.data.model.ClientCaps
 import com.ndregil.inchat.data.model.ClientDefinition
 import com.ndregil.inchat.data.model.ClientPlatform
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
 /**
- * Manager to load and handle client identification exclusively from clients.txt.
- * Adheres strictly to clients.txt patterns and node URIs without guessing client from server domains.
+ * Manager to load and handle client identification exclusively from clients.txt
+ * and persist client capabilities to Room database.
  */
 object ClientRegistryManager {
     private const val TAG = "ClientRegistryManager"
@@ -21,46 +25,167 @@ object ClientRegistryManager {
     private val verCapsCache = java.util.concurrent.ConcurrentHashMap<String, com.ndregil.inchat.data.model.ClientCaps>()
     private val queriedVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    @Volatile
+    private var appContext: Context? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+
+        try {
+            val inputStream = context.assets.open("clients.txt")
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val loadedClients = mutableListOf<ClientDefinition>()
+
+            reader.forEachLine { line ->
+                val trimmed = line.trim()
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
+
+                val parts = trimmed.split("\t")
+                if (parts.size >= 2) {
+                    val patternsStr = parts[0]
+                    val clientName = parts[1]
+                    val patterns = patternsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    
+                    if (patterns.isNotEmpty()) {
+                        val iconRes = resolveIconRes(clientName, context)
+                        val firstPat = patterns.first()
+                        val canonicalUri = when {
+                            patterns.any { it.startsWith("http://") || it.startsWith("https://") } ->
+                                patterns.first { it.startsWith("http://") || it.startsWith("https://") }
+                            patterns.any { it.contains(".") } ->
+                                "http://" + patterns.first { it.contains(".") }
+                            firstPat.contains(".") ->
+                                "http://$firstPat"
+                            else ->
+                                "http://$firstPat"
+                        }
+
+                        loadedClients.add(
+                            ClientDefinition(
+                                patterns = patterns,
+                                clientName = clientName,
+                                canonicalNodeUri = canonicalUri,
+                                platform = determinePlatform(clientName),
+                                iconResId = iconRes,
+                                defaultVersion = "1.0",
+                                defaultOs = determineDefaultOs(clientName)
+                            )
+                        )
+                    }
+                }
+            }
+            if (loadedClients.isNotEmpty()) {
+                synchronized(dynamicRegistry) {
+                    dynamicRegistry.clear()
+                    dynamicRegistry.addAll(loadedClients)
+                }
+                Log.i(TAG, "Loaded ${loadedClients.size} clients from clients.txt")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load clients.txt: ${e.message}, using static definitions")
+        }
+    }
+
     fun getCachedCaps(jid: String, ver: String? = null): com.ndregil.inchat.data.model.ClientCaps? {
-        // 1. Try ver hash cache (most stable across rooms)
-        if (!ver.isNullOrBlank()) {
+        // 1. Try memory cache first
+        if (jid.isNotBlank()) {
+            val exactCaps = globalCapsCache[jid]
+            if (exactCaps != null && exactCaps.iconResId != null) return exactCaps
+
+            val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
+            if (bare.isNotBlank() && bare.contains("@")) {
+                val bareCaps = globalCapsCache[bare]
+                if (bareCaps != null && bareCaps.iconResId != null) return bareCaps
+            }
+        }
+
+        // 2. Try Room database persistence if not in memory cache
+        val ctx = appContext
+        if (ctx != null && jid.isNotBlank()) {
+            try {
+                val db = com.ndregil.inchat.data.local.AppDatabase.getDatabase(ctx)
+                val entity = runBlocking(Dispatchers.IO) {
+                    val exact = db.clientCapabilityDao().getCapability(jid)
+                    if (exact != null) return@runBlocking exact
+                    val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
+                    if (bare.isNotBlank()) {
+                        db.clientCapabilityDao().getCapability(bare)
+                    } else null
+                }
+                if (entity != null && entity.iconResId != null) {
+                    val caps = com.ndregil.inchat.data.model.ClientCaps(
+                        clientName = entity.clientName,
+                        version = entity.version,
+                        os = entity.os,
+                        platform = entity.platform,
+                        nodeUri = entity.nodeUri,
+                        hash = entity.hash,
+                        ver = entity.ver,
+                        iconResId = entity.iconResId,
+                        rawNode = entity.rawNode
+                    )
+                    globalCapsCache[jid] = caps
+                    return caps
+                }
+            } catch (e: Exception) {
+                Log.d(TAG, "Error querying DB for capabilities: ${e.message}")
+            }
+        }
+
+        // 3. Try ver hash cache
+        if (!ver.isNullOrBlank() && ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
             val verCaps = verCapsCache[ver]
             if (verCaps != null && verCaps.iconResId != null) return verCaps
         }
 
-        // 2. Try exact JID cache
-        if (jid.isBlank()) return null
-        val caps = globalCapsCache[jid]
-        if (caps != null && caps.iconResId != null) return caps
-        
-        // 3. Try bare JID fallback
-        if (jid.contains("/")) {
-            val bare = jid.substringBefore("/")
-            val bareCaps = globalCapsCache[bare]
-            if (bareCaps != null && bareCaps.iconResId != null) return bareCaps
-        }
         return null
     }
 
     fun putCachedCaps(jid: String, caps: com.ndregil.inchat.data.model.ClientCaps) {
         if (caps.iconResId == null) return
         
-        // Cache by ver hash if available
         if (caps.ver.isNotBlank() && caps.ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
             verCapsCache[caps.ver] = caps
         }
 
         if (jid.isBlank()) return
         globalCapsCache[jid] = caps
-        
-        // If it's a full JID, also cache under bare JID IF it's not a MUC room JID
-        if (jid.contains("/")) {
-            val bare = jid.substringBefore("/")
+
+        val bare = if (jid.contains("/")) jid.substringBefore("/") else jid
+        if (bare.isNotBlank() && bare.contains("@")) {
             val domain = bare.substringAfter("@", "")
             val isLikelyMuc = domain.contains("conference", true) || domain.contains("muc.", true) || domain.contains("chat.", true)
-            
-            if (!isLikelyMuc) {
+            if (!isLikelyMuc || !jid.contains("anonymous", true)) {
                 globalCapsCache[bare] = caps
+            }
+        }
+
+        // Persist to Room database asynchronously
+        val ctx = appContext
+        if (ctx != null) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = com.ndregil.inchat.data.local.AppDatabase.getDatabase(ctx)
+                    val entity = com.ndregil.inchat.data.local.entity.ClientCapabilityEntity(
+                        jid = jid,
+                        clientName = caps.clientName,
+                        version = caps.version,
+                        os = caps.os,
+                        platform = caps.platform,
+                        nodeUri = caps.nodeUri,
+                        hash = caps.hash,
+                        ver = caps.ver,
+                        iconResId = caps.iconResId,
+                        rawNode = caps.rawNode
+                    )
+                    db.clientCapabilityDao().insertCapability(entity)
+                    if (bare.isNotBlank() && bare != jid) {
+                        val bareEntity = entity.copy(jid = bare)
+                        db.clientCapabilityDao().insertCapability(bareEntity)
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "Error persisting capability to DB: ${e.message}")
+                }
             }
         }
     }
@@ -426,62 +551,6 @@ object ClientRegistryManager {
         addAll(staticRegistry)
     }
 
-    fun init(context: Context) {
-        try {
-            val inputStream = context.assets.open("clients.txt")
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val loadedClients = mutableListOf<ClientDefinition>()
-
-            reader.forEachLine { line ->
-                val trimmed = line.trim()
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
-
-                val parts = trimmed.split("\t")
-                if (parts.size >= 2) {
-                    val patternsStr = parts[0]
-                    val clientName = parts[1]
-                    val patterns = patternsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                    
-                    if (patterns.isNotEmpty()) {
-                        val iconRes = resolveIconRes(clientName, context)
-                        val firstPat = patterns.first()
-                        val canonicalUri = when {
-                            patterns.any { it.startsWith("http://") || it.startsWith("https://") } ->
-                                patterns.first { it.startsWith("http://") || it.startsWith("https://") }
-                            patterns.any { it.contains(".") } ->
-                                "http://" + patterns.first { it.contains(".") }
-                            firstPat.contains(".") ->
-                                "http://$firstPat"
-                            else ->
-                                "http://$firstPat"
-                        }
-
-                        loadedClients.add(
-                            ClientDefinition(
-                                patterns = patterns,
-                                clientName = clientName,
-                                canonicalNodeUri = canonicalUri,
-                                platform = determinePlatform(clientName),
-                                iconResId = iconRes,
-                                defaultVersion = "1.0",
-                                defaultOs = determineDefaultOs(clientName)
-                            )
-                        )
-                    }
-                }
-            }
-            if (loadedClients.isNotEmpty()) {
-                synchronized(dynamicRegistry) {
-                    dynamicRegistry.clear()
-                    dynamicRegistry.addAll(loadedClients)
-                }
-                Log.i(TAG, "Loaded ${loadedClients.size} clients from clients.txt")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to load clients.txt: ${e.message}, using static definitions")
-        }
-    }
-
     private fun resolveIconRes(clientName: String, context: Context?): Int {
         val clean = clientName.lowercase().trim()
         return when {
@@ -724,10 +793,7 @@ object ClientRegistryManager {
         val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
 
         // 1. Cek khusus InChat secara KETAT:
-        // http://ndregil.inchat, ndregil.inchat, inchat
-        // jika bukan persis di atas tadi berarti bukan InChat.
         if (isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName)) {
-            // Jangan pernah menganggap bot sebagai InChat
             if (!cleanName.contains("bot", ignoreCase = true) &&
                 !resource.contains("bot", ignoreCase = true) &&
                 !jid.contains("bot", ignoreCase = true)) {
@@ -735,7 +801,7 @@ object ClientRegistryManager {
             }
         }
 
-        // 2. Cek apakah ini Bot (berdasarkan keyword bot di name, resource, atau khusus di resource JID)
+        // 2. Cek apakah ini Bot
         val isBotName = cleanName.equals("bot", true) || cleanName.contains("-bot", true) || cleanName.contains("_bot", true) || cleanName.endsWith(" bot", true)
         val isBotResource = resource.equals("bot", true) || resource.contains("-bot", true) || resource.contains("_bot", true) || resource.endsWith(" bot", true)
         
@@ -743,7 +809,6 @@ object ClientRegistryManager {
             findDefByName("Jabber Bot")?.let { return it }
         }
         
-        // Only check JID for bot if it's NOT a MUC full JID, or specifically in the resource part
         if (jid.contains("bot", ignoreCase = true)) {
             val jidResource = jid.substringAfterLast("/", "")
             if (jidResource.isNotBlank()) {
@@ -751,24 +816,21 @@ object ClientRegistryManager {
                     findDefByName("Jabber Bot")?.let { return it }
                 }
             } else if (jid.substringBefore("@").contains("bot", ignoreCase = true)) {
-                // For regular JIDs, check the localpart
                 findDefByName("Jabber Bot")?.let { return it }
             }
         }
 
-        // 3. Resolusi standar berdasarkan Node
-        if (cleanNode.isNotBlank()) {
-            resolveByNode(cleanNode)?.let { return it }
+        // 3. Resolusi berdasarkan Nama / Resource JID terlebih dahulu (jika spesifik dan valid)
+        if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
+            resolveByName(cleanName)?.let { return it }
         }
-
-        // 4. Resolusi standar berdasarkan Resource JID
         if (resource.isNotBlank()) {
             resolveByName(resource)?.let { return it }
         }
 
-        // 5. Resolusi standar berdasarkan Nama/Nickname
-        if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
-            resolveByName(cleanName)?.let { return it }
+        // 4. Resolusi berdasarkan Node
+        if (cleanNode.isNotBlank()) {
+            resolveByNode(cleanNode)?.let { return it }
         }
 
         return null
