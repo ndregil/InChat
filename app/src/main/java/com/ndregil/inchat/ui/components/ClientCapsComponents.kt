@@ -252,194 +252,84 @@ fun ClientCapsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Section 1: XEP-0115 Entity Capability & Client Identification
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, platformColor.copy(alpha = 0.25f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ClientCapsIcon(
-                                platform = clientCaps.platform,
-                                clientCaps = clientCaps,
-                                modifier = Modifier.size(22.dp),
-                                tint = platformColor
-                            )
-                            Column {
-                                Text(
-                                    text = clientCaps.clientName.ifBlank { "Klien Standar XMPP" },
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = platformColor
-                                )
-                                Text(
-                                    text = platformLabel,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        if (clientCaps.nodeUri.isNotBlank()) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = "Node URI (XEP-0115):",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = clientCaps.nodeUri,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
-
-                        if (clientCaps.ver.isNotBlank() && clientCaps.ver != "kFwX23eY765qL90mN12aBcDeFgH=") {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = "Ver Hash:",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = clientCaps.ver,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                // LaunchedEffect to automatically trigger software version query on open
+                androidx.compose.runtime.LaunchedEffect(targetJid) {
+                    val queryJid = targetJid.ifBlank { userName }
+                    if (queryJid.isNotBlank() && onQuerySoftwareVersion != null && !isLiveVerified && !isQuerying) {
+                        isQuerying = true
+                        queryStatusMessage = "Memeriksa versi klien..."
+                        onQuerySoftwareVersion(queryJid) { result ->
+                            isQuerying = false
+                            result.onSuccess { liveInfo ->
+                                liveVersionResult = liveInfo
+                                isLiveVerified = true
+                                queryStatusMessage = null
+                            }.onFailure {
+                                liveVersionResult = null
+                                isLiveVerified = false
+                                queryStatusMessage = "Gagal mendapatkan versi real (offline/tidak merespons)."
                             }
                         }
                     }
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                // Section 2: XEP-0092 Live Software Version Query (Strictly Independent)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Cek Versi Klien (XEP-0092 IQ)",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Kirim permintaan langsung ke klien user untuk melihat software, versi asli, dan OS.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Button(
-                        onClick = {
-                            val queryJid = targetJid.ifBlank { userName }
-                            if (queryJid.isNotBlank() && onQuerySoftwareVersion != null) {
-                                isQuerying = true
-                                queryStatusMessage = "Mengirim permintaan XEP-0092 IQ ke $queryJid..."
-                                onQuerySoftwareVersion(queryJid) { result ->
-                                    isQuerying = false
-                                    result.onSuccess { liveInfo ->
-                                        liveVersionResult = liveInfo
-                                        isLiveVerified = true
-                                        queryStatusMessage = "Versi asli berhasil diterima via XEP-0092!"
-                                    }.onFailure {
-                                        liveVersionResult = null
-                                        isLiveVerified = false
-                                        queryStatusMessage = "Klien user tidak merespons query XEP-0092."
-                                    }
-                                }
-                            } else {
-                                queryStatusMessage = "Memerlukan koneksi aktif ke server XMPP."
-                            }
-                        },
-                        enabled = !isQuerying,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("btn_query_client_version")
+                if (isQuerying) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        if (isQuerying) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Meminta versi XEP-0092...")
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Verified,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cek Versi Klien Langsung")
-                        }
-                    }
-
-                    if (queryStatusMessage != null) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = queryStatusMessage!!,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (isLiveVerified) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                            text = "Memeriksa versi klien...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                } else if (queryStatusMessage != null && !isLiveVerified) {
+                    Text(
+                        text = queryStatusMessage!!,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
 
-                    // Live Version Response Card (displayed ONLY after explicit query returns real data)
-                    if (isLiveVerified && liveVersionResult != null) {
-                        val ver = liveVersionResult!!
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF16A34A).copy(alpha = 0.08f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF16A34A).copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
+                // Live Version Response Card
+                if (isLiveVerified && liveVersionResult != null) {
+                    val ver = liveVersionResult!!
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, platformColor.copy(alpha = 0.35f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF16A34A),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Hasil Cek Versi Real Pengguna:",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF16A34A)
-                                    )
-                                }
-                                Text(
-                                    text = "Nama Klien Asli: ${ver.clientName.ifBlank { "Tidak diketahui" }}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Versi Klien Asli: ${ver.version.ifBlank { "Tidak diketahui" }}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF16A34A)
-                                )
-                                Text(
-                                    text = "Sistem Operasi / OS Asli: ${ver.os.ifBlank { "Tidak diketahui" }}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
+                            Text(
+                                text = "Nama software: ${ver.clientName.ifBlank { "Tidak diketahui" }}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = platformColor
+                            )
+                            Text(
+                                text = "Versi software: ${ver.version.ifBlank { "Tidak diketahui" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF16A34A)
+                            )
+                            Text(
+                                text = "Operasi sistem: ${ver.os.ifBlank { "Tidak diketahui" }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
