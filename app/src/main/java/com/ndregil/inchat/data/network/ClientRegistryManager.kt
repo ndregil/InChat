@@ -698,8 +698,12 @@ object ClientRegistryManager {
         val cleanName = name.trim()
         val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
 
-        // 1. Cek khusus InChat secara KETAT:
-        if (isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName)) {
+        // 1. Cek khusus InChat secara KETAT (harus asli dari ndregil.inchat atau inchat):
+        val isPeerInChat = isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName) ||
+            cleanNode.contains("ndregil.inchat", true) || resource.contains("ndregil.inchat", true) || jid.contains("ndregil.inchat", true) ||
+            cleanNode.equals("inchat", true) || resource.equals("inchat", true)
+
+        if (isPeerInChat) {
             if (!cleanName.contains("bot", ignoreCase = true) &&
                 !resource.contains("bot", ignoreCase = true) &&
                 !jid.contains("bot", ignoreCase = true)) {
