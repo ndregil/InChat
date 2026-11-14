@@ -68,4 +68,30 @@ class XmppConnectionManagerTest {
         assertNull(manager.getMultiUserChatManager())
         assertNull(manager.lastError.value)
     }
+
+    @Test
+    fun testRegistrationIqPreparation() {
+        val reg = org.jivesoftware.smackx.iqregister.packet.Registration().apply {
+            type = org.jivesoftware.smack.packet.IQ.Type.get
+            to = org.jxmpp.jid.impl.JidCreate.domainBareFrom("example.com")
+        }
+        if (!reg.hasStanzaIdSet()) {
+            reg.stanzaId = java.util.UUID.randomUUID().toString()
+        }
+        org.junit.Assert.assertNotNull(reg.stanzaId)
+        val filter = org.jivesoftware.smack.filter.StanzaIdFilter(reg.stanzaId)
+        val reply = org.jivesoftware.smackx.iqregister.packet.Registration().apply {
+            type = org.jivesoftware.smack.packet.IQ.Type.result
+            stanzaId = reg.stanzaId
+        }
+        org.junit.Assert.assertTrue(filter.accept(reply))
+    }
+
+    @Test
+    fun testWebRegistrationDetectionFromErrorText() {
+        val errorText = "In-band registration is by invitation only. Public registration with captcha: https://jabber.de/register)."
+        val urlRegex = Regex("""https?://[^\s<>"')]+""", RegexOption.IGNORE_CASE)
+        val extracted = urlRegex.find(errorText)?.value?.trim()?.trimEnd('.', ',', ';', ':', ')', ']', '>')
+        org.junit.Assert.assertEquals("https://jabber.de/register", extracted)
+    }
 }

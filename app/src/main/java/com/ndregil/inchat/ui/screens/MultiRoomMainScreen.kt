@@ -1910,8 +1910,8 @@ fun MultiRoomMainScreen(
                                     viewModel.createInstantAccount(user, dom, nick)
                                 },
                                 onResetRegistrationState = { viewModel.resetRegistrationState() },
-                                onSolveCaptcha = { challenge, answer ->
-                                    viewModel.submitCaptchaAnswer(challenge, answer)
+                                onSolveCaptcha = { challenge, answer, extraFields ->
+                                    viewModel.submitCaptchaAnswer(challenge, answer, extraFields)
                                 },
                                 backupStatus = backupStatus,
                                 isBackupLoading = isBackupLoading,

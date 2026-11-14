@@ -80,7 +80,7 @@ fun AccountConnectionScreen(
     ) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onCreateInstantAccount: (username: String, domain: String, nickname: String) -> Unit = { _, _, _ -> },
     onResetRegistrationState: () -> Unit = {},
-    onSolveCaptcha: (com.ndregil.inchat.data.network.CaptchaChallengeData, String) -> Unit = { _, _ -> },
+    onSolveCaptcha: (com.ndregil.inchat.data.network.CaptchaChallengeData, String, Map<String, String>) -> Unit = { _, _, _ -> },
     onExportBackup: (targetUri: android.net.Uri?, passphrase: String) -> Unit = { _, _ -> },
     onImportBackup: (sourceUri: android.net.Uri, passphrase: String) -> Unit = { _, _ -> },
     onClearBackupStatus: () -> Unit = {},
@@ -114,9 +114,10 @@ fun AccountConnectionScreen(
     var regConfirmPassword by remember { mutableStateOf("") }
     var regNickname by remember { mutableStateOf("") }
     var regEmail by remember { mutableStateOf("") }
-    var regHost by remember { mutableStateOf("jabber.de") }
+    var regHost by remember { mutableStateOf("") }
     var regPort by remember { mutableStateOf("5222") }
     var regUseTls by remember { mutableStateOf(true) }
+    var showRegAdvancedOptions by remember { mutableStateOf(false) }
     var regValidationError by remember { mutableStateOf<String?>(null) }
 
     var backupPassphrase by remember { mutableStateOf("") }
@@ -468,7 +469,7 @@ fun AccountConnectionScreen(
                     val rawDom = if (cleanJid.contains("@")) cleanJid.substringAfter("@") else hostInput.trim()
                     val cleanDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(rawDom)
                     val user = if (cleanJid.contains("@")) cleanJid.substringBefore("@") else cleanJid
-                    val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(hostInput.trim(), cleanDom)
+                    val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(hostInput.trim())
                     onConnect(XmppAccount(cleanJid, user.trim(), cleanDom, nicknameInput.trim().ifBlank { user.trim() }, cleanHost, port, useTls, false, statusMsgInput.trim()), passwordInput)
                 }, modifier = Modifier.weight(1f).height(52.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(16.dp)) {
                     Icon(Icons.Default.Link, null)
@@ -571,7 +572,7 @@ fun AccountConnectionScreen(
                                         keyboardController?.hide()
                                         isCustomServerMode = false
                                         regDomain = item.domain
-                                        regHost = item.domain
+                                        regHost = ""
                                         regValidationError = null
                                         isServerDropdownExpanded = false
                                     },
@@ -581,8 +582,11 @@ fun AccountConnectionScreen(
                         }
                     }
 
-                    // If Custom Server mode is selected, show custom domain and host fields
+                    // If Custom Server mode is selected, show custom domain input and domain suggestion chip
                     if (isCustomServerMode) {
+                        val suggestedDomain = remember(regDomain) {
+                            com.ndregil.inchat.data.network.XmppConnectionManager.suggestDomainCorrection(regDomain)
+                        }
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
@@ -593,10 +597,9 @@ fun AccountConnectionScreen(
                                 Text("Pengaturan Server Kustom", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 OutlinedTextField(
                                     value = regDomain,
-                                    onValueChange = { 
+                                    onValueChange = {
                                         regDomain = it
-                                        if (regHost.isBlank() || regHost == regDomain) regHost = it
-                                        regValidationError = null 
+                                        regValidationError = null
                                     },
                                     label = { Text("Domain Server XMPP") },
                                     placeholder = { Text("contoh: xmpp.domain.com") },
@@ -605,23 +608,13 @@ fun AccountConnectionScreen(
                                     singleLine = true,
                                     shape = RoundedCornerShape(10.dp)
                                 )
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedTextField(
-                                        value = regHost,
-                                        onValueChange = { regHost = it },
-                                        label = { Text("Host Connect (Opsional)") },
-                                        placeholder = { Text("Auto") },
-                                        modifier = Modifier.weight(2f),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    OutlinedTextField(
-                                        value = regPort,
-                                        onValueChange = { regPort = it },
-                                        label = { Text("Port") },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(10.dp)
+                                if (suggestedDomain != null && !suggestedDomain.equals(regDomain.trim(), ignoreCase = true)) {
+                                    AssistChip(
+                                        onClick = { regDomain = suggestedDomain },
+                                        label = { Text("Mungkin maksud Anda: $suggestedDomain?") },
+                                        leadingIcon = {
+                                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        }
                                     )
                                 }
                             }
@@ -680,6 +673,81 @@ fun AccountConnectionScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
 
+                    OutlinedTextField(
+                        value = regEmail,
+                        onValueChange = { regEmail = it; regValidationError = null },
+                        label = { Text("Email (Opsional / Diminta Sebagian Server)") },
+                        leadingIcon = { Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("reg_email_input"),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    TextButton(
+                        onClick = { showRegAdvancedOptions = !showRegAdvancedOptions },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier.testTag("btn_reg_advanced_toggle")
+                    ) {
+                        Icon(
+                            imageVector = if (showRegAdvancedOptions) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (showRegAdvancedOptions) "Sembunyikan Koneksi Lanjutan" else "Koneksi Lanjutan (Host SRV, Port, TLS)",
+                            fontSize = 12.sp
+                        )
+                    }
+
+                    if (showRegAdvancedOptions || isCustomServerMode) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = regHost,
+                                        onValueChange = { regHost = it },
+                                        label = { Text("Host Manual (Kosongkan = Auto SRV)") },
+                                        placeholder = { Text("Auto (DNS SRV)") },
+                                        modifier = Modifier.weight(2f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = regPort,
+                                        onValueChange = { regPort = it },
+                                        label = { Text("Port") },
+                                        modifier = Modifier.weight(1f),
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Enkripsi TLS/SSL Wajib", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                        Text("Matikan hanya jika server memakai sertifikat tidak terverifikasi", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(
+                                        checked = regUseTls,
+                                        onCheckedChange = { regUseTls = it },
+                                        modifier = Modifier.testTag("switch_reg_tls")
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     regValidationError?.let { err ->
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
@@ -713,7 +781,8 @@ fun AccountConnectionScreen(
                                 regValidationError = "Domain server tidak boleh kosong"
                                 return@Button
                             }
-                            if (!Regex("""^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""").matches(regDomain.trim())) {
+                            val sanitizedDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(regDomain)
+                            if (!Regex("""^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""").matches(sanitizedDom)) {
                                 regValidationError = "Format domain tidak valid"
                                 return@Button
                             }
@@ -726,8 +795,8 @@ fun AccountConnectionScreen(
                             onRegisterAccount(
                                 regUsername.trim(),
                                 regPassword.trim(),
-                                regDomain.trim(),
-                                regHost.trim().ifBlank { regDomain.trim() },
+                                sanitizedDom,
+                                regHost.trim(),
                                 regPort.toIntOrNull() ?: 5222,
                                 regNickname.trim().ifBlank { regUsername.trim() },
                                 regEmail.trim(),
@@ -782,6 +851,80 @@ fun AccountConnectionScreen(
                                 }
                             }
                         }
+                        is RegistrationState.WebRegistrationRequired -> {
+                            val uriHandler = LocalUriHandler.current
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("web_registration_card"),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "Pendaftaran Lewat Web (${registrationState.domain})",
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = registrationState.instructions?.takeIf { it.isNotBlank() }
+                                            ?: "Server ini meminta pendaftaran dilakukan melalui halaman web berikut:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = registrationState.url,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                try {
+                                                    uriHandler.openUri(registrationState.url)
+                                                } catch (_: Exception) {}
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.testTag("btn_open_web_register")
+                                        ) {
+                                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Buka Halaman Daftar", fontSize = 12.sp)
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(registrationState.url))
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Salin URL", fontSize = 12.sp)
+                                        }
+                                        TextButton(
+                                            onClick = onResetRegistrationState,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("Tutup", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         is RegistrationState.Error -> {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
@@ -810,11 +953,36 @@ fun AccountConnectionScreen(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
+                                        if (registrationState.isTlsError && regUseTls) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    regUseTls = false
+                                                    showRegAdvancedOptions = true
+                                                    onRegisterAccount(
+                                                        regUsername.trim(),
+                                                        regPassword.trim(),
+                                                        com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(regDomain),
+                                                        regHost.trim(),
+                                                        regPort.toIntOrNull() ?: 5222,
+                                                        regNickname.trim().ifBlank { regUsername.trim() },
+                                                        regEmail.trim(),
+                                                        false
+                                                    )
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                shape = RoundedCornerShape(8.dp),
+                                                modifier = Modifier.testTag("btn_retry_without_tls")
+                                            ) {
+                                                Icon(Icons.Default.NoEncryption, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("Coba Tanpa TLS Wajib", fontSize = 11.sp)
+                                            }
+                                        }
                                         if (!regDomain.equals("xmpp.jp", ignoreCase = true)) {
                                             OutlinedButton(
                                                 onClick = {
                                                     regDomain = "xmpp.jp"
-                                                    regHost = "xmpp.jp"
+                                                    regHost = ""
                                                     onResetRegistrationState()
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -822,7 +990,7 @@ fun AccountConnectionScreen(
                                             ) {
                                                 Icon(Icons.Default.FlashOn, null, modifier = Modifier.size(14.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text("Coba xmpp.jp (Stabil & Direct)", fontSize = 11.sp)
+                                                Text("Coba xmpp.jp", fontSize = 11.sp)
                                             }
                                         }
 
@@ -877,7 +1045,9 @@ fun AccountConnectionScreen(
             ) {
                 RegistrationCaptchaScreen(
                     challenge = registrationState.challenge,
-                    onSolveCaptcha = { answer -> onSolveCaptcha(registrationState.challenge, answer) },
+                    onSolveCaptcha = { answer, extraFields ->
+                        onSolveCaptcha(registrationState.challenge, answer, extraFields)
+                    },
                     onCancel = onResetRegistrationState
                 )
             }

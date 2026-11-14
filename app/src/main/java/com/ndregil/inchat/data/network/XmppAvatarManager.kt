@@ -139,7 +139,8 @@ class XmppAvatarManager(
         // Listen for XEP-0153 (<x xmlns='vcard-temp:x:update'><photo>HASH</photo></x>) in presence
         val presenceListener = StanzaListener { stanza ->
             val presence = stanza as Presence
-            val vcardUpdate = presence.getExtension("x", "vcard-temp:x:update") ?: return@StanzaListener
+            val vcardUpdate = presence.getExtension<org.jivesoftware.smack.packet.ExtensionElement>("x", "vcard-temp:x:update")
+                ?: return@StanzaListener
             val xml = extractPayloadXml(vcardUpdate)
             val hashMatch = Regex("<photo[^>]*>([^<]+)</photo>").find(xml)
             val hash = hashMatch?.groupValues?.get(1)?.trim() ?: return@StanzaListener

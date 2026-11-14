@@ -85,6 +85,19 @@ class XmppRepository(
         }
     }
 
+    init {
+        try {
+            org.jivesoftware.smack.android.AndroidSmackInitializer.initialize(context)
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "AndroidSmackInitializer note: ${e.message}")
+        }
+        try {
+            org.jivesoftware.smack.util.dns.minidns.MiniDnsResolver.setup()
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "MiniDnsResolver setup note: ${e.message}")
+        }
+    }
+
     val engine = XmppProtocolEngine(scope)
     val smackConnectionManager = XmppConnectionManager()
     val smackAvatarManager = XmppAvatarManager(smackConnectionManager, database.avatarDao(), scope)
@@ -98,7 +111,6 @@ class XmppRepository(
     val themePreferencesManager = com.ndregil.inchat.data.local.ThemePreferencesManager(context)
     val translationService = com.ndregil.inchat.data.network.TranslationService()
     val translationPreferencesManager = com.ndregil.inchat.data.local.TranslationPreferencesManager(context)
-    val connectionService = XmppConnectionService(context, this, scope)
 
     private val mamSyncJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
 
@@ -162,8 +174,10 @@ class XmppRepository(
 
     val roomConfigs: Flow<List<RoomConfigEntity>> = database.roomConfigDao().getAllRoomConfigs()
 
+    val connectionService = XmppConnectionService(context, this, scope)
 
     init {
+        connectionService.start()
         // Collect incoming network messages from engine and store into Room database
         scope.launch {
             try {
@@ -633,9 +647,10 @@ class XmppRepository(
 
     suspend fun submitCaptchaAnswer(
         challenge: com.ndregil.inchat.data.network.CaptchaChallengeData,
-        captchaAnswer: String
+        captchaAnswer: String,
+        extraFieldValues: Map<String, String> = emptyMap()
     ): Result<String> {
-        return smackConnectionManager.submitCaptchaAnswer(challenge, captchaAnswer)
+        return smackConnectionManager.submitCaptchaAnswer(challenge, captchaAnswer, extraFieldValues)
     }
 
     suspend fun disconnect() {

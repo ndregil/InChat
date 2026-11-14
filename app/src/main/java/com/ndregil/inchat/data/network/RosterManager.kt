@@ -34,13 +34,6 @@ class RosterManager(
     private val avatarManager: XmppAvatarManager,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) {
-    init {
-        coroutineScope.launch {
-            avatarManager.avatarUpdates.collect {
-                refreshContactsFromRoster()
-            }
-        }
-    }
     companion object {
         private const val TAG = "RosterManager"
 
@@ -119,6 +112,14 @@ class RosterManager(
     private var activeRoster: Roster? = null
 
     private val queriedContactVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    init {
+        coroutineScope.launch {
+            avatarManager.avatarUpdates.collect {
+                refreshContactsFromRoster()
+            }
+        }
+    }
 
     private fun queryContactVersionIfNeeded(fullJid: String, bareJid: String) {
         if (!queriedContactVersions.add(fullJid)) return

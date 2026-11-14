@@ -46,22 +46,37 @@ class XmppConnectionService(
         }
     }
 
-    init {
+    @Volatile
+    private var isStarted = false
+
+    fun start() {
+        synchronized(this) {
+            if (isStarted) return
+            isStarted = true
+        }
         registerNetworkCallback()
         observeConnectionStatus()
     }
 
     private fun registerNetworkCallback() {
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager.registerNetworkCallback(request, networkCallback)
-        
+        try {
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(request, networkCallback)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register network callback: ${e.message}")
+        }
+
         // Initial check
-        val activeNetwork = connectivityManager.activeNetwork
-        val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
-        isNetworkAvailable = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        
+        try {
+            val activeNetwork = connectivityManager.activeNetwork
+            val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
+            isNetworkAvailable = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed checking initial network state: ${e.message}")
+        }
+
         startWatchdog()
     }
 

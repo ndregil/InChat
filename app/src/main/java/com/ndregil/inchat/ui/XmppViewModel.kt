@@ -44,8 +44,13 @@ sealed class RegistrationState {
     object Idle : RegistrationState()
     object Registering : RegistrationState()
     data class Success(val jid: String, val autoLoggingIn: Boolean) : RegistrationState()
-    data class Error(val message: String) : RegistrationState()
+    data class Error(val message: String, val isTlsError: Boolean = false) : RegistrationState()
     data class CaptchaChallengeRequired(val challenge: com.ndregil.inchat.data.network.CaptchaChallengeData) : RegistrationState()
+    data class WebRegistrationRequired(
+        val domain: String,
+        val url: String,
+        val instructions: String? = null
+    ) : RegistrationState()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -1002,11 +1007,13 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch {
             _registrationState.value = RegistrationState.Registering
+            val cleanDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(domain)
+            val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(host)
             val result = repository.registerAccount(
                 username = username,
                 password = password,
-                domain = domain,
-                host = host,
+                domain = cleanDom,
+                host = cleanHost,
                 port = port,
                 nickname = nickname,
                 email = email,
@@ -1020,9 +1027,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                         val newAccount = XmppAccount(
                             jid = registeredJid,
                             username = username.trim(),
-                            domain = domain.trim(),
+                            domain = cleanDom,
                             nickname = nickname.trim().ifBlank { username.trim() },
-                            host = host.trim().ifBlank { domain.trim() },
+                            host = cleanHost,
                             port = port,
                             useTls = useTls,
                             isDemoMode = false,
@@ -1036,9 +1043,22 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                         is com.ndregil.inchat.data.network.CaptchaRequiredException -> {
                             _registrationState.value = RegistrationState.CaptchaChallengeRequired(error.challenge)
                         }
+                        is com.ndregil.inchat.data.network.WebRegistrationRequiredException -> {
+                            _registrationState.value = RegistrationState.WebRegistrationRequired(
+                                domain = error.domain,
+                                url = error.registrationUrl,
+                                instructions = error.instructions
+                            )
+                        }
+                        is com.ndregil.inchat.data.network.RegistrationTlsException -> {
+                            _registrationState.value = RegistrationState.Error(
+                                message = error.message,
+                                isTlsError = true
+                            )
+                        }
                         is com.ndregil.inchat.data.network.RegistrationNotAllowedException -> {
                             _registrationState.value = RegistrationState.Error(
-                                error.message.ifBlank { "Pendaftaran langsung (In-Band) ditolak server. Silakan coba server lain seperti xmpp.jp." }
+                                error.message.ifBlank { "Pendaftaran langsung (In-Band) ditolak server. Silakan coba server lain." }
                             )
                         }
                         else -> {
@@ -1055,11 +1075,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun submitCaptchaAnswer(
         challenge: com.ndregil.inchat.data.network.CaptchaChallengeData,
         captchaAnswer: String,
+        extraFieldValues: Map<String, String> = emptyMap(),
         autoLogin: Boolean = true
     ) {
         viewModelScope.launch {
             _registrationState.value = RegistrationState.Registering
-            val result = repository.submitCaptchaAnswer(challenge, captchaAnswer)
+            val result = repository.submitCaptchaAnswer(challenge, captchaAnswer, extraFieldValues)
             result.fold(
                 onSuccess = { registeredJid ->
                     _registrationState.value = RegistrationState.Success(registeredJid, autoLogin)
@@ -1069,7 +1090,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                             username = challenge.username,
                             domain = challenge.domain,
                             nickname = challenge.nickname.ifBlank { challenge.username },
-                            host = challenge.host.ifBlank { challenge.domain },
+                            host = challenge.host,
                             port = challenge.port,
                             useTls = challenge.useTls,
                             isDemoMode = false,
@@ -1079,9 +1100,26 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 },
                 onFailure = { error ->
-                    _registrationState.value = RegistrationState.Error(
-                        error.localizedMessage ?: "Jawaban CAPTCHA salah atau ditolak server"
-                    )
+                    when (error) {
+                        is com.ndregil.inchat.data.network.WebRegistrationRequiredException -> {
+                            _registrationState.value = RegistrationState.WebRegistrationRequired(
+                                domain = error.domain,
+                                url = error.registrationUrl,
+                                instructions = error.instructions
+                            )
+                        }
+                        is com.ndregil.inchat.data.network.RegistrationTlsException -> {
+                            _registrationState.value = RegistrationState.Error(
+                                message = error.message,
+                                isTlsError = true
+                            )
+                        }
+                        else -> {
+                            _registrationState.value = RegistrationState.Error(
+                                error.localizedMessage ?: "Jawaban CAPTCHA atau form ditolak server"
+                            )
+                        }
+                    }
                 }
             )
         }
