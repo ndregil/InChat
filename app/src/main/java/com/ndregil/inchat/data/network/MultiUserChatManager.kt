@@ -175,8 +175,18 @@ class MultiUserChatManager(
 
             // Build enter configuration
             val enterConfigBuilder = muc.getEnterConfigurationBuilder(nick)
+            val liveCapsVer = try {
+                connectionManager.getRawConnection()?.let {
+                    org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(it)?.capsVersionAndHash
+                }
+            } catch (_: Exception) { null }
+            val capsNodeExt = org.jivesoftware.smackx.caps.packet.CapsExtension(
+                "http://ndregil.inchat",
+                liveCapsVer?.version ?: "kFwX23eY765qL90mN12aBcDeFgH=",
+                liveCapsVer?.hash ?: "sha-1"
+            )
             enterConfigBuilder.withPresence { pb ->
-                pb.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
+                pb.overrideExtension(capsNodeExt)
             }
             if (!password.isNullOrBlank()) {
                 enterConfigBuilder.withPassword(password)
@@ -196,7 +206,7 @@ class MultiUserChatManager(
                     val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
                     val newEnterConfigBuilder = muc.getEnterConfigurationBuilder(newNick)
                     newEnterConfigBuilder.withPresence { pb ->
-                        pb.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
+                        pb.overrideExtension(capsNodeExt)
                     }
                     if (!password.isNullOrBlank()) {
                         newEnterConfigBuilder.withPassword(password)
@@ -481,6 +491,8 @@ class MultiUserChatManager(
             }
             activeMucs.remove(key)
             roomNicknames.remove(key)
+            roomOccupantCapsCache.remove(key)
+            roomOccupantPresenceCache.remove(key)
         }
         _joinedRooms.value = activeMucs.keys.toSet()
 
@@ -1455,18 +1467,15 @@ class MultiUserChatManager(
 
                 if (extracted != null) {
                     val (node, ver) = extracted
-                    val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                        name = "",
-                        jid = realJid,
-                        node = node,
-                        ver = ver
-                    )
+                    val caps = resolvePresenceCaps(fromJid, realJid, node, ver)
                     if (caps.iconResId != null) {
                         roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nick] = caps
                         ClientRegistryManager.putCachedCaps(realJid, caps)
-                        if (realJid != fromJid.toString()) {
+                        if (!realJid.equals(fromJid.toString(), ignoreCase = true)) {
                             ClientRegistryManager.putCachedCaps(fromJid.toString(), caps)
                         }
+                    } else {
+                        roomOccupantCapsCache[roomJid]?.remove(nick)
                     }
                 }
 
@@ -1575,6 +1584,40 @@ class MultiUserChatManager(
         // Strictly decoupled: XEP-0092 is on-demand only and never alters presence capabilities.
     }
 
+    private fun resolvePresenceCaps(
+        presenceFrom: Jid?,
+        realJid: String,
+        node: String,
+        ver: String
+    ): com.ndregil.inchat.data.model.ClientCaps {
+        val resolved = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+            name = "",
+            jid = realJid,
+            node = node,
+            ver = ver
+        )
+        if (resolved.iconResId != null) return resolved
+
+        // Secondary check via Smack's local EntityCapsManager disco#info cache (pure memory lookup):
+        // recognizes peer InChat clients if they advertised identity name="InChat".
+        if (presenceFrom != null) {
+            try {
+                val discoInfo = org.jivesoftware.smackx.caps.EntityCapsManager.getDiscoverInfoByUser(presenceFrom)
+                val identityName = discoInfo?.identities?.firstOrNull { !it.name.isNullOrBlank() }?.name
+                if (!identityName.isNullOrBlank()) {
+                    val fromDisco = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                        name = identityName,
+                        jid = realJid,
+                        node = if (ClientRegistryManager.isInChatExact(identityName)) "http://ndregil.inchat" else node,
+                        ver = ver
+                    )
+                    if (fromDisco.iconResId != null) return fromDisco
+                }
+            } catch (_: Exception) {}
+        }
+        return resolved
+    }
+
     /**
      * Refreshes the cached list of occupants for a specific room with debouncing.
      */
@@ -1637,56 +1680,57 @@ class MultiUserChatManager(
                     val extractedCaps = ClientRegistryManager.extractCapsFromPresence(smackPresence)
                     val verHash = extractedCaps?.second
 
-                    // Check cached caps first (Ver Hash -> Global Real JID cache -> Room Nick cache)
+                    // Check cached caps as fallback when presence doesn't carry <c>
                     val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
-                    val globalCached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(realJid, verHash)
-                    
-                    val cachedCaps = if (globalCached != null && globalCached.iconResId != null) {
-                        globalCached
-                    } else if (roomCached != null && roomCached.iconResId != null) {
-                        roomCached
-                    } else {
-                        null
+                    val globalCached = ClientRegistryManager.getCachedCaps(realJid, verHash)
+                        ?: ClientRegistryManager.getCachedCaps(occupantJid.toString(), verHash)
+
+                    val cachedCaps = when {
+                        roomCached != null && roomCached.iconResId != null -> roomCached
+                        globalCached != null && globalCached.iconResId != null -> globalCached
+                        else -> null
                     }
 
-                    val extracted = if (cachedCaps != null && cachedCaps.iconResId != null) {
-                        null
-                    } else {
-                        extractedCaps // Reuse the one extracted at line 1684
-                    }
+                    val myCapsVer = if (isMe) {
+                        try {
+                            connectionManager.getRawConnection()?.let {
+                                org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(it)?.capsVersionAndHash?.version
+                            }
+                        } catch (_: Exception) { null }
+                    } else null
 
                     val occupantCaps: com.ndregil.inchat.data.model.ClientCaps = when {
                         isMe -> {
                             com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                                 name = "InChat",
                                 jid = realJid,
-                                node = "http://ndregil.inchat"
+                                node = "http://ndregil.inchat",
+                                ver = myCapsVer ?: "kFwX23eY765qL90mN12aBcDeFgH="
                             )
                         }
-                        cachedCaps != null && cachedCaps.iconResId != null -> {
-                            cachedCaps
-                        }
-                        extracted != null -> {
-                            val caps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                                name = "",
-                                jid = realJid,
-                                node = extracted.first,
-                                ver = extracted.second
-                            )
+                        extractedCaps != null -> {
+                            val caps = resolvePresenceCaps(occupantJid, realJid, extractedCaps.first, extractedCaps.second)
                             if (caps.iconResId != null) {
                                 roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nickname] = caps
                                 if (realJid.isNotBlank()) {
                                     ClientRegistryManager.putCachedCaps(realJid, caps)
                                 }
+                                ClientRegistryManager.putCachedCaps(occupantJid.toString(), caps)
+                                caps
+                            } else if (cachedCaps != null && cachedCaps.iconResId != null && cachedCaps.ver == extractedCaps.second) {
+                                cachedCaps
+                            } else {
+                                caps
                             }
-                            caps
+                        }
+                        cachedCaps != null && cachedCaps.iconResId != null -> {
+                            cachedCaps
                         }
                         else -> {
-                            // If peer has no explicit caps, treat as InChat if in InChat room or if nickname/JID suggests InChat
                             com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                                name = "InChat",
+                                name = "",
                                 jid = realJid,
-                                node = "http://ndregil.inchat"
+                                node = ""
                             )
                         }
                     }

@@ -219,4 +219,55 @@ class ClientCapsTest {
             assertNotNull(color)
         }
     }
+
+    @Test
+    fun testInChatVariantsAndBotSubstringSafety() {
+        // 1. /caps and #ver variants of http://ndregil.inchat must resolve to InChat
+        val capsVariant = ClientCaps.resolveFor("", "room@conference.domain.org/UserA", node = "http://ndregil.inchat/caps")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, capsVariant.iconResId)
+        assertEquals(ClientPlatform.ANDROID, capsVariant.platform)
+
+        val verVariant = ClientCaps.resolveFor("", "room@conference.domain.org/UserA", node = "http://ndregil.inchat#Qv2xAbCdEfGhIjKlMnOpQrStUvW=")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, verVariant.iconResId)
+        assertEquals(ClientPlatform.ANDROID, verVariant.platform)
+
+        // 2. Room JID or user nickname containing "bot" ("ndregil-bot@conference...", "robot", "abbott") must NOT block InChat node
+        val inBotRoom = ClientCaps.resolveFor("", "ndregil-bot@conference.jabber.org/abbott", node = "http://ndregil.inchat")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, inBotRoom.iconResId)
+        assertEquals(ClientPlatform.ANDROID, inBotRoom.platform)
+
+        val robotNick = ClientCaps.resolveFor("robot", "ndregil-bot@conference.jabber.org/robot", node = "http://ndregil.inchat")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, robotNick.iconResId)
+
+        // Unidentified "robot" or "abbott" in a room with "bot" in room JID must NOT turn into Jabber Bot
+        val unidentifiedAbbott = ClientCaps.resolveFor("", "ndregil-bot@conference.jabber.org/abbott", node = "")
+        assertTrue(unidentifiedAbbott.iconResId == null)
+
+        // 3. Other ndregil packages must NEVER resolve as InChat
+        val smartNg = ClientCaps.resolveFor("", "ndregil-bot@conference.jabber.org/SmartNG.2", node = "ndregil.smart-ng")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_smartng, smartNg.iconResId)
+        assertTrue(smartNg.iconResId != com.ndregil.inchat.R.drawable.ic_client_inchat)
+
+        // 4. MUC resource is a nickname, so resource="InChat" without InChat node must NOT fake InChat in MUC,
+        //    whereas 1:1 chat resource="InChat" or "InChat-Android" DOES identify InChat.
+        val mucNickInChat = ClientCaps.resolveFor("", "room@conference.domain.org/InChat", node = "")
+        assertTrue(mucNickInChat.iconResId == null)
+
+        val directResourceInChat = ClientCaps.resolveFor("", "peer@domain.org/InChat-Android", node = "")
+        assertEquals(com.ndregil.inchat.R.drawable.ic_client_inchat, directResourceInChat.iconResId)
+    }
+
+    @Test
+    fun testExtractCapsFromPresencePrefersInChatOverGenericSmack() {
+        val presence = org.jivesoftware.smack.packet.PresenceBuilder.buildPresence()
+            .ofType(org.jivesoftware.smack.packet.Presence.Type.available)
+            .addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("https://igniterealtime.org/projects/smack", "smackVer123", "sha-1"))
+            .addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "inchatRealVer456", "sha-1"))
+            .build()
+
+        val extracted = com.ndregil.inchat.data.network.ClientRegistryManager.extractCapsFromPresence(presence)
+        assertNotNull(extracted)
+        assertEquals("http://ndregil.inchat", extracted?.first)
+        assertEquals("inchatRealVer456", extracted?.second)
+    }
 }

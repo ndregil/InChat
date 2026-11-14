@@ -133,6 +133,18 @@ class XmppConnectionManager(
         try {
             SmackConfiguration.DEBUG = true
         } catch (_: Exception) {}
+        configureSmackIdentityAndCaps()
+    }
+
+    private fun configureSmackIdentityAndCaps() {
+        try {
+            org.jivesoftware.smackx.disco.ServiceDiscoveryManager.setDefaultIdentity(
+                org.jivesoftware.smackx.disco.packet.DiscoverInfo.Identity("client", "InChat", "phone")
+            )
+            org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed setting Smack default identity/caps node: ${e.message}")
+        }
     }
 
     companion object {
@@ -289,6 +301,7 @@ class XmppConnectionManager(
                 configBuilder.setUsernameAndPassword(username, creds.password)
             }
 
+            configureSmackIdentityAndCaps()
             val configuration = configBuilder.build()
             val connection = XMPPTCPConnection(configuration)
             
@@ -311,9 +324,12 @@ class XmppConnectionManager(
 
             // Setup Entity Capabilities (XEP-0115) and Software Version (XEP-0092) BEFORE connecting
             try {
-                org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
+                val sdm = org.jivesoftware.smackx.disco.ServiceDiscoveryManager.getInstanceFor(connection)
+                sdm.identity = org.jivesoftware.smackx.disco.packet.DiscoverInfo.Identity("client", "InChat", "phone")
                 val capsManager = org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(connection)
-                capsManager.enableEntityCaps()
+                if (!capsManager.entityCapsEnabled()) {
+                    capsManager.enableEntityCaps()
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "EntityCapsManager setup failed: ${e.message}")
             }
@@ -404,6 +420,7 @@ class XmppConnectionManager(
 
             if (creds.host.isNotBlank()) configBuilder.setHost(creds.host.trim())
 
+            configureSmackIdentityAndCaps()
             val connection = XMPPTCPConnection(configBuilder.build())
             connection.addConnectionListener(smackConnectionListener)
             connection.connect()
@@ -460,7 +477,16 @@ class XmppConnectionManager(
             } else {
                 val builder = PresenceBuilder.buildPresence().ofType(Presence.Type.available).setStatus(statusMessage ?: "Active")
                 if (mode != null) builder.setMode(mode)
-                builder.addExtension(org.jivesoftware.smackx.caps.packet.CapsExtension("http://ndregil.inchat", "kFwX23eY765qL90mN12aBcDeFgH=", "sha-1"))
+                val capsVer = try {
+                    org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(conn)?.capsVersionAndHash
+                } catch (_: Exception) { null }
+                builder.overrideExtension(
+                    org.jivesoftware.smackx.caps.packet.CapsExtension(
+                        "http://ndregil.inchat",
+                        capsVer?.version ?: "kFwX23eY765qL90mN12aBcDeFgH=",
+                        capsVer?.hash ?: "sha-1"
+                    )
+                )
                 builder.build()
             }
 

@@ -181,12 +181,33 @@ class RosterManager(
 
             val existing = _contacts.value.find { it.jid.equals(fromJid, ignoreCase = true) }
 
-            val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+            var contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = "",
                 jid = fullJid,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )
+            if (contactCaps.iconResId == null && presence.from != null) {
+                try {
+                    val discoInfo = org.jivesoftware.smackx.caps.EntityCapsManager.getDiscoverInfoByUser(presence.from)
+                    val identityName = discoInfo?.identities?.firstOrNull { !it.name.isNullOrBlank() }?.name
+                    if (!identityName.isNullOrBlank()) {
+                        val resolvedFromDisco = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                            name = identityName,
+                            jid = fullJid,
+                            node = if (ClientRegistryManager.isInChatExact(identityName)) "http://ndregil.inchat" else (extractedCaps?.first ?: ""),
+                            ver = extractedCaps?.second ?: ""
+                        )
+                        if (resolvedFromDisco.iconResId != null) {
+                            contactCaps = resolvedFromDisco
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            if (contactCaps.isIdentified()) {
+                ClientRegistryManager.putCachedCaps(fullJid, contactCaps)
+                ClientRegistryManager.putCachedCaps(fromJid, contactCaps)
+            }
 
             Log.d(TAG, "Presence changed for $fromJid: $userPresence ($statusMsg), nick: $extractedNick, caps: ${contactCaps.clientName}")
 
@@ -794,12 +815,33 @@ class RosterManager(
 
             val effectiveName = nickFromPresence ?: entry.name ?: existing?.name ?: jidString.substringBefore("@")
 
-            val contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+            var contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
                 name = "",
                 jid = presence.from?.toString() ?: jidString,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
             )
+            if (contactCaps.iconResId == null && presence.from != null) {
+                try {
+                    val discoInfo = org.jivesoftware.smackx.caps.EntityCapsManager.getDiscoverInfoByUser(presence.from)
+                    val identityName = discoInfo?.identities?.firstOrNull { !it.name.isNullOrBlank() }?.name
+                    if (!identityName.isNullOrBlank()) {
+                        val resolvedFromDisco = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
+                            name = identityName,
+                            jid = presence.from?.toString() ?: jidString,
+                            node = if (ClientRegistryManager.isInChatExact(identityName)) "http://ndregil.inchat" else (extractedCaps?.first ?: ""),
+                            ver = extractedCaps?.second ?: ""
+                        )
+                        if (resolvedFromDisco.iconResId != null) {
+                            contactCaps = resolvedFromDisco
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+            if (contactCaps.isIdentified()) {
+                presence.from?.toString()?.let { ClientRegistryManager.putCachedCaps(it, contactCaps) }
+                ClientRegistryManager.putCachedCaps(jidString, contactCaps)
+            }
 
             RosterContact(
                 jid = jidString,

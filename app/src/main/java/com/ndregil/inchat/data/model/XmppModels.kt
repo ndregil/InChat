@@ -479,25 +479,23 @@ data class ClientCaps(
             val cleanVersion = version.trim()
             val cleanOs = os.trim()
 
-            // 1. Try global cache first for stability
-            val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(jid, ver)
-            if (cached != null && cached.iconResId != null) {
-                return if (cleanName.isNotBlank() && cleanName != "unknown" && cleanName != cached.clientName) {
-                    cached.copy(clientName = cleanName)
-                } else {
-                    cached
-                }
-            }
-
-            // Strictly resolve against clients.txt definitions
+            // 1. Resolve directly against clients.txt definitions first when node or explicit name is provided
             var definition = com.ndregil.inchat.data.network.ClientRegistryManager.resolve(
                 name = cleanName,
                 jid = jid,
                 node = cleanNode
             )
 
-            if (definition == null && (cleanName.contains("bot", ignoreCase = true) || jid.contains("bot", ignoreCase = true))) {
-                definition = com.ndregil.inchat.data.network.ClientRegistryManager.findDefByName("Jabber Bot")
+            // 2. Fallback to cache only when node wasn't provided or couldn't resolve directly
+            if (definition == null && cleanNode.isBlank()) {
+                val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(jid, ver)
+                if (cached != null && cached.iconResId != null) {
+                    return if (cleanName.isNotBlank() && cleanName != "unknown" && cleanName != cached.clientName) {
+                        cached.copy(clientName = cleanName)
+                    } else {
+                        cached
+                    }
+                }
             }
 
             // If cleanName is explicitly provided (occupant nick, contact name), preserve it.

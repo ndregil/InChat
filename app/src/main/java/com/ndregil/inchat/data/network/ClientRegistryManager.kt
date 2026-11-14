@@ -86,14 +86,37 @@ object ClientRegistryManager {
         }
     }
 
+    private const val PLACEHOLDER_VER = "kFwX23eY765qL90mN12aBcDeFgH="
+
+    private fun isBareMucRoomJid(jid: String): Boolean {
+        val clean = jid.trim().lowercase()
+        if (clean.isEmpty() || clean.contains("/")) return false
+        return clean.contains("@conference.") || clean.contains("@muc.") ||
+            clean.contains("@chat.") || clean.contains("@room.") || clean.contains("@group.")
+    }
+
     fun getCachedCaps(jid: String, ver: String? = null): com.ndregil.inchat.data.model.ClientCaps? {
-        // Caching disabled to prevent stale/incorrect icon attribution across rooms and sessions.
-        // Client capabilities are resolved dynamically on demand from presence/node.
+        val cleanJid = jid.trim().lowercase()
+        if (cleanJid.isNotBlank() && !isBareMucRoomJid(cleanJid)) {
+            globalCapsCache[cleanJid]?.let { return it }
+        }
+        val cleanVer = ver?.trim() ?: ""
+        if (cleanVer.isNotBlank() && cleanVer != PLACEHOLDER_VER && cleanVer.length >= 8) {
+            verCapsCache[cleanVer]?.let { return it }
+        }
         return null
     }
 
     fun putCachedCaps(jid: String, caps: com.ndregil.inchat.data.model.ClientCaps) {
-        // Caching disabled to ensure real-time accuracy directly from clients.txt / presence.
+        if (!caps.isIdentified() || caps.rawNode.isBlank()) return
+        val cleanJid = jid.trim().lowercase()
+        if (cleanJid.isNotBlank() && !isBareMucRoomJid(cleanJid)) {
+            globalCapsCache[cleanJid] = caps
+        }
+        val cleanVer = caps.ver.trim()
+        if (cleanVer.isNotBlank() && cleanVer != PLACEHOLDER_VER && cleanVer.length >= 8) {
+            verCapsCache[cleanVer] = caps
+        }
     }
 
     fun markAsQueried(key: String): Boolean = queriedVersions.add(key)
@@ -539,67 +562,78 @@ object ClientRegistryManager {
 
     /**
      * Robustly extracts node and ver attributes from any XEP-0115 presence packet.
-     * Handles CapsExtension, DefaultExtensionElement, StandardExtensionElement, and XML fallbacks.
+     * Collects all CapsExtension / <c> elements and prefers known client nodes (e.g., http://ndregil.inchat).
      */
     fun extractCapsFromPresence(presence: org.jivesoftware.smack.packet.Presence?): Pair<String, String>? {
         if (presence == null) return null
 
-        try {
-            // 1. Try standard Smack CapsExtension
-            val capsExt = org.jivesoftware.smackx.caps.packet.CapsExtension.from(presence)
-                ?: (presence.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
-            if (capsExt != null && capsExt.node.isNotBlank()) {
-                return Pair(capsExt.node, capsExt.ver ?: "")
-            }
-        } catch (_: Exception) {}
+        val candidates = mutableListOf<Pair<String, String>>()
 
         try {
-            // 2. Comprehensive search across all extensions for 'c' element with caps namespace
+            // 1. Collect across all extensions for 'c' element with caps namespace
             presence.extensions.forEach { ext ->
-                if ((ext.elementName == "c" && ext.namespace == "http://jabber.org/protocol/caps") || 
+                if ((ext.elementName == "c" && ext.namespace == "http://jabber.org/protocol/caps") ||
                     ext.namespace == "http://jabber.org/protocol/caps") {
-                    
+
                     if (ext is org.jivesoftware.smackx.caps.packet.CapsExtension) {
-                        return Pair(ext.node, ext.ver ?: "")
-                    }
-                    
-                    if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
+                        if (ext.node.isNotBlank()) {
+                            candidates.add(Pair(ext.node, ext.ver ?: ""))
+                        }
+                    } else if (ext is org.jivesoftware.smack.packet.StandardExtensionElement) {
                         val nodeAttr = ext.getAttributeValue("node")
                         val verAttr = ext.getAttributeValue("ver")
                         if (!nodeAttr.isNullOrBlank()) {
-                            return Pair(nodeAttr, verAttr ?: "")
+                            candidates.add(Pair(nodeAttr, verAttr ?: ""))
+                        }
+                    } else {
+                        val xml = ext.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+                        val nodeMatch = Regex("""\bnode=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                        val verMatch = Regex("""\bver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                        if (!nodeMatch.isNullOrBlank()) {
+                            candidates.add(Pair(nodeMatch, verMatch ?: ""))
                         }
                     }
-                    
-                    // 3. XML regex fallback for unidentified extension types
-                    val xml = ext.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
-                    val nodeMatch = Regex("""node=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                    val verMatch = Regex("""ver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
+            // 2. Try standard Smack CapsExtension helper if none found yet
+            if (candidates.isEmpty()) {
+                val capsExt = org.jivesoftware.smackx.caps.packet.CapsExtension.from(presence)
+                    ?: (presence.getExtension("c", "http://jabber.org/protocol/caps") as? org.jivesoftware.smackx.caps.packet.CapsExtension)
+                if (capsExt != null && capsExt.node.isNotBlank()) {
+                    candidates.add(Pair(capsExt.node, capsExt.ver ?: ""))
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 3. Stanza XML fallback specifically within <c ... http://jabber.org/protocol/caps ...>
+        if (candidates.isEmpty()) {
+            try {
+                val xml = presence.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
+                val cTagRegex = Regex("""<c\b[^>]*xmlns=["']http://jabber\.org/protocol/caps["'][^>]*>""", RegexOption.IGNORE_CASE)
+                cTagRegex.findAll(xml).forEach { match ->
+                    val tag = match.value
+                    val nodeMatch = Regex("""\bnode=["']([^"']+)["']""").find(tag)?.groupValues?.get(1)
+                    val verMatch = Regex("""\bver=["']([^"']+)["']""").find(tag)?.groupValues?.get(1)
                     if (!nodeMatch.isNullOrBlank()) {
-                        return Pair(nodeMatch, verMatch ?: "")
+                        candidates.add(Pair(nodeMatch, verMatch ?: ""))
                     }
                 }
-            }
-        } catch (_: Exception) {}
+            } catch (_: Exception) {}
+        }
 
-        // 4. Stanza XML check fallback if extensions list didn't include caps element
-        try {
-            val xml = presence.toXML(null as org.jivesoftware.smack.packet.XmlEnvironment?).toString()
-            if (xml.contains("http://jabber.org/protocol/caps")) {
-                val nodeMatch = Regex("""\bnode=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                val verMatch = Regex("""\bver=["']([^"']+)["']""").find(xml)?.groupValues?.get(1)
-                if (!nodeMatch.isNullOrBlank()) {
-                    return Pair(nodeMatch, verMatch ?: "")
-                }
-            }
-        } catch (_: Exception) {}
-
-        return null
+        if (candidates.isEmpty()) return null
+        // Prefer an InChat or known registry node if multiple <c> extensions were attached
+        return candidates.firstOrNull { isInChatNode(it.first) }
+            ?: candidates.firstOrNull { resolveByNode(it.first) != null }
+            ?: candidates.first()
     }
 
     /**
-     * Strict check for InChat:
-     * http://ndregil.inchat, ndregil.inchat, inchat
+     * Strict check for InChat name/resource/bare node:
+     * http://ndregil.inchat, https://ndregil.inchat, ndregil.inchat, inchat, inchat-android
      * Jika bukan persis di atas tadi berarti BUKAN InChat.
      */
     fun isInChatExact(value: String): Boolean {
@@ -609,7 +643,49 @@ object ClientRegistryManager {
         return clean == "http://ndregil.inchat" ||
                clean == "https://ndregil.inchat" ||
                clean == "ndregil.inchat" ||
-               clean == "inchat"
+               clean == "inchat" ||
+               clean == "inchat-android"
+    }
+
+    /**
+     * Strict check for InChat XEP-0115 node URI (supports #ver fragment and /caps path):
+     * e.g. http://ndregil.inchat, https://ndregil.inchat, http://ndregil.inchat/caps,
+     * http://ndregil.inchat#ver, ndregil.inchat, ndregil.inchat/caps, inchat.
+     * Rejects unrelated domains like http://fake.inchat.org or http://ndregil.inchat.bot.com.
+     */
+    fun isInChatNode(node: String): Boolean {
+        val trimmed = node.trim()
+        if (trimmed.isEmpty()) return false
+        val base = trimmed.substringBefore("#").trim().lowercase().removeSuffix("/")
+        return base == "http://ndregil.inchat" ||
+               base == "https://ndregil.inchat" ||
+               base == "http://ndregil.inchat/caps" ||
+               base == "https://ndregil.inchat/caps" ||
+               base == "ndregil.inchat" ||
+               base == "ndregil.inchat/caps" ||
+               base == "inchat" ||
+               base == "inchat-android"
+    }
+
+    fun isMucJid(jid: String): Boolean {
+        val bare = jid.trim().substringBefore("/").lowercase()
+        return bare.contains("@conference.") || bare.contains("@muc.") ||
+            bare.contains("@chat.") || bare.contains("@room.") || bare.contains("@group.")
+    }
+
+    fun isDelimitedOrCamelBot(value: String): Boolean {
+        val clean = value.trim()
+        if (clean.isEmpty()) return false
+        val lower = clean.lowercase()
+        if (lower == "bot" ||
+            lower.startsWith("bot-") || lower.startsWith("bot_") || lower.startsWith("bot.") || lower.startsWith("bot ") ||
+            lower.endsWith("-bot") || lower.endsWith("_bot") || lower.endsWith(".bot") || lower.endsWith(" bot") ||
+            lower.contains("-bot-") || lower.contains("_bot_") || lower.contains(" bot ") || lower.contains(".bot.")
+        ) {
+            return true
+        }
+        // CamelCase suffix like BudiBot, SmartBot (does not falsely match "robot" or "abbott")
+        return Regex("""[a-z0-9]Bot(?:$|[^a-zA-Z0-9])""").containsMatchIn(clean)
     }
 
     fun findDefByName(targetName: String): ClientDefinition? {
@@ -621,38 +697,44 @@ object ClientRegistryManager {
 
     /**
      * Flexible matching of a node URL against clients.txt patterns.
-     * InChat is strictly matched via isInChatExact and never guessed via substring.
+     * InChat is strictly matched via isInChatNode BEFORE the dot/protocol check.
      */
     fun resolveByNode(node: String): ClientDefinition? {
         val rawClean = node.trim()
         if (rawClean.isBlank()) return null
 
-        // Ensure it looks like a valid node URL or domain (has dots or protocol)
+        // Check strict InChat node forms first (including "inchat", "http://ndregil.inchat/caps", "...#ver")
+        if (isInChatNode(rawClean)) {
+            return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
+        // Ensure remaining node strings look like a valid node URL or domain (has dots or protocol)
         val isLikelyNode = rawClean.contains(".") || rawClean.contains("://") || rawClean.startsWith("http")
         if (!isLikelyNode) return null
 
-        // Aturan KETAT untuk InChat:
-        if (isInChatExact(rawClean)) {
-            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
-        }
+        // Remove protocol and fragment for keyword matching
+        val cleanNode = rawClean.substringBefore("#").trim().lowercase()
+            .removePrefix("http://").removePrefix("https://").removeSuffix("/")
 
-        // Remove protocol for cleaner keyword matching
-        val cleanNode = rawClean.lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-        
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        // Check every client definition (exclude InChat from loose substring matching)
-        return registry.firstOrNull { def -> 
-            if (def.clientName.equals("InChat", ignoreCase = true)) {
-                return@firstOrNull false
-            }
+        // Pass 1: Match specific client patterns first (excluding InChat and generic "bot" keyword)
+        registry.firstOrNull { def ->
+            if (def.clientName.equals("InChat", ignoreCase = true)) return@firstOrNull false
             def.patterns.any { pattern ->
                 val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                if (keyword.isBlank()) return@any false
-
-                // "Asal ada kata-kata" logic: contains the keyword
+                if (keyword.isBlank() || keyword == "bot") return@any false
                 cleanNode.contains(keyword)
-            } 
+            }
+        }?.let { return it }
+
+        // Pass 2: Fallback for generic bot node keywords (e.g., xmpp.bot.com, bot.xmpp.today/caps)
+        return registry.firstOrNull { def ->
+            if (def.clientName.equals("InChat", ignoreCase = true)) return@firstOrNull false
+            def.patterns.any { pattern ->
+                val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
+                keyword == "bot" && cleanNode.contains(keyword)
+            }
         }
     }
 
@@ -666,7 +748,7 @@ object ClientRegistryManager {
 
         // Aturan KETAT untuk InChat:
         if (isInChatExact(cleanName)) {
-            return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+            return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
         }
 
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
@@ -675,15 +757,15 @@ object ClientRegistryManager {
             if (def.clientName.equals("InChat", ignoreCase = true)) {
                 return@firstOrNull false
             }
-            
+
             // 1. Direct name match (STRICT)
             if (def.clientName.lowercase() == cleanName) return@firstOrNull true
-            
+
             // 2. Pattern match (STRICT for names)
             def.patterns.any { p ->
                 val keyword = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 if (keyword.isBlank()) return@any false
-                
+
                 // Only allow exact match for name-based resolution to avoid "inchatuser" matching "inchat"
                 cleanName == keyword
             }
@@ -697,50 +779,37 @@ object ClientRegistryManager {
         val cleanNode = node.trim()
         val cleanName = name.trim()
         val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
+        val mucJid = isMucJid(jid)
 
-        // 1. Cek khusus InChat secara KETAT (harus asli dari ndregil.inchat atau inchat):
-        val isPeerInChat = isInChatExact(cleanNode) || isInChatExact(resource) || isInChatExact(cleanName) ||
-            cleanNode.contains("ndregil.inchat", true) || resource.contains("ndregil.inchat", true) || jid.contains("ndregil.inchat", true) ||
-            cleanNode.equals("inchat", true) || resource.equals("inchat", true)
-
-        if (isPeerInChat) {
-            if (!cleanName.contains("bot", ignoreCase = true) &&
-                !resource.contains("bot", ignoreCase = true) &&
-                !jid.contains("bot", ignoreCase = true)) {
-                return staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
-            }
+        // 1. Resolusi berdasarkan Node XEP-0115 terlebih dahulu (paling otoritatif):
+        // Termasuk http://ndregil.inchat, .../caps, ...#ver, ndregil.inchat, inchat, maupun bot node.
+        // Tidak boleh diblokir oleh nick/room JID yang mengandung "bot" (seperti "robot", "abbott", atau room "*bot*").
+        if (cleanNode.isNotBlank()) {
+            resolveByNode(cleanNode)?.let { return it }
         }
 
-        // 2. Cek apakah ini Bot
-        val isBotName = cleanName.equals("bot", true) || cleanName.contains("-bot", true) || cleanName.contains("_bot", true) || cleanName.endsWith(" bot", true)
-        val isBotResource = resource.equals("bot", true) || resource.contains("-bot", true) || resource.contains("_bot", true) || resource.endsWith(" bot", true)
-        
-        if (isBotName || isBotResource || cleanNode.contains("bot", ignoreCase = true)) {
-            findDefByName("Jabber Bot")?.let { return it }
-        }
-        
-        if (jid.contains("bot", ignoreCase = true)) {
-            val jidResource = jid.substringAfterLast("/", "")
-            if (jidResource.isNotBlank()) {
-                if (jidResource.contains("bot", ignoreCase = true)) {
-                    findDefByName("Jabber Bot")?.let { return it }
-                }
-            } else if (jid.substringBefore("@").contains("bot", ignoreCase = true)) {
-                findDefByName("Jabber Bot")?.let { return it }
-            }
-        }
-
-        // 3. Resolusi berdasarkan Nama / Resource JID terlebih dahulu (jika spesifik dan valid)
+        // 2. Resolusi berdasarkan Nama Software / Klien (jika spesifik dan valid):
         if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
             resolveByName(cleanName)?.let { return it }
         }
-        if (resource.isNotBlank()) {
+
+        // 3. Resolusi berdasarkan Resource JID HANYA untuk chat 1:1 (bukan MUC room, karena di MUC resource = nickname):
+        if (!mucJid && resource.isNotBlank()) {
             resolveByName(resource)?.let { return it }
+            // Support resource variants like "InChat.abc123" or "InChat-Android" in 1:1 chat
+            val resBase = resource.substringBefore(".").trim()
+            if (isInChatExact(resBase)) {
+                return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+            }
         }
 
-        // 4. Resolusi berdasarkan Node
-        if (cleanNode.isNotBlank()) {
-            resolveByNode(cleanNode)?.let { return it }
+        // 4. Fallback Bot (token terpisah / CamelCase, TIDAK menyamakan "robot", "abbott", atau nama room MUC):
+        val localPart = jid.substringBefore("@").trim()
+        if (isDelimitedOrCamelBot(cleanName) ||
+            isDelimitedOrCamelBot(resource) ||
+            (!mucJid && isDelimitedOrCamelBot(localPart))
+        ) {
+            findDefByName("Jabber Bot")?.let { return it }
         }
 
         return null
