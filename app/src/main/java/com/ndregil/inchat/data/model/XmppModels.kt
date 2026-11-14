@@ -693,7 +693,8 @@ data class ThemePreferences(
     val isDarkModeOverride: Boolean? = null,
     val messageFontSizeSp: Float = 14f,
     val appFontSizeSp: Float = 14f,
-    val contactFontSizeSp: Float = 14f
+    val contactFontSizeSp: Float = 14f,
+    val fontFamily: String = "default"
 )
 
 data class TranslationPreferences(

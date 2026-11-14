@@ -611,7 +611,7 @@ fun RosterContactListItem(
     onCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onSendFileClick: () -> Unit,
-    themePrefs: ThemePreferences = ThemePreferences()
+    themePrefs: ThemePreferences = com.ndregil.inchat.ui.theme.LocalThemePreferences.current
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -714,7 +714,8 @@ fun RosterContactListItem(
                                 text = contact.displayName,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
+                                fontSize = themePrefs.contactFontSizeSp.sp,
+                                lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 color = if (themePrefs.isCustomThemeEnabled) {
@@ -779,6 +780,7 @@ fun RosterContactListItem(
                         Text(
                             text = contact.jid,
                             style = MaterialTheme.typography.bodySmall,
+                            fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1700,7 +1702,7 @@ fun SavedRoomItem(
     onRemove: () -> Unit,
     onChangeColorClick: () -> Unit,
     onToggleAutoJoin: (() -> Unit)? = null,
-    themePrefs: ThemePreferences = ThemePreferences()
+    themePrefs: ThemePreferences = com.ndregil.inchat.ui.theme.LocalThemePreferences.current
 ) {
     val roomColor = try {
         Color(android.graphics.Color.parseColor(room.colorHex))
@@ -1782,6 +1784,8 @@ fun SavedRoomItem(
                         Text(
                             text = cleanTitle,
                             style = MaterialTheme.typography.titleMedium,
+                            fontSize = themePrefs.contactFontSizeSp.sp,
+                            lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1812,6 +1816,7 @@ fun SavedRoomItem(
                     Text(
                         text = room.jid,
                         style = MaterialTheme.typography.bodySmall,
+                        fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

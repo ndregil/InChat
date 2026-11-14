@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.XmppRoom
 import com.ndregil.inchat.data.model.ThemePreferences
+import com.ndregil.inchat.ui.theme.LocalThemePreferences
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,7 +57,7 @@ fun RoomItemCard(
     isSelected: Boolean,
     onClick: () -> Unit,
     roomAvatar: ByteArray? = null,
-    themePrefs: ThemePreferences = ThemePreferences(),
+    themePrefs: ThemePreferences = LocalThemePreferences.current,
     modifier: Modifier = Modifier
 ) {
     val roomColor = try {
@@ -136,6 +137,8 @@ fun RoomItemCard(
                     Text(
                         text = room.name,
                         style = MaterialTheme.typography.titleMedium,
+                        fontSize = themePrefs.contactFontSizeSp.sp,
+                        lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,
                         fontWeight = if (room.unreadCount > 0 || isSelected) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -161,6 +164,8 @@ fun RoomItemCard(
                 Text(
                     text = room.lastMessageText.ifBlank { room.topic.ifBlank { "Ruang obrolan XMPP MUC" } },
                     style = MaterialTheme.typography.bodySmall,
+                    fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
+                    lineHeight = ((themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f) * 1.3f).sp,
                     color = if (room.unreadCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

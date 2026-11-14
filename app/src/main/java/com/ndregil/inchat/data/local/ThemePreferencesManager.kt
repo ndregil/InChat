@@ -32,6 +32,7 @@ class ThemePreferencesManager(private val context: Context) {
         val MESSAGE_FONT_SIZE = floatPreferencesKey("message_font_size")
         val APP_FONT_SIZE = floatPreferencesKey("app_font_size")
         val CONTACT_FONT_SIZE = floatPreferencesKey("contact_font_size")
+        val FONT_FAMILY = stringPreferencesKey("font_family")
     }
 
     val themePreferences: Flow<ThemePreferences> = context.dataStore.data
@@ -61,7 +62,8 @@ class ThemePreferencesManager(private val context: Context) {
                 isDarkModeOverride = darkOverride,
                 messageFontSizeSp = preferences[PreferencesKeys.MESSAGE_FONT_SIZE] ?: 14f,
                 appFontSizeSp = preferences[PreferencesKeys.APP_FONT_SIZE] ?: 14f,
-                contactFontSizeSp = preferences[PreferencesKeys.CONTACT_FONT_SIZE] ?: 14f
+                contactFontSizeSp = preferences[PreferencesKeys.CONTACT_FONT_SIZE] ?: 14f,
+                fontFamily = preferences[PreferencesKeys.FONT_FAMILY] ?: "default"
             )
         }
 
@@ -82,7 +84,6 @@ class ThemePreferencesManager(private val context: Context) {
             prefs.customWallpaperUri?.let { preferences[PreferencesKeys.CUSTOM_WALLPAPER_URI] = it } ?: preferences.remove(PreferencesKeys.CUSTOM_WALLPAPER_URI)
             preferences[PreferencesKeys.WALLPAPER_OPACITY] = prefs.wallpaperOpacity
             preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] = prefs.isCustomThemeEnabled
-            preferences[PreferencesKeys.IS_CUSTOM_THEME_ENABLED] = prefs.isCustomThemeEnabled
             val darkInt = when (prefs.isDarkModeOverride) {
                 true -> 1
                 false -> 2
@@ -92,6 +93,7 @@ class ThemePreferencesManager(private val context: Context) {
             preferences[PreferencesKeys.MESSAGE_FONT_SIZE] = prefs.messageFontSizeSp
             preferences[PreferencesKeys.APP_FONT_SIZE] = prefs.appFontSizeSp
             preferences[PreferencesKeys.CONTACT_FONT_SIZE] = prefs.contactFontSizeSp
+            preferences[PreferencesKeys.FONT_FAMILY] = prefs.fontFamily
         }
     }
 }

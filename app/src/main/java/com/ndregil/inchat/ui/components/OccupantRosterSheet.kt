@@ -417,10 +417,13 @@ fun OccupantItemRow(
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
+            val contactFontSizeSp = com.ndregil.inchat.ui.theme.LocalThemePreferences.current.contactFontSizeSp
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = occupant.nickname,
                     style = MaterialTheme.typography.titleMedium,
+                    fontSize = contactFontSizeSp.sp,
+                    lineHeight = (contactFontSizeSp * 1.3f).sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

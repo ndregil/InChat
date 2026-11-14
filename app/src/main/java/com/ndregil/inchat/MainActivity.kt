@@ -72,7 +72,8 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme(
                 darkTheme = useDarkMode,
                 dynamicColor = !themePrefs.isCustomThemeEnabled,
-                customAccentColor = customAccent
+                customAccentColor = customAccent,
+                themePreferences = themePrefs
             ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     if (currentAccount.jid.isBlank() && onboardingTarget == null) {

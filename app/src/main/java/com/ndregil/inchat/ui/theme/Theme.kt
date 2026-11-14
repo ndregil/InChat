@@ -8,13 +8,19 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.runtime.SideEffect
 import androidx.core.view.WindowCompat
 import android.app.Activity
+import com.ndregil.inchat.data.model.ThemePreferences
+
+val LocalThemePreferences = compositionLocalOf { ThemePreferences() }
 
 private val DarkColorScheme = darkColorScheme(
     primary = CyanPrimaryDark,
@@ -59,6 +65,7 @@ fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     customAccentColor: Color? = null,
+    themePreferences: ThemePreferences = ThemePreferences(),
     content: @Composable () -> Unit,
 ) {
     var colorScheme = when {
@@ -89,9 +96,18 @@ fun MyApplicationTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    val typography = remember(themePreferences.appFontSizeSp, themePreferences.fontFamily) {
+        createScaledTypography(
+            appFontSizeSp = themePreferences.appFontSizeSp,
+            fontFamilyKey = themePreferences.fontFamily
+        )
+    }
+
+    CompositionLocalProvider(LocalThemePreferences provides themePreferences) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = typography,
+            content = content
+        )
+    }
 }

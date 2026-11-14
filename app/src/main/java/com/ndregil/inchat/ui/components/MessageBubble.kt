@@ -85,6 +85,7 @@ import com.ndregil.inchat.data.model.XmppMessage
 import com.ndregil.inchat.data.model.ThemePreferences
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
+import com.ndregil.inchat.ui.theme.LocalThemePreferences
 import com.ndregil.inchat.ui.theme.OfflineGray
 import com.ndregil.inchat.ui.theme.OnlineGreen
 import java.text.SimpleDateFormat
@@ -168,7 +169,7 @@ fun MessageBubble(
     onTranslateClick: ((XmppMessage) -> Unit)? = null,
     bubbleTheme: String = "dregil-theme",
     isDark: Boolean = androidx.compose.foundation.isSystemInDarkTheme(),
-    themePrefs: ThemePreferences = ThemePreferences(),
+    themePrefs: ThemePreferences = LocalThemePreferences.current,
     modifier: Modifier = Modifier
 ) {
     var showCapsDialog by remember { mutableStateOf(false) }
@@ -286,7 +287,7 @@ fun MessageBubble(
                                 )
                                 Text(
                                     text = if (isMine) "Bisikan ke @${message.recipientNickname ?: "user"}" else "Bisikan dari ${message.senderNickname}",
-                                    fontSize = 11.sp,
+                                    fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFA78BFA)
                                 )
@@ -295,7 +296,7 @@ fun MessageBubble(
                     } else {
                         Text(
                             text = message.senderNickname,
-                            fontSize = 12.sp,
+                            fontSize = (themePrefs.contactFontSizeSp - 1f).coerceAtLeast(10f).sp,
                             fontWeight = FontWeight.Bold,
                             color = senderColor,
                             modifier = Modifier.clickable {
@@ -465,13 +466,13 @@ fun MessageBubble(
                                 Column {
                                     Text(
                                         text = "Membalas @${message.replyToSender ?: "user"}",
-                                        fontSize = 11.sp,
+                                        fontSize = (themePrefs.messageFontSizeSp - 3f).coerceAtLeast(10f).sp,
                                         fontWeight = FontWeight.Bold,
                                         color = palette.accentColor
                                     )
                                     Text(
                                         text = message.replyToText ?: "",
-                                        fontSize = 11.sp,
+                                        fontSize = (themePrefs.messageFontSizeSp - 2f).coerceAtLeast(10f).sp,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         color = textColor.copy(alpha = 0.85f)
@@ -549,6 +550,7 @@ fun MessageBubble(
                                                         myNickname = myNickname,
                                                         textColor = textColor,
                                                         accentColor = palette.accentColor,
+                                                        fontSizeSp = themePrefs.messageFontSizeSp,
                                                         onMentionClick = onMentionClick,
                                                         onQuoteClick = { onReplyClick(message) }
                                                     )
@@ -558,6 +560,7 @@ fun MessageBubble(
                                                         myNickname = myNickname,
                                                         textColor = textColor,
                                                         accentColor = palette.accentColor,
+                                                        fontSizeSp = themePrefs.messageFontSizeSp,
                                                         onMentionClick = onMentionClick,
                                                         onQuoteClick = { onReplyClick(message) }
                                                     )
@@ -568,6 +571,7 @@ fun MessageBubble(
                                                     myNickname = myNickname,
                                                     textColor = textColor,
                                                     accentColor = palette.accentColor,
+                                                    fontSizeSp = themePrefs.messageFontSizeSp,
                                                     onMentionClick = onMentionClick,
                                                     onQuoteClick = { onReplyClick(message) }
                                                 )
@@ -819,6 +823,7 @@ fun FormattedMessageText(
     myNickname: String,
     textColor: Color,
     accentColor: Color,
+    fontSizeSp: Float = LocalThemePreferences.current.messageFontSizeSp,
     onMentionClick: ((String) -> Unit)? = null,
     onQuoteClick: (() -> Unit)? = null
 ) {
@@ -900,7 +905,11 @@ fun FormattedMessageText(
 
     ClickableText(
         text = annotatedString,
-        style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+        style = MaterialTheme.typography.bodyMedium.copy(
+            color = textColor,
+            fontSize = fontSizeSp.sp,
+            lineHeight = (fontSizeSp * 1.4f).sp
+        ),
         onClick = { offset ->
             val annotations = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
             if (annotations.isNotEmpty()) {
@@ -963,6 +972,7 @@ fun SystemMessagePill(
         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
     }
 
+    val systemFontSizeSp = (LocalThemePreferences.current.messageFontSizeSp - 3f).coerceAtLeast(10f)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -977,7 +987,8 @@ fun SystemMessagePill(
         Text(
             text = fullText,
             style = MaterialTheme.typography.bodySmall,
-            fontSize = 11.sp,
+            fontSize = systemFontSizeSp.sp,
+            lineHeight = (systemFontSizeSp * 1.3f).sp,
             fontWeight = FontWeight.Normal,
             color = textColor,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center

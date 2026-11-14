@@ -61,6 +61,11 @@ import androidx.core.graphics.drawable.toBitmap
 import com.ndregil.inchat.BuildConfig
 import com.ndregil.inchat.R
 import androidx.compose.ui.res.painterResource
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import com.ndregil.inchat.ui.theme.APP_FONT_OPTIONS
+import com.ndregil.inchat.ui.theme.resolveAppFontFamily
+import kotlin.math.roundToInt
 
 private fun Context.findActivity(): Activity? {
     var ctx = this
@@ -2032,55 +2037,409 @@ fun TranslationSubSettings(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FontSettings(
     themePreferences: com.ndregil.inchat.data.model.ThemePreferences,
     onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit
 ) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            Text("Pengaturan Font", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Sesuaikan ukuran font untuk berbagai bagian aplikasi.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val context = LocalContext.current
+
+    var draftMessageSize by remember(themePreferences) { mutableStateOf(themePreferences.messageFontSizeSp) }
+    var draftAppSize by remember(themePreferences) { mutableStateOf(themePreferences.appFontSizeSp) }
+    var draftContactSize by remember(themePreferences) { mutableStateOf(themePreferences.contactFontSizeSp) }
+    var draftFontFamily by remember(themePreferences) { mutableStateOf(themePreferences.fontFamily) }
+    var justSaved by remember { mutableStateOf(false) }
+
+    val hasChanges = draftMessageSize != themePreferences.messageFontSizeSp ||
+        draftAppSize != themePreferences.appFontSizeSp ||
+        draftContactSize != themePreferences.contactFontSizeSp ||
+        draftFontFamily != themePreferences.fontFamily
+
+    val previewFamily = remember(draftFontFamily) { resolveAppFontFamily(draftFontFamily) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Pengaturan Font",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (hasChanges) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer
+                            ) {
+                                Text(
+                                    text = "Belum disimpan",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Pilih jenis huruf dan ukuran teks, lalu tekan Simpan untuk menerapkan ke seluruh aplikasi.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            item {
+                AnimatedVisibility(visible = justSaved && !hasChanges) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Pengaturan font berhasil disimpan dan diterapkan.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Live Preview Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Pratinjau Langsung",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        // Preview Kontak
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "IN",
+                                    fontFamily = previewFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = "Ndregil (Nama Kontak)",
+                                    fontFamily = previewFamily,
+                                    fontSize = draftContactSize.sp,
+                                    lineHeight = (draftContactSize * 1.3f).sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "Pratinjau teks antarmuka aplikasi",
+                                    fontFamily = previewFamily,
+                                    fontSize = draftAppSize.sp,
+                                    lineHeight = (draftAppSize * 1.3f).sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                        // Preview Bubble Pesan
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Halo! Ini contoh tampilan teks pesan obrolan dengan ukuran ${draftMessageSize.toInt()}sp.",
+                                fontFamily = previewFamily,
+                                fontSize = draftMessageSize.sp,
+                                lineHeight = (draftMessageSize * 1.4f).sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Font Family Selection
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Jenis Huruf (Font Family)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            APP_FONT_OPTIONS.forEach { option ->
+                                val selected = draftFontFamily == option.key
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        draftFontFamily = option.key
+                                        justSaved = false
+                                    },
+                                    modifier = Modifier.testTag("chip_font_${option.key}"),
+                                    leadingIcon = if (selected) {
+                                        {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    } else null,
+                                    label = {
+                                        Text(
+                                            text = option.label,
+                                            fontFamily = option.fontFamily,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Font Size Sliders
+            item {
+                FontSizeSlider(
+                    label = "Ukuran Font Pesan",
+                    description = "Mengatur ukuran teks di gelembung chat dan kolom ketik pesan.",
+                    value = draftMessageSize,
+                    testTag = "slider_message_font",
+                    onValueChange = {
+                        draftMessageSize = it
+                        justSaved = false
+                    }
+                )
+            }
+            item {
+                FontSizeSlider(
+                    label = "Ukuran Font Aplikasi",
+                    description = "Mengatur skala huruf menu, label, dan antarmuka aplikasi.",
+                    value = draftAppSize,
+                    testTag = "slider_app_font",
+                    onValueChange = {
+                        draftAppSize = it
+                        justSaved = false
+                    }
+                )
+            }
+            item {
+                FontSizeSlider(
+                    label = "Ukuran Font Kontak",
+                    description = "Mengatur ukuran nama kontak, ruang obrolan, dan peserta room.",
+                    value = draftContactSize,
+                    testTag = "slider_contact_font",
+                    onValueChange = {
+                        draftContactSize = it
+                        justSaved = false
+                    }
+                )
+            }
         }
 
-        item {
-            FontSizeSlider(
-                label = "Ukuran Font Pesan",
-                value = themePreferences.messageFontSizeSp,
-                onValueChange = { onUpdateThemePreferences(themePreferences.copy(messageFontSizeSp = it)) }
-            )
-        }
-        item {
-            FontSizeSlider(
-                label = "Ukuran Font Aplikasi",
-                value = themePreferences.appFontSizeSp,
-                onValueChange = { onUpdateThemePreferences(themePreferences.copy(appFontSizeSp = it)) }
-            )
-        }
-        item {
-            FontSizeSlider(
-                label = "Ukuran Font Kontak",
-                value = themePreferences.contactFontSizeSp,
-                onValueChange = { onUpdateThemePreferences(themePreferences.copy(contactFontSizeSp = it)) }
-            )
+        // Bottom Pinned Save / Reset Bar
+        Surface(
+            tonalElevation = 4.dp,
+            shadowElevation = 6.dp,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        draftMessageSize = 14f
+                        draftAppSize = 14f
+                        draftContactSize = 14f
+                        draftFontFamily = "default"
+                        onUpdateThemePreferences(
+                            themePreferences.copy(
+                                messageFontSizeSp = 14f,
+                                appFontSizeSp = 14f,
+                                contactFontSizeSp = 14f,
+                                fontFamily = "default"
+                            )
+                        )
+                        justSaved = true
+                        Toast.makeText(context, "Pengaturan font direset ke default", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_reset_font")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reset")
+                }
+
+                Button(
+                    onClick = {
+                        onUpdateThemePreferences(
+                            themePreferences.copy(
+                                messageFontSizeSp = draftMessageSize,
+                                appFontSizeSp = draftAppSize,
+                                contactFontSizeSp = draftContactSize,
+                                fontFamily = draftFontFamily
+                            )
+                        )
+                        justSaved = true
+                        Toast.makeText(context, "Pengaturan font berhasil disimpan", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .weight(1.4f)
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_save_font")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (hasChanges) "Simpan" else "Simpan Pengaturan")
+                }
+            }
         }
     }
 }
 
 @Composable
-fun FontSizeSlider(label: String, value: Float, onValueChange: (Float) -> Unit) {
-    Column {
-        Text(text = "$label: ${value.toInt()}sp", fontWeight = FontWeight.SemiBold)
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = 10f..24f,
-            steps = 14
-        )
+fun FontSizeSlider(
+    label: String,
+    description: String = "",
+    value: Float,
+    testTag: String = "",
+    onValueChange: (Float) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        text = "${value.toInt()}sp",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
+            if (description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Slider(
+                value = value,
+                onValueChange = { raw -> onValueChange(raw.roundToInt().toFloat().coerceIn(10f, 24f)) },
+                valueRange = 10f..24f,
+                steps = 13,
+                modifier = if (testTag.isNotBlank()) Modifier.testTag(testTag) else Modifier
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("10sp", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("14sp (Default)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("24sp", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
+
 

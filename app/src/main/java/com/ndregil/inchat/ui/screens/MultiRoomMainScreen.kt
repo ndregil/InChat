@@ -187,6 +187,7 @@ import com.ndregil.inchat.ui.components.RoomItemCard
 import com.ndregil.inchat.ui.components.StanzaConsoleSheet
 import com.ndregil.inchat.ui.theme.AwayAmber
 import com.ndregil.inchat.ui.theme.DndRed
+import com.ndregil.inchat.ui.theme.LocalThemePreferences
 import com.ndregil.inchat.ui.theme.OfflineGray
 import com.ndregil.inchat.ui.theme.OnlineGreen
 import kotlinx.coroutines.launch
@@ -1446,6 +1447,8 @@ fun MultiRoomMainScreen(
                                             Text(
                                                 text = activeRoom?.name ?: "",
                                                 style = MaterialTheme.typography.titleMedium,
+                                                fontSize = themePrefs.contactFontSizeSp.sp,
+                                                lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,
                                                 fontWeight = FontWeight.Bold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
@@ -2486,9 +2489,10 @@ fun RoomOccupantsCapsBar(
                                 )
                             }
 
+                            val chipFontSizeSp = (LocalThemePreferences.current.contactFontSizeSp - 2f).coerceAtLeast(10f)
                             Text(
                                 text = occupant.nickname,
-                                fontSize = 11.sp,
+                                fontSize = chipFontSizeSp.sp,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1
                             )
@@ -3100,6 +3104,7 @@ fun ChatInputBar(
                             }
 
                             // 2. Text Input
+                            val inputFontSizeSp = LocalThemePreferences.current.messageFontSizeSp
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
@@ -3109,7 +3114,7 @@ fun ChatInputBar(
                                 if (inputText.isEmpty()) {
                                     Text(
                                         text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Tulis pesan...",
-                                        fontSize = 15.sp,
+                                        fontSize = inputFontSizeSp.sp,
                                         color = if (whisperTarget != null) Color(0xFFA855F7).copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
@@ -3128,7 +3133,8 @@ fun ChatInputBar(
                                         .testTag("chat_input_field"),
                                     textStyle = MaterialTheme.typography.bodyMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 15.sp
+                                        fontSize = inputFontSizeSp.sp,
+                                        lineHeight = (inputFontSizeSp * 1.35f).sp
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                                     minLines = 1,
