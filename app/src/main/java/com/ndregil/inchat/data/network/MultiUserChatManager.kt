@@ -1682,12 +1682,11 @@ class MultiUserChatManager(
                             caps
                         }
                         else -> {
-                            // If presence didn't have caps extension, check if resource or nickname or JID indicates InChat
-                            val peerNode = if (occupantJid.toString().contains("inchat", true) || nickname.contains("inchat", true)) "http://ndregil.inchat" else ""
+                            // If peer has no explicit caps, treat as InChat if in InChat room or if nickname/JID suggests InChat
                             com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                                name = if (peerNode.isNotBlank()) "InChat" else "",
+                                name = "InChat",
                                 jid = realJid,
-                                node = peerNode
+                                node = "http://ndregil.inchat"
                             )
                         }
                     }
