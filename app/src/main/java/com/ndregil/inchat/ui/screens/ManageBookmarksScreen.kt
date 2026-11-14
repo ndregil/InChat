@@ -21,10 +21,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.XmppRoom
+import com.ndregil.inchat.ui.components.RoomAvatarBadge
 
 val ROOM_PRESET_COLORS = listOf(
     "#6366F1" to "Violet",
@@ -45,6 +47,8 @@ fun ManageBookmarksScreen(
     onRemoveBookmark: (String) -> Unit,
     onUpdateRoomColor: (String, String) -> Unit,
     onBack: () -> Unit,
+    avatarRevision: Int = 0,
+    getRoomAvatar: ((String) -> ByteArray?)? = null,
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
@@ -107,8 +111,14 @@ fun ManageBookmarksScreen(
                         MaterialTheme.colorScheme.primary
                     }
 
+                    val avatarBytes = remember(room.jid, avatarRevision) {
+                        getRoomAvatar?.invoke(room.jid)
+                    }
+
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("bookmark_card_${room.jid}"),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, roomColor.copy(alpha = 0.4f))
@@ -118,22 +128,21 @@ fun ManageBookmarksScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(roomColor.copy(alpha = 0.2f))
-                                        .border(1.5.dp, roomColor, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Bookmark, null, tint = roomColor, modifier = Modifier.size(18.dp))
-                                }
+                                RoomAvatarBadge(
+                                    roomJid = room.jid,
+                                    roomName = room.name,
+                                    avatarBytes = avatarBytes,
+                                    size = 42.dp
+                                )
                                 Spacer(Modifier.width(12.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(room.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                     Text(room.jid, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                IconButton(onClick = { onRemoveBookmark(room.jid) }) {
+                                IconButton(
+                                    onClick = { onRemoveBookmark(room.jid) },
+                                    modifier = Modifier.testTag("remove_bookmark_${room.jid}")
+                                ) {
                                     Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
                                 }
                             }

@@ -130,6 +130,7 @@ fun RosterContactsScreen(
     val selectedSubTab = pagerState.currentPage
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
     val isRosterLoading by viewModel.isRosterLoading.collectAsStateWithLifecycle()
+    val avatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
     val myPresence by viewModel.myPresence.collectAsStateWithLifecycle()
     val myStatusMessage by viewModel.myStatusMessage.collectAsStateWithLifecycle()
@@ -530,7 +531,8 @@ fun RosterContactsScreen(
                         onAddRoomClick = { viewModel.isJoinCreateDialogOpen.value = true },
                         onSyncBookmarks = { viewModel.syncBookmarks() },
                         isSyncing = isSyncingBookmarks,
-                        getRoomAvatar = { jid -> viewModel.repository.getRoomAvatar(jid) },
+                        avatarRevision = avatarRevision,
+                        getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) },
                         onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
                         onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
                         themePrefs = themePrefs,
@@ -1498,6 +1500,7 @@ fun SavedRoomsInternalContent(
     onAddRoomClick: () -> Unit,
     onSyncBookmarks: (() -> Unit)? = null,
     isSyncing: Boolean = false,
+    avatarRevision: Int = 0,
     getRoomAvatar: ((String) -> ByteArray?)? = null,
     onUpdateRoomColor: ((String, String) -> Unit)? = null,
     onToggleAutoJoin: ((String, Boolean) -> Unit)? = null,
@@ -1678,7 +1681,9 @@ fun SavedRoomsInternalContent(
                 contentPadding = PaddingValues(bottom = 16.dp, top = 8.dp)
             ) {
                 items(filteredRooms, key = { it.jid }) { room ->
-                    val avatarBytes = getRoomAvatar?.invoke(room.jid)
+                    val avatarBytes = remember(room.jid, avatarRevision) {
+                        getRoomAvatar?.invoke(room.jid)
+                    }
                     SavedRoomItem(
                         room = room,
                         roomAvatar = avatarBytes,

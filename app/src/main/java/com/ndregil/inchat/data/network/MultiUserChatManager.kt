@@ -170,6 +170,7 @@ class MultiUserChatManager(
                 roomNicknames[roomJid] = nick.toString()
                 _joinedRooms.value = activeMucs.keys.toSet()
                 updateOccupantsForRoom(roomJid, muc)
+                avatarManager.getAvatar(roomJid)
                 return@withContext Result.success(muc)
             }
 
@@ -230,6 +231,7 @@ class MultiUserChatManager(
             _joinedRooms.value = activeMucs.keys.toSet()
 
             updateOccupantsForRoom(roomJid, muc)
+            avatarManager.getAvatar(roomJid)
             Log.i(TAG, "Successfully joined room $roomJid")
 
             Result.success(muc)

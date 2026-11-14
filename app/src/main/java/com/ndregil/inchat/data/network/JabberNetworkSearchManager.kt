@@ -180,18 +180,22 @@ class JabberNetworkSearchManager {
 
     private fun parseHtmlRoomCards(html: String): List<DiscoveredRoom> {
         val rooms = mutableListOf<DiscoveredRoom>()
-        val cardPattern = Pattern.compile("<li class=\"roomcard\">(.*?)</li>", Pattern.DOTALL)
-        val matcher = cardPattern.matcher(html)
+        val cardStartRegex = Regex("<li\\b[^>]*class=['\"][^'\"]*\\broomcard\\b[^'\"]*['\"][^>]*>", RegexOption.IGNORE_CASE)
+        val starts = cardStartRegex.findAll(html).toList()
+        if (starts.isEmpty()) return emptyList()
 
-        val jidPattern = Pattern.compile("href=['\"]xmpp:([^?\"#\\s]+)\\?join['\"]")
-        val altJidPattern = Pattern.compile("class=['\"]address['\"][^>]*>([^<]+)<")
-        val titlePattern = Pattern.compile("<h3 class=\"title\"[^>]*>(.*?)</h3>", Pattern.DOTALL)
-        val usersPattern = Pattern.compile("data-content=['\"](\\d+)['\"]")
-        val descrPattern = Pattern.compile("<p class=\"descr\"[^>]*>(.*?)</p>", Pattern.DOTALL)
-        val imgPattern = Pattern.compile("<img[^>]+src=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE)
+        val jidPattern = Pattern.compile("href=['\"]xmpp:([^?\"#\\s]+)\\?join['\"]", Pattern.CASE_INSENSITIVE)
+        val altJidPattern = Pattern.compile("class=['\"][^'\"]*\\baddress\\b[^'\"]*['\"][^>]*>([^<]+)<", Pattern.CASE_INSENSITIVE)
+        val titlePattern = Pattern.compile("<h3[^>]*class=['\"][^'\"]*\\btitle\\b[^'\"]*['\"][^>]*>(.*?)</h3>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+        val usersPattern = Pattern.compile("data-content=['\"](\\d+)['\"]", Pattern.CASE_INSENSITIVE)
+        val descrPattern = Pattern.compile("<p[^>]*class=['\"][^'\"]*\\bdescr\\b[^'\"]*['\"][^>]*>(.*?)</p>", Pattern.DOTALL or Pattern.CASE_INSENSITIVE)
+        val imgPattern = Pattern.compile("<img[^>]+(?:src|data-src)=['\"]?([^'\"\\s>]+)['\"]?", Pattern.CASE_INSENSITIVE)
 
-        while (matcher.find()) {
-            val cardHtml = matcher.group(1) ?: continue
+        for (i in starts.indices) {
+            val startIdx = starts[i].range.last + 1
+            val endIdx = if (i + 1 < starts.size) starts[i + 1].range.first else html.length
+            if (startIdx >= endIdx) continue
+            val cardHtml = html.substring(startIdx, endIdx)
 
             // 1. Extract JID
             var jid = ""
@@ -235,15 +239,16 @@ class JabberNetworkSearchManager {
 
             var avatarUrl: String? = null
             val imgMatcher = imgPattern.matcher(cardHtml)
-            if (imgMatcher.find()) {
+            while (imgMatcher.find()) {
                 val rawSrc = imgMatcher.group(1)?.trim() ?: ""
-                if (rawSrc.isNotBlank()) {
+                if (rawSrc.isNotBlank() && !rawSrc.startsWith("data:", ignoreCase = true)) {
                     avatarUrl = when {
                         rawSrc.startsWith("http://", ignoreCase = true) || rawSrc.startsWith("https://", ignoreCase = true) -> rawSrc
                         rawSrc.startsWith("//") -> "https:$rawSrc"
                         rawSrc.startsWith("/") -> "$BASE_URL$rawSrc"
                         else -> "$BASE_URL/$rawSrc"
                     }
+                    break
                 }
             }
 

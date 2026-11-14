@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -18,11 +17,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import java.util.Locale
 import kotlin.math.abs
 
@@ -46,6 +47,7 @@ fun RoomAvatarBadge(
     size: Dp = 48.dp,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val accentColor = remember(roomJid) {
         val idx = abs(roomJid.lowercase(Locale.ROOT).hashCode()) % ROOM_AVATAR_PALETTE.size
         ROOM_AVATAR_PALETTE[idx]
@@ -98,9 +100,30 @@ fun RoomAvatarBadge(
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop
             )
-        } else if (!avatarUrl.isNullOrBlank()) {
+        } else if (avatarBytes != null && avatarBytes.isNotEmpty()) {
+            val bytesRequest = remember(avatarBytes) {
+                ImageRequest.Builder(context)
+                    .data(avatarBytes)
+                    .crossfade(true)
+                    .build()
+            }
             AsyncImage(
-                model = avatarUrl,
+                model = bytesRequest,
+                contentDescription = "Avatar Room $roomName",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else if (!avatarUrl.isNullOrBlank()) {
+            val urlRequest = remember(avatarUrl) {
+                ImageRequest.Builder(context)
+                    .data(avatarUrl)
+                    .crossfade(true)
+                    .build()
+            }
+            AsyncImage(
+                model = urlRequest,
                 contentDescription = "Avatar Room $roomName",
                 modifier = Modifier
                     .fillMaxSize()

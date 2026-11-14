@@ -530,6 +530,7 @@ class XmppRepository(
                     isAutoJoin = autoJoin,
                     password = bm.password
                 )
+                smackAvatarManager.getAvatar(roomJid)
             }
         }
         return addedNew
@@ -1581,6 +1582,7 @@ class XmppRepository(
             isAutoJoin = true // Ensure it autojoins if saved manually
         )
         database.roomConfigDao().insertOrUpdateConfig(config)
+        smackAvatarManager.getAvatar(cleanJid)
 
         val existingRoom = database.roomDao().getRoomByJid(cleanJid)
         if (existingRoom != null) {

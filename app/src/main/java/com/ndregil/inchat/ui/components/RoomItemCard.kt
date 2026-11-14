@@ -50,6 +50,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 
 @Composable
 fun RoomItemCard(
@@ -104,9 +107,20 @@ fun RoomItemCard(
                     .border(1.5.dp, roomColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
+                Text(
+                    text = room.name.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = roomColor
+                )
+
                 val bitmap = remember(roomAvatar) {
                     if (roomAvatar != null && roomAvatar.isNotEmpty()) {
-                        BitmapFactory.decodeByteArray(roomAvatar, 0, roomAvatar.size)
+                        try {
+                            BitmapFactory.decodeByteArray(roomAvatar, 0, roomAvatar.size)
+                        } catch (_: Exception) {
+                            null
+                        }
                     } else null
                 }
                 if (bitmap != null) {
@@ -116,12 +130,19 @@ fun RoomItemCard(
                         modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
-                } else {
-                    Text(
-                        text = room.name.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = roomColor
+                } else if (roomAvatar != null && roomAvatar.isNotEmpty()) {
+                    val context = LocalContext.current
+                    val bytesRequest = remember(roomAvatar) {
+                        ImageRequest.Builder(context)
+                            .data(roomAvatar)
+                            .crossfade(true)
+                            .build()
+                    }
+                    AsyncImage(
+                        model = bytesRequest,
+                        contentDescription = "Avatar ${room.name}",
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop
                     )
                 }
             }

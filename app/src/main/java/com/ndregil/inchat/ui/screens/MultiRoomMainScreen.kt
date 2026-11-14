@@ -1790,7 +1790,9 @@ fun MultiRoomMainScreen(
                             onToggleAutoJoin = { jid, autoJoin -> viewModel.updateRoomAutoJoin(jid, autoJoin) },
                             onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
                             onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
-                            onBack = { showBookmarksScreen = false }
+                            onBack = { showBookmarksScreen = false },
+                            avatarRevision = avatarRevision,
+                            getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) }
                         )
                     } else if (showCustomThemeScreen) {
                         CustomThemeScreen(
@@ -2199,7 +2201,7 @@ fun MultiRoomMainScreen(
                 onUpdateNickname = { newNick -> viewModel.updateRoomNickname(room.jid, newNick) },
                 onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
                 onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(room.jid, room.name, uri) },
-                roomAvatar = viewModel.repository.getRoomAvatar(room.jid),
+                roomAvatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) },
                 onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, notifMode, maxUsers, enableLogging, allowInvites, whois ->
                     viewModel.configureRoom(
                         roomJid = room.jid,
@@ -2225,7 +2227,7 @@ fun MultiRoomMainScreen(
 
     if (isThemeWallpaperOpen) {
 
-        val activeRoomAvatar = activeRoom?.jid?.let { viewModel.repository.getRoomAvatar(it) }
+        val activeRoomAvatar = remember(activeRoom?.jid, avatarRevision) { activeRoom?.jid?.let { viewModel.getRoomAvatar(it) } }
         com.ndregil.inchat.ui.components.ChatThemeSettingsDialog(
             currentTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
             currentWallpaper = activeRoom?.wallpaperStyle ?: "default",
@@ -2259,7 +2261,7 @@ fun MultiRoomMainScreen(
             onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
             onUpdateNickname = { newNick -> viewModel.updateRoomNickname(activeRoom!!.jid, newNick) },
             onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(activeRoom!!.jid, activeRoom!!.name, uri) },
-            roomAvatar = viewModel.repository.getRoomAvatar(activeRoom!!.jid),
+            roomAvatar = remember(activeRoom!!.jid, avatarRevision) { viewModel.getRoomAvatar(activeRoom!!.jid) },
             onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, maxUsers, enableLogging, allowInvites, whois ->
                 viewModel.configureRoom(
                     roomJid = activeRoom!!.jid,
