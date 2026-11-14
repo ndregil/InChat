@@ -225,6 +225,7 @@ fun MultiRoomMainScreen(
 
     val savedRooms by viewModel.savedRooms.collectAsStateWithLifecycle()
     val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
+    val avatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
     var showOnlySavedRooms by remember { mutableStateOf(false) }
     val activeRoom by viewModel.activeRoom.collectAsStateWithLifecycle()
     val messages by viewModel.activeRoomMessages.collectAsStateWithLifecycle()
@@ -836,13 +837,14 @@ fun MultiRoomMainScreen(
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         items(displayedRooms, key = { it.jid }) { room ->
+                                            val roomAvatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) }
                                             RoomItemCard(
                                                 room = room,
                                                 isSelected = activeRoom?.jid == room.jid,
                                                 onClick = { 
                                                     viewModel.selectRoom(room.jid)
                                                 },
-                                                roomAvatar = viewModel.repository.getRoomAvatar(room.jid),
+                                                roomAvatar = roomAvatar,
                                                 themePrefs = themePrefs
                                             )
                                         }
@@ -1340,7 +1342,7 @@ fun MultiRoomMainScreen(
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         items(displayedList, key = { it.jid }) { room ->
-                                            val avatar = viewModel.repository.getRoomAvatar(room.jid)
+                                            val avatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) }
                                             RoomItemCard(
                                                 room = room,
                                                 isSelected = activeRoom?.jid == room.jid,
@@ -1358,7 +1360,7 @@ fun MultiRoomMainScreen(
                         } else {
                             // MODE B: Active Direct Conversation Screen
                             val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
-                            val roomAvatar = remember(activeRoom?.jid) { activeRoom?.let { viewModel.repository.getRoomAvatar(it.jid) } }
+                            val roomAvatar = remember(activeRoom?.jid, avatarRevision) { activeRoom?.let { viewModel.getRoomAvatar(it.jid) } }
                             var showDirectMenu by remember { mutableStateOf(false) }
 
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -1714,21 +1716,18 @@ fun MultiRoomMainScreen(
                 }
 
                 3 -> {
-                    // Public MUC Directory & Local Service Discovery (XEP-0030)
+                    // Public MUC Directory, Manual Disco Server & Local Service Discovery
                     val discoveredServices by viewModel.discoveredServices.collectAsStateWithLifecycle()
                     val isServicesLoading by viewModel.isServicesLoading.collectAsStateWithLifecycle()
-                    val discoveredRooms by viewModel.discoveredRooms.collectAsStateWithLifecycle()
-                    val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
+                    val serverDiscoResult by viewModel.serverDiscoResult.collectAsStateWithLifecycle()
+                    val isDiscoServerLoading by viewModel.isDiscoServerLoading.collectAsStateWithLifecycle()
                     
-                    LaunchedEffect(Unit) {
+                    LaunchedEffect(connectionStatus) {
                         if (directoryRooms.isEmpty()) {
                             viewModel.loadDirectory()
                         }
-                        if (discoveredServices.isEmpty()) {
+                        if (connectionStatus == ConnectionStatus.CONNECTED && discoveredServices.isEmpty()) {
                             viewModel.discoverLocalServices()
-                        }
-                        if (discoveredRooms.isEmpty()) {
-                            viewModel.discoverServerRooms()
                         }
                     }
                     
@@ -1765,9 +1764,11 @@ fun MultiRoomMainScreen(
                         onOpenCreateRoom = {
                             viewModel.isJoinCreateDialogOpen.value = true
                         },
-                        discoveredMucRooms = discoveredRooms,
-                        isDiscoveringServerRooms = isDiscovering,
-                        onDiscoverServerRooms = { viewModel.discoverServerRooms() },
+                        serverDiscoResult = serverDiscoResult,
+                        isDiscoServerLoading = isDiscoServerLoading,
+                        onDiscoServer = { targetJid, node ->
+                            viewModel.discoServer(targetJid, node)
+                        },
                         onJoinDiscoveredRoom = { discRoom ->
                             viewModel.joinOrCreateRoom(
                                 roomJid = discRoom.jid,
@@ -1776,7 +1777,9 @@ fun MultiRoomMainScreen(
                                 topic = discRoom.description.ifBlank { discRoom.subject }
                             )
                             activeNavIndex = if (isMucJid(discRoom.jid)) 0 else 1
-                        }
+                        },
+                        avatarRevision = avatarRevision,
+                        getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) }
                     )
                 }
 

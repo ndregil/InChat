@@ -41,6 +41,9 @@ class XmppAvatarManager(
     // Negative cache: track JIDs with no avatar to avoid spamming network
     private val noAvatarSet = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
+    // In-flight fetches to avoid duplicate concurrent queries for the same JID
+    private val inFlightSet = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
+
     // Flow to notify subscribers when a new avatar is fetched
     private val _avatarUpdates = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val avatarUpdates: SharedFlow<String> = _avatarUpdates.asSharedFlow()
@@ -75,7 +78,9 @@ class XmppAvatarManager(
 
     fun onConnectionReady(connection: XMPPTCPConnection) {
         currentConnection = connection
-        // Do not clear cache anymore, we want persistent avatars
+        noAvatarSet.clear()
+        inFlightSet.clear()
+        // Do not clear avatarCache anymore, we want persistent avatars
         setupPep(connection)
     }
 
@@ -327,10 +332,14 @@ class XmppAvatarManager(
     private fun isMucDomain(bareJid: String): Boolean {
         val domain = bareJid.substringAfter("@", "").lowercase()
         return domain.startsWith("conference.") ||
+               domain.startsWith("conf.") ||
                domain.startsWith("muc.") ||
                domain.startsWith("chat.") ||
                domain.startsWith("rooms.") ||
+               domain.startsWith("room.") ||
                domain.startsWith("group.") ||
+               domain.startsWith("groups.") ||
+               domain.startsWith("salons.") ||
                domain.contains(".conference.") ||
                domain.contains(".muc.") ||
                domain.contains(".chat.") ||
@@ -387,6 +396,7 @@ class XmppAvatarManager(
     fun fetchAvatarAsync(jid: String, cacheKey: String = resolveAvatarKey(jid)) {
         if (cacheKey.isEmpty()) return
         if (avatarCache.containsKey(cacheKey) || noAvatarSet.contains(cacheKey)) return
+        if (!inFlightSet.add(cacheKey)) return
 
         scope.launch {
             try {
@@ -394,38 +404,48 @@ class XmppAvatarManager(
                 val nickKey = nickname.lowercase()
 
                 // 1. Check database first
-                val dbAvatar = avatarDao.getAvatarByJid(cacheKey) 
-                    ?: if (nickKey.isNotEmpty()) avatarDao.getAvatarByJid(nickKey) else null
+                val dbAvatar = avatarDao.getAvatarByJid(cacheKey)
+                    ?: if (nickKey.isNotEmpty() && !jid.contains("@")) avatarDao.getAvatarByJid(nickKey) else null
 
-                if (dbAvatar != null) {
+                if (dbAvatar != null && dbAvatar.avatarBytes.isNotEmpty()) {
                     avatarCache[cacheKey] = dbAvatar.avatarBytes
-                    if (nickKey.isNotEmpty()) avatarCache[nickKey] = dbAvatar.avatarBytes
+                    if (nickKey.isNotEmpty() && jid.contains("/")) avatarCache[nickKey] = dbAvatar.avatarBytes
                     _avatarUpdates.emit(cacheKey)
                     _avatarUpdates.emit(jid)
-                    if (nickKey.isNotEmpty()) _avatarUpdates.emit(nickKey)
+                    if (nickKey.isNotEmpty() && jid.contains("/")) _avatarUpdates.emit(nickKey)
+                    return@launch
+                }
+
+                // Do not poison noAvatarSet if we are not connected/authenticated yet
+                val conn = currentConnection
+                if (conn == null || !conn.isAuthenticated) {
                     return@launch
                 }
 
                 // 2. Fetch from network with throttling
                 fetchSemaphore.withPermit {
                     val avatar = fetchAvatarInternal(jid)
-                    if (avatar != null) {
+                    if (avatar != null && avatar.isNotEmpty()) {
                         avatarCache[cacheKey] = avatar
                         avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(cacheKey, avatar))
-                        if (nickKey.isNotEmpty()) {
+                        if (nickKey.isNotEmpty() && jid.contains("/")) {
                             avatarCache[nickKey] = avatar
                             avatarDao.insertAvatar(com.ndregil.inchat.data.local.entity.AvatarEntity(nickKey, avatar))
                         }
                         _avatarUpdates.emit(cacheKey)
                         _avatarUpdates.emit(jid)
-                        if (nickKey.isNotEmpty()) _avatarUpdates.emit(nickKey)
-                    } else {
+                        if (nickKey.isNotEmpty() && jid.contains("/")) _avatarUpdates.emit(nickKey)
+                    } else if (currentConnection?.isAuthenticated == true) {
                         noAvatarSet.add(cacheKey)
                     }
                 }
             } catch (e: Exception) {
-                noAvatarSet.add(cacheKey)
+                if (currentConnection?.isAuthenticated == true) {
+                    noAvatarSet.add(cacheKey)
+                }
                 Log.w(TAG, "Failed to fetch avatar for $jid: ${e.message}")
+            } finally {
+                inFlightSet.remove(cacheKey)
             }
         }
     }

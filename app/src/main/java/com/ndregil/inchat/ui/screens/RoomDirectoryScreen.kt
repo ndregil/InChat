@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Group
@@ -36,13 +37,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.PublicDirectoryRoom
+import com.ndregil.inchat.data.model.ServerDiscoResult
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Extension
@@ -80,6 +82,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import android.widget.Toast
 import com.ndregil.inchat.data.model.XmppRoom
+import com.ndregil.inchat.ui.components.DiscoveredRoomCardItem
+import com.ndregil.inchat.ui.components.RoomAvatarBadge
+import com.ndregil.inchat.ui.theme.LocalThemePreferences
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,15 +101,35 @@ fun RoomDirectoryScreen(
     onSaveRoom: ((PublicDirectoryRoom) -> Unit)? = null,
     onSelectJoinedRoom: (String) -> Unit,
     onOpenCreateRoom: (() -> Unit)? = null,
-    discoveredMucRooms: List<com.ndregil.inchat.data.model.DiscoveredRoom> = emptyList(),
-    isDiscoveringServerRooms: Boolean = false,
-    onDiscoverServerRooms: () -> Unit = {},
-    onJoinDiscoveredRoom: ((com.ndregil.inchat.data.model.DiscoveredRoom) -> Unit)? = null
+    serverDiscoResult: ServerDiscoResult = ServerDiscoResult(),
+    isDiscoServerLoading: Boolean = false,
+    onDiscoServer: (String, String?) -> Unit = { _, _ -> },
+    onJoinDiscoveredRoom: ((com.ndregil.inchat.data.model.DiscoveredRoom) -> Unit)? = null,
+    avatarRevision: Int = 0,
+    getRoomAvatar: ((String) -> ByteArray?)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var discoInput by remember { mutableStateOf(serverDiscoResult.targetJid) }
+    var discoFilterQuery by remember { mutableStateOf("") }
+    val discoHistory = remember { mutableStateListOf<Pair<String, String?>>() }
     var showComplianceDialog by remember { mutableStateOf(false) }
-    var discoveryMode by remember { mutableIntStateOf(0) } // 0: Global Search, 1: Server MUC (XEP-0030), 2: Local Services
+    var discoveryMode by remember { mutableIntStateOf(0) } // 0: Global Search, 1: Disco Server, 2: Local Services
     var selectedService by remember { mutableStateOf<com.ndregil.inchat.data.model.DiscoveredItem?>(null) }
+
+    fun triggerDisco(target: String, node: String? = null, pushHistory: Boolean = false) {
+        val clean = target.trim()
+        if (clean.isBlank()) return
+        if (pushHistory && serverDiscoResult.targetJid.isNotBlank() &&
+            !serverDiscoResult.targetJid.equals(clean, ignoreCase = true)
+        ) {
+            discoHistory.add(serverDiscoResult.targetJid to null)
+        } else if (!pushHistory) {
+            discoHistory.clear()
+        }
+        discoInput = clean
+        discoFilterQuery = ""
+        onDiscoServer(clean, node)
+    }
 
     if (selectedService != null) {
         val service = selectedService!!
@@ -193,37 +218,36 @@ fun RoomDirectoryScreen(
                         }
                     }
 
-                    if (isMuc) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Button(
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val targetJid = service.jid
+                            val targetNode = service.node
+                            selectedService = null
+                            val shouldPushHistory = discoveryMode == 1
+                            discoveryMode = 1
+                            triggerDisco(targetJid, targetNode, pushHistory = shouldPushHistory)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Disco Layanan Ini", fontSize = 12.sp)
+                    }
+
+                    if (isMuc && onOpenCreateRoom != null) {
+                        OutlinedButton(
                             onClick = {
-                                val mucJid = service.jid
                                 selectedService = null
-                                discoveryMode = 0
-                                searchQuery = mucJid
-                                onRefresh(mucJid)
+                                onOpenCreateRoom()
                             },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Cari Room di Service Ini", fontSize = 12.sp)
-                        }
-
-                        if (onOpenCreateRoom != null) {
-                            OutlinedButton(
-                                onClick = {
-                                    selectedService = null
-                                    onOpenCreateRoom()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Buat Room Baru di Server Ini", fontSize = 12.sp)
-                            }
+                            Text("Buat Room Baru di Server Ini", fontSize = 12.sp)
                         }
                     }
                 }
@@ -280,11 +304,13 @@ fun RoomDirectoryScreen(
                             Text(
                                 text = when (discoveryMode) {
                                     0 -> "search.jabber.network"
-                                    1 -> "Server MUC (XEP-0030)"
+                                    1 -> serverDiscoResult.targetJid.ifBlank { "XMPP Service Discovery" }
                                     else -> serverDomain
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -295,7 +321,12 @@ fun RoomDirectoryScreen(
                         onClick = { 
                             when (discoveryMode) {
                                 0 -> onRefresh(searchQuery)
-                                1 -> onDiscoverServerRooms()
+                                1 -> {
+                                    val target = discoInput.trim().ifBlank { serverDiscoResult.targetJid }
+                                    if (target.isNotBlank()) {
+                                        onDiscoServer(target, null)
+                                    }
+                                }
                                 else -> onDiscoverLocal()
                             }
                         },
@@ -342,11 +373,9 @@ fun RoomDirectoryScreen(
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 1,
-                    onClick = { 
-                        discoveryMode = 1
-                        onDiscoverServerRooms()
-                    },
-                    text = { Text("Server MUC (XEP-0030)", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    onClick = { discoveryMode = 1 },
+                    modifier = Modifier.testTag("tab_discover_server"),
+                    text = { Text("Disco Server", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 2,
@@ -495,6 +524,139 @@ fun RoomDirectoryScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+            } else if (discoveryMode == 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Router,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (discoInput.isEmpty()) {
+                                    Text(
+                                        text = "Domain server (cth: jabber.ru, conference.jabber.ru)",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                androidx.compose.foundation.text.BasicTextField(
+                                    value = discoInput,
+                                    onValueChange = { discoInput = it },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                                    ),
+                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                        onSearch = {
+                                            focusManager.clearFocus()
+                                            triggerDisco(discoInput)
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("disco_server_input")
+                                )
+                            }
+                            if (discoInput.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { discoInput = "" },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Hapus",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            focusManager.clearFocus()
+                            triggerDisco(discoInput)
+                        },
+                        enabled = discoInput.isNotBlank() && !isDiscoServerLoading,
+                        shape = RoundedCornerShape(14.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("btn_disco_server")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Disco", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (discoHistory.isNotEmpty()) {
+                    val parentTarget = discoHistory.last()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                val backTarget = discoHistory.removeAt(discoHistory.lastIndex)
+                                discoInput = backTarget.first
+                                discoFilterQuery = ""
+                                onDiscoServer(backTarget.first, backTarget.second)
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Kembali",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Kembali ke ${parentTarget.first}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
             } else {
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -533,7 +695,7 @@ fun RoomDirectoryScreen(
 
             val currentLoading = when (discoveryMode) {
                 0 -> isLoading
-                1 -> false // DiscoveredMucRoomsList handles its own loading state smoothly
+                1 -> isDiscoServerLoading
                 else -> isServicesLoading
             }
             if (currentLoading) {
@@ -547,7 +709,11 @@ fun RoomDirectoryScreen(
                         CircularProgressIndicator(modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (discoveryMode == 0) "Memuat daftar room global..." else "Memindai komponen server $serverDomain...",
+                            text = when (discoveryMode) {
+                                0 -> "Memuat daftar room global..."
+                                1 -> "Melakukan disco ke ${discoInput.trim().ifBlank { "server" }}..."
+                                else -> "Memindai komponen server $serverDomain..."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -582,7 +748,7 @@ fun RoomDirectoryScreen(
                                 text = "Coba kata kunci lain atau muat ulang daftar room populer search.jabber.network",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(
@@ -602,10 +768,16 @@ fun RoomDirectoryScreen(
                         contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp)
                     ) {
                         items(directoryRooms, key = { it.jid }) { roomItem ->
-                            val isAlreadyJoined = joinedRooms.any { it.jid == roomItem.jid && it.isJoined }
+                            val isAlreadyJoined = joinedRooms.any { it.jid.equals(roomItem.jid, ignoreCase = true) && it.isJoined }
+                            val isBookmarked = joinedRooms.any { it.jid.equals(roomItem.jid, ignoreCase = true) && it.isBookmarked }
+                            val avatarBytes = remember(roomItem.jid, avatarRevision) {
+                                getRoomAvatar?.invoke(roomItem.jid)
+                            }
                             DirectoryRoomCard(
                                 roomItem = roomItem,
                                 isAlreadyJoined = isAlreadyJoined,
+                                isBookmarked = isBookmarked,
+                                avatarBytes = avatarBytes,
                                 onSelectJoinedRoom = onSelectJoinedRoom,
                                 onJoinRoom = onJoinRoom,
                                 onSaveRoom = onSaveRoom
@@ -614,25 +786,269 @@ fun RoomDirectoryScreen(
                     }
                 }
             } else if (discoveryMode == 1) {
-                // Server MUC Room Discovery (XEP-0030)
-                com.ndregil.inchat.ui.components.DiscoveredMucRoomsList(
-                    rooms = discoveredMucRooms,
-                    isLoading = isDiscoveringServerRooms,
-                    joinedRoomJids = joinedRooms.filter { it.isJoined }.map { it.jid }.toSet(),
-                    onJoinRoom = { discRoom ->
-                        if (onJoinDiscoveredRoom != null) {
-                            onJoinDiscoveredRoom(discRoom)
-                        } else {
-                            onJoinRoom(discRoom.toPublicDirectoryRoom())
+                val filteredRooms = remember(serverDiscoResult.rooms, discoFilterQuery) {
+                    val q = discoFilterQuery.trim()
+                    if (q.isBlank()) serverDiscoResult.rooms
+                    else serverDiscoResult.rooms.filter {
+                        it.name.contains(q, ignoreCase = true) ||
+                            it.jid.contains(q, ignoreCase = true) ||
+                            it.description.contains(q, ignoreCase = true)
+                    }
+                }
+
+                when {
+                    !serverDiscoResult.errorMessage.isNullOrBlank() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Router,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Gagal Disco Server",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = serverDiscoResult.errorMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        val target = discoInput.trim().ifBlank { serverDiscoResult.targetJid }
+                                        if (target.isNotBlank()) onDiscoServer(target, null)
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Coba Lagi")
+                                }
+                            }
                         }
-                    },
-                    onSelectJoinedRoom = onSelectJoinedRoom,
-                    onRefresh = onDiscoverServerRooms,
-                    onBookmarkRoom = onSaveRoom?.let { saveFn ->
-                        { discRoom -> saveFn(discRoom.toPublicDirectoryRoom()) }
-                    },
-                    serverDomain = serverDomain
-                )
+                    }
+
+                    serverDiscoResult.targetJid.isBlank() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Router,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(52.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Disco Server XMPP",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Masukkan domain server atau layanan MUC di atas lalu tekan Disco, misalnya jabber.ru atau conference.jabber.ru.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    serverDiscoResult.services.isEmpty() && serverDiscoResult.rooms.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Explore,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "Tidak ada item pada ${serverDiscoResult.targetJid}",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (serverDiscoResult.serverIdentity.isNotBlank() || serverDiscoResult.features.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "${serverDiscoResult.serverIdentity.ifBlank { "Server" }} • ${serverDiscoResult.features.size} fitur terdeteksi",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("disco_server_results_list"),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp)
+                        ) {
+                            item(key = "disco_summary_header") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 2.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = serverDiscoResult.serverIdentity.ifBlank { serverDiscoResult.targetJid },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    val countParts = buildList {
+                                        if (serverDiscoResult.services.isNotEmpty()) add("${serverDiscoResult.services.size} layanan")
+                                        if (serverDiscoResult.rooms.isNotEmpty()) add("${serverDiscoResult.rooms.size} room")
+                                    }.joinToString(" • ")
+                                    Text(
+                                        text = countParts,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            if (serverDiscoResult.rooms.size > 6) {
+                                item(key = "disco_rooms_filter") {
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(40.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(horizontal = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                if (discoFilterQuery.isEmpty()) {
+                                                    Text(
+                                                        text = "Filter hasil (${serverDiscoResult.rooms.size} room)...",
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                    )
+                                                }
+                                                androidx.compose.foundation.text.BasicTextField(
+                                                    value = discoFilterQuery,
+                                                    onValueChange = { discoFilterQuery = it },
+                                                    singleLine = true,
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontSize = 13.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    ),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                            }
+                                            if (discoFilterQuery.isNotEmpty()) {
+                                                IconButton(
+                                                    onClick = { discoFilterQuery = "" },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, contentDescription = "Reset filter", modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (serverDiscoResult.services.isNotEmpty()) {
+                                items(
+                                    serverDiscoResult.services,
+                                    key = { "svc_${it.jid}_${it.node.orEmpty()}" }
+                                ) { serviceItem ->
+                                    val isMucService = serviceItem.jid.contains("conference", ignoreCase = true) ||
+                                        serviceItem.jid.contains("muc", ignoreCase = true) ||
+                                        serviceItem.jid.contains("chat", ignoreCase = true)
+                                    ServiceItemCard(
+                                        item = serviceItem,
+                                        onClick = {
+                                            if (isMucService) {
+                                                triggerDisco(serviceItem.jid, serviceItem.node, pushHistory = true)
+                                            } else {
+                                                selectedService = serviceItem
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (filteredRooms.isNotEmpty()) {
+                                items(
+                                    filteredRooms,
+                                    key = { "room_${it.jid}" }
+                                ) { room ->
+                                    val isAlreadyJoined = joinedRooms.any { it.jid.equals(room.jid, ignoreCase = true) && it.isJoined }
+                                    val isBookmarked = joinedRooms.any { it.jid.equals(room.jid, ignoreCase = true) && it.isBookmarked }
+                                    val avatarBytes = remember(room.jid, avatarRevision) {
+                                        getRoomAvatar?.invoke(room.jid)
+                                    }
+                                    DiscoveredRoomCardItem(
+                                        room = room,
+                                        isAlreadyJoined = isAlreadyJoined,
+                                        isBookmarked = isBookmarked,
+                                        avatarBytes = avatarBytes,
+                                        onJoin = {
+                                            if (onJoinDiscoveredRoom != null) {
+                                                onJoinDiscoveredRoom(room)
+                                            } else {
+                                                onJoinRoom(room.toPublicDirectoryRoom())
+                                            }
+                                        },
+                                        onOpen = { onSelectJoinedRoom(room.jid) },
+                                        onBookmark = onSaveRoom?.let { saveFn ->
+                                            { saveFn(room.toPublicDirectoryRoom()) }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 // Local Services (discoveryMode == 2)
                 if (discoveredServices.isEmpty()) {
@@ -700,8 +1116,11 @@ fun DirectoryRoomCard(
     isAlreadyJoined: Boolean,
     onSelectJoinedRoom: (String) -> Unit,
     onJoinRoom: (PublicDirectoryRoom) -> Unit,
-    onSaveRoom: ((PublicDirectoryRoom) -> Unit)? = null
+    onSaveRoom: ((PublicDirectoryRoom) -> Unit)? = null,
+    avatarBytes: ByteArray? = null,
+    isBookmarked: Boolean = false
 ) {
+    val contactFontSizeSp = LocalThemePreferences.current.contactFontSizeSp
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -716,18 +1135,36 @@ fun DirectoryRoomCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                RoomAvatarBadge(
+                    roomJid = roomItem.jid,
+                    roomName = roomItem.name,
+                    avatarBytes = avatarBytes,
+                    avatarUrl = roomItem.avatarUrl,
+                    size = 46.dp
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = roomItem.name,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontSize = contactFontSizeSp.sp,
+                        lineHeight = (contactFontSizeSp * 1.3f).sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = roomItem.jid,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        fontSize = (contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -806,9 +1243,13 @@ fun DirectoryRoomCard(
                         onClick = { onSaveRoom(roomItem) },
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Bookmark, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Simpan Room", fontSize = 12.sp)
+                        Text(if (isBookmarked) "Tersimpan" else "Simpan Room", fontSize = 12.sp)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))

@@ -135,8 +135,8 @@ class JabberNetworkSearchManager {
     }
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
         .followRedirects(true)
         .build()
 
@@ -188,6 +188,7 @@ class JabberNetworkSearchManager {
         val titlePattern = Pattern.compile("<h3 class=\"title\"[^>]*>(.*?)</h3>", Pattern.DOTALL)
         val usersPattern = Pattern.compile("data-content=['\"](\\d+)['\"]")
         val descrPattern = Pattern.compile("<p class=\"descr\"[^>]*>(.*?)</p>", Pattern.DOTALL)
+        val imgPattern = Pattern.compile("<img[^>]+src=['\"]([^'\"]+)['\"]", Pattern.CASE_INSENSITIVE)
 
         while (matcher.find()) {
             val cardHtml = matcher.group(1) ?: continue
@@ -232,6 +233,20 @@ class JabberNetworkSearchManager {
                 description = cleanHtml(rawDesc)
             }
 
+            var avatarUrl: String? = null
+            val imgMatcher = imgPattern.matcher(cardHtml)
+            if (imgMatcher.find()) {
+                val rawSrc = imgMatcher.group(1)?.trim() ?: ""
+                if (rawSrc.isNotBlank()) {
+                    avatarUrl = when {
+                        rawSrc.startsWith("http://", ignoreCase = true) || rawSrc.startsWith("https://", ignoreCase = true) -> rawSrc
+                        rawSrc.startsWith("//") -> "https:$rawSrc"
+                        rawSrc.startsWith("/") -> "$BASE_URL$rawSrc"
+                        else -> "$BASE_URL/$rawSrc"
+                    }
+                }
+            }
+
             val serviceJid = jid.substringAfter("@")
 
             rooms.add(
@@ -244,7 +259,8 @@ class JabberNetworkSearchManager {
                     subject = description.take(60),
                     isPasswordProtected = cardHtml.contains("icon-lock") || cardHtml.contains("password"),
                     isMembersOnly = cardHtml.contains("members_only") || cardHtml.contains("members-only"),
-                    isPersistent = true
+                    isPersistent = true,
+                    avatarUrl = avatarUrl
                 )
             )
         }
@@ -268,12 +284,11 @@ class JabberNetworkSearchManager {
     private fun getFallbackRooms(query: String): List<DiscoveredRoom> {
         if (query.isBlank()) return CURATED_PUBLIC_ROOMS
         val q = query.lowercase()
-        val filtered = CURATED_PUBLIC_ROOMS.filter {
+        return CURATED_PUBLIC_ROOMS.filter {
             it.name.lowercase().contains(q) ||
             it.jid.lowercase().contains(q) ||
             it.description.lowercase().contains(q) ||
             it.subject.lowercase().contains(q)
         }
-        return if (filtered.isNotEmpty()) filtered else CURATED_PUBLIC_ROOMS
     }
 }

@@ -65,12 +65,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.DiscoveredRoom
+import com.ndregil.inchat.ui.theme.LocalThemePreferences
 
 /**
  * UI Component to browse and join Multi-User Chat (MUC) rooms discovered
  * via XMPP Service Discovery (XEP-0030 / XEP-0045).
  *
  * Provides a responsive list of discovered MUC rooms with:
+ * - Room avatar badge (XMPP vCard/PEP, URL, or deterministic colored initials)
  * - Search filter and security badges (Password, Members-Only, Persistent)
  * - Occupant counts and description
  * - An explicit, prominent "Join" button for every discovered room item
@@ -85,6 +87,9 @@ fun DiscoveredMucRoomsList(
     onRefresh: () -> Unit,
     onBookmarkRoom: ((DiscoveredRoom) -> Unit)? = null,
     serverDomain: String = "",
+    avatarRevision: Int = 0,
+    getRoomAvatar: ((String) -> ByteArray?)? = null,
+    bookmarkedRoomJids: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -242,7 +247,7 @@ fun DiscoveredMucRoomsList(
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Memindai room dari server via XEP-0030...",
+                        text = "Memindai daftar room dari server MUC...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -278,7 +283,7 @@ fun DiscoveredMucRoomsList(
                         text = if (searchQuery.isNotBlank())
                             "Tidak ada room yang cocok dengan kata kunci '$searchQuery'."
                         else
-                            "Pindai server XMPP menggunakan Service Discovery (XEP-0030) untuk menemukan obrolan grup yang tersedia.",
+                            "Ketik alamat server MUC di kolom Manual di atas lalu tekan Cari di Server untuk melihat daftar grup.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -290,7 +295,7 @@ fun DiscoveredMucRoomsList(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pindai Ulang Server (XEP-0030)")
+                        Text("Muat Ulang Daftar Room")
                     }
                 }
             }
@@ -304,10 +309,16 @@ fun DiscoveredMucRoomsList(
                 contentPadding = PaddingValues(bottom = 96.dp, top = 4.dp)
             ) {
                 items(filteredRooms, key = { it.jid }) { room ->
-                    val isAlreadyJoined = joinedRoomJids.contains(room.jid)
+                    val isAlreadyJoined = joinedRoomJids.any { it.equals(room.jid, ignoreCase = true) }
+                    val isBookmarked = bookmarkedRoomJids.any { it.equals(room.jid, ignoreCase = true) }
+                    val avatarBytes = remember(room.jid, avatarRevision) {
+                        getRoomAvatar?.invoke(room.jid)
+                    }
                     DiscoveredRoomCardItem(
                         room = room,
                         isAlreadyJoined = isAlreadyJoined,
+                        isBookmarked = isBookmarked,
+                        avatarBytes = avatarBytes,
                         onJoin = { onJoinRoom(room) },
                         onOpen = { onSelectJoinedRoom(room.jid) },
                         onBookmark = onBookmarkRoom?.let { { it(room) } }
@@ -319,7 +330,7 @@ fun DiscoveredMucRoomsList(
 }
 
 /**
- * Individual card item for a discovered MUC room with explicit 'Join' button.
+ * Individual card item for a discovered MUC room with room avatar and explicit 'Join' button.
  */
 @Composable
 fun DiscoveredRoomCardItem(
@@ -328,8 +339,11 @@ fun DiscoveredRoomCardItem(
     onJoin: () -> Unit,
     onOpen: () -> Unit,
     onBookmark: (() -> Unit)? = null,
+    avatarBytes: ByteArray? = null,
+    isBookmarked: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val contactFontSizeSp = LocalThemePreferences.current.contactFontSizeSp
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -339,18 +353,29 @@ fun DiscoveredRoomCardItem(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Room Header: Name & Occupants Badge
+            // Room Header: Avatar, Name & Occupants Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                RoomAvatarBadge(
+                    roomJid = room.jid,
+                    roomName = room.name.ifBlank { room.jid.substringBefore("@") },
+                    avatarBytes = avatarBytes,
+                    avatarUrl = room.avatarUrl,
+                    size = 46.dp
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = room.name.ifBlank { room.jid.substringBefore("@") },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
+                        fontSize = contactFontSizeSp.sp,
+                        lineHeight = (contactFontSizeSp * 1.3f).sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -359,7 +384,7 @@ fun DiscoveredRoomCardItem(
                         text = room.jid,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
-                        fontSize = 12.sp,
+                        fontSize = (contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -498,12 +523,12 @@ fun DiscoveredRoomCardItem(
                         modifier = Modifier.testTag("bookmark_discovered_room_${room.jid}")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.BookmarkBorder,
-                            contentDescription = "Simpan Room",
+                            imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (isBookmarked) "Tersimpan" else "Simpan Room",
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Simpan", fontSize = 12.sp)
+                        Text(if (isBookmarked) "Tersimpan" else "Simpan", fontSize = 12.sp)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))

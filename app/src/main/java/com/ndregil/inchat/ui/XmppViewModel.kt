@@ -15,6 +15,7 @@ import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.PublicDirectoryRoom
 import com.ndregil.inchat.data.model.RoomOccupant
 import com.ndregil.inchat.data.model.RosterContact
+import com.ndregil.inchat.data.model.ServerDiscoResult
 import com.ndregil.inchat.data.model.StanzaLog
 import com.ndregil.inchat.data.model.UserPresence
 import com.ndregil.inchat.data.model.XmppAccount
@@ -111,6 +112,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _avatarRevision = MutableStateFlow(0)
+    val avatarRevision: StateFlow<Int> = _avatarRevision.asStateFlow()
+
     fun getRoomAvatar(roomJid: String): ByteArray? {
         return repository.getRoomAvatar(roomJid)
     }
@@ -137,6 +141,11 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.autoJoinEvents.collect { msg ->
                 autoJoinToastStatus.value = msg
+            }
+        }
+        viewModelScope.launch {
+            repository.smackAvatarManager.avatarUpdates.collect {
+                _avatarRevision.value += 1
             }
         }
     }
@@ -344,6 +353,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val discoveredRooms: StateFlow<List<DiscoveredRoom>> = repository.discoveredRooms
     val isDiscovering: StateFlow<Boolean> = repository.isDiscovering
     val mucServiceDomains: StateFlow<List<String>> = repository.mucServiceDomains
+    val serverDiscoResult: StateFlow<ServerDiscoResult> = repository.serverDiscoResult
+    val isDiscoServerLoading: StateFlow<Boolean> = repository.isDiscoServerLoading
 
     // Local Service Discovery
     private val _discoveredServices = MutableStateFlow<List<com.ndregil.inchat.data.model.DiscoveredItem>>(emptyList())
@@ -919,6 +930,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 repository.discoverServerRooms(serviceJid)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Performs manual XMPP Service Discovery (disco#info + disco#items) on an arbitrary domain or service JID
+     * (e.g. jabber.ru, conference.jabber.ru).
+     */
+    fun discoServer(targetJid: String, node: String? = null) {
+        viewModelScope.launch {
+            try {
+                repository.discoServer(targetJid, node)
             } catch (_: Exception) {}
         }
     }

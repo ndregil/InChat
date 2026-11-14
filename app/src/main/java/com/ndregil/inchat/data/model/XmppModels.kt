@@ -594,7 +594,8 @@ data class PublicDirectoryRoom(
     val occupantsCount: Int,
     val category: String = "General",
     val isPasswordProtected: Boolean = false,
-    val isMembersOnly: Boolean = false
+    val isMembersOnly: Boolean = false,
+    val avatarUrl: String? = null
 )
 
 data class DiscoveredItem(
@@ -613,7 +614,8 @@ data class DiscoveredRoom(
     val isPasswordProtected: Boolean = false,
     val isMembersOnly: Boolean = false,
     val isPersistent: Boolean = false,
-    val features: List<String> = emptyList()
+    val features: List<String> = emptyList(),
+    val avatarUrl: String? = null
 ) {
     fun toPublicDirectoryRoom(): PublicDirectoryRoom {
         return PublicDirectoryRoom(
@@ -623,10 +625,20 @@ data class DiscoveredRoom(
             occupantsCount = occupantsCount,
             category = if (isPasswordProtected) "Private / Password" else if (isMembersOnly) "Members Only" else "General",
             isPasswordProtected = isPasswordProtected,
-            isMembersOnly = isMembersOnly
+            isMembersOnly = isMembersOnly,
+            avatarUrl = avatarUrl
         )
     }
 }
+
+data class ServerDiscoResult(
+    val targetJid: String = "",
+    val services: List<DiscoveredItem> = emptyList(),
+    val rooms: List<DiscoveredRoom> = emptyList(),
+    val serverIdentity: String = "",
+    val features: List<String> = emptyList(),
+    val errorMessage: String? = null
+)
 
 enum class StatusIndicatorCategory {
     AVAILABLE, // Online / Chat (Available)

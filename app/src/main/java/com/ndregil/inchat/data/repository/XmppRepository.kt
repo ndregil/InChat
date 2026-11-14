@@ -16,6 +16,7 @@ import com.ndregil.inchat.data.model.OccupantAffiliation
 import com.ndregil.inchat.data.model.OccupantRole
 import com.ndregil.inchat.data.model.PublicDirectoryRoom
 import com.ndregil.inchat.data.model.RoomOccupant
+import com.ndregil.inchat.data.model.ServerDiscoResult
 import com.ndregil.inchat.data.model.StanzaLog
 import com.ndregil.inchat.data.model.XmppAccount
 import com.ndregil.inchat.data.model.XmppMessage
@@ -131,6 +132,8 @@ class XmppRepository(
     val discoveredRooms: StateFlow<List<DiscoveredRoom>> = smackDiscoManager.discoveredRooms
     val isDiscovering: StateFlow<Boolean> = smackDiscoManager.isDiscovering
     val mucServiceDomains: StateFlow<List<String>> = smackDiscoManager.mucServiceDomains
+    val serverDiscoResult: StateFlow<ServerDiscoResult> = smackDiscoManager.serverDiscoResult
+    val isDiscoServerLoading: StateFlow<Boolean> = smackDiscoManager.isDiscoServerLoading
     val rosterContacts: StateFlow<List<RosterContact>> = smackRosterManager.contacts
     val rosterPresenceMap: StateFlow<Map<String, UserPresence>> = smackRosterManager.presenceMap
     val isRosterLoading: StateFlow<Boolean> = smackRosterManager.isLoading
@@ -2203,6 +2206,10 @@ class XmppRepository(
     suspend fun discoverServerRooms(serviceJid: String? = null): List<DiscoveredRoom> {
         val result = smackDiscoManager.discoverRooms(serviceJid)
         return result.getOrElse { emptyList() }
+    }
+
+    suspend fun discoServer(targetJid: String, node: String? = null): ServerDiscoResult {
+        return smackDiscoManager.discoServer(targetJid, node)
     }
 
     suspend fun loadRosterContacts(): List<RosterContact> {
