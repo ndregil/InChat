@@ -13,19 +13,19 @@ import androidx.compose.ui.unit.dp
 fun SettingsCategoryHeader(title: String, icon: ImageVector) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 8.dp)
+        modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 4.dp)
     ) {
         Icon(
-            imageVector = icon, 
-            contentDescription = null, 
-            tint = MaterialTheme.colorScheme.primary, 
-            modifier = Modifier.size(20.dp)
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(17.dp)
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.ExtraBold,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurface
         )
     }

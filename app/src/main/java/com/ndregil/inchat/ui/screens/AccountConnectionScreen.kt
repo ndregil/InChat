@@ -106,6 +106,9 @@ fun AccountConnectionScreen(
     var portInput by remember(currentAccount) { mutableStateOf(currentAccount.port.toString()) }
     var useTls by remember(currentAccount) { mutableStateOf(currentAccount.useTls) }
     var statusMsgInput by remember(currentAccount) { mutableStateOf(currentAccount.statusMessage) }
+    var showLoginAdvancedOptions by remember(currentAccount) {
+        mutableStateOf(currentAccount.host.isNotBlank() || currentAccount.port != 5222 || !currentAccount.useTls)
+    }
 
     var regUsername by remember { mutableStateOf("") }
     var regDomain by remember { mutableStateOf("jabber.de") }
@@ -157,20 +160,23 @@ fun AccountConnectionScreen(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-        // Profile Card (When connected)
+        // Unified Account & Status Card when connected, or compact Status Card when disconnected
         if (connectionStatus == ConnectionStatus.CONNECTED) {
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.1f))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = OnlineGreen.copy(alpha = 0.08f)),
+                border = BorderStroke(1.dp, OnlineGreen.copy(alpha = 0.35f))
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer)
                             .clickable { avatarPicker.launch("image/*") },
@@ -188,144 +194,172 @@ fun AccountConnectionScreen(
                         if (decodedBitmap != null) {
                             Image(
                                 bitmap = decodedBitmap.asImageBitmap(),
-                                contentDescription = null,
+                                contentDescription = "Foto Profil",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Person,
-                                contentDescription = null,
+                                contentDescription = "Foto Profil",
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
-                        
-                        // Edit Badge
+
                         Surface(
-                            modifier = Modifier.align(Alignment.BottomEnd).size(20.dp),
+                            modifier = Modifier.align(Alignment.BottomEnd).size(16.dp),
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primary,
-                            border = BorderStroke(2.dp, MaterialTheme.colorScheme.surface)
+                            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
                         ) {
-                            Icon(Icons.Default.Edit, null, tint = Color.White, modifier = Modifier.padding(3.dp))
+                            Icon(Icons.Default.Edit, contentDescription = "Ubah Foto", tint = Color.White, modifier = Modifier.padding(2.5.dp))
                         }
                     }
-                    
-                    Spacer(modifier = Modifier.width(16.dp))
-                    
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = currentAccount.nickname.ifBlank { currentAccount.username },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = OnlineGreen.copy(alpha = 0.16f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = OnlineGreen, modifier = Modifier.size(12.dp))
+                                    Text(
+                                        text = "Terhubung",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = OnlineGreen
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = currentAccount.jid,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Text(
+                                text = "• Ubah Foto",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { avatarPicker.launch("image/*") }
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 3.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = when (connectionStatus) {
+                        ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.08f)
+                        ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.08f)
+                        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    }
+                ),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(
+                    1.dp,
+                    when (connectionStatus) {
+                        ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.4f)
+                        ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.4f)
+                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when (connectionStatus) {
+                                    ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.2f)
+                                    ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.2f)
+                                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        when (connectionStatus) {
+                            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> CircularProgressIndicator(modifier = Modifier.size(18.dp), color = AwayAmber, strokeWidth = 2.5.dp)
+                            ConnectionStatus.ERROR -> Icon(Icons.Default.Error, null, tint = DndRed, modifier = Modifier.size(20.dp))
+                            else -> Icon(Icons.Default.SyncDisabled, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(10.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = currentAccount.nickname.ifBlank { currentAccount.username },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            text = when (connectionStatus) {
+                                ConnectionStatus.CONNECTING -> "Menghubungkan..."
+                                ConnectionStatus.AUTHENTICATING -> "Autentikasi..."
+                                ConnectionStatus.ERROR -> "Koneksi Error"
+                                else -> "Status: Terputus"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (connectionStatus == ConnectionStatus.ERROR) DndRed else MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = currentAccount.jid,
+                            text = if (connectionStatus == ConnectionStatus.ERROR && !lastErrorMessage.isNullOrBlank()) {
+                                lastErrorMessage
+                            } else {
+                                "Siap untuk menyambungkan ke server"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                            fontSize = 12.sp,
+                            color = if (connectionStatus == ConnectionStatus.ERROR) DndRed else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
-                        TextButton(
-                            onClick = { avatarPicker.launch("image/*") },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(30.dp)
-                        ) {
-                            Text("Perbarui Foto Profil (PEP)", fontSize = 11.sp)
-                        }
                     }
                 }
             }
         }
 
-        // Connection Status Card
-        Card(
+        // Compact single-line Tabs with Icons
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = when (connectionStatus) {
-                    ConnectionStatus.CONNECTED -> OnlineGreen.copy(alpha = 0.08f)
-                    ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.08f)
-                    ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.08f)
-                    ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                }
-            ),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(
-                1.dp,
-                when (connectionStatus) {
-                    ConnectionStatus.CONNECTED -> OnlineGreen.copy(alpha = 0.4f)
-                    ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.4f)
-                    ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.4f)
-                    ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-                }
-            )
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.size(48.dp).clip(CircleShape).background(
-                        when (connectionStatus) {
-                            ConnectionStatus.CONNECTED -> OnlineGreen.copy(alpha = 0.2f)
-                            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber.copy(alpha = 0.2f)
-                            ConnectionStatus.ERROR -> DndRed.copy(alpha = 0.2f)
-                            ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                        }
-                    ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when (connectionStatus) {
-                        ConnectionStatus.CONNECTED -> Icon(Icons.Default.CheckCircle, null, tint = OnlineGreen, modifier = Modifier.size(28.dp))
-                        ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> CircularProgressIndicator(modifier = Modifier.size(24.dp), color = AwayAmber, strokeWidth = 3.dp)
-                        ConnectionStatus.ERROR -> Icon(Icons.Default.Error, null, tint = DndRed, modifier = Modifier.size(28.dp))
-                        ConnectionStatus.DISCONNECTED -> Icon(Icons.Default.SyncDisabled, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = when (connectionStatus) {
-                            ConnectionStatus.CONNECTED -> "Status: Terhubung"
-                            ConnectionStatus.CONNECTING -> "Menghubungkan..."
-                            ConnectionStatus.AUTHENTICATING -> "Autentikasi..."
-                            ConnectionStatus.ERROR -> "Koneksi Error"
-                            ConnectionStatus.DISCONNECTED -> "Status: Terputus"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = when (connectionStatus) {
-                            ConnectionStatus.CONNECTED -> OnlineGreen
-                            ConnectionStatus.ERROR -> DndRed
-                            else -> MaterialTheme.colorScheme.onSurface
-                        }
-                    )
-                    Text(
-                        text = if (connectionStatus == ConnectionStatus.CONNECTED) {
-                            "JID Aktif: ${currentAccount.jid}"
-                        } else if (connectionStatus == ConnectionStatus.ERROR && !lastErrorMessage.isNullOrBlank()) {
-                            lastErrorMessage
-                        } else {
-                            "Siap untuk menyambungkan ke server"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (connectionStatus == ConnectionStatus.ERROR) DndRed else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-
-        // Tabs with Icons
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-            shape = RoundedCornerShape(16.dp),
+                .padding(top = 4.dp, bottom = 8.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
         ) {
@@ -340,33 +374,57 @@ fun AccountConnectionScreen(
                 Tab(
                     selected = activeTabMode == 0,
                     onClick = { activeTabMode = 0 },
+                    modifier = Modifier.height(38.dp),
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Home, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Welcome", fontSize = 13.sp, fontWeight = if (activeTabMode == 0) FontWeight.Bold else FontWeight.Normal)
+                            Icon(Icons.Default.Home, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Welcome",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (activeTabMode == 0) FontWeight.Bold else FontWeight.Normal
+                            )
                         }
                     }
                 )
                 Tab(
                     selected = activeTabMode == 1,
                     onClick = { activeTabMode = 1; onResetRegistrationState() },
+                    modifier = Modifier.height(38.dp),
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Login, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Masuk", fontSize = 13.sp, fontWeight = if (activeTabMode == 1) FontWeight.Bold else FontWeight.Normal)
+                            Icon(Icons.Default.Login, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Masuk",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (activeTabMode == 1) FontWeight.Bold else FontWeight.Normal
+                            )
                         }
                     }
                 )
                 Tab(
                     selected = activeTabMode == 2,
                     onClick = { activeTabMode = 2; onResetRegistrationState() },
+                    modifier = Modifier.height(38.dp),
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Daftar Baru", fontSize = 13.sp, fontWeight = if (activeTabMode == 2) FontWeight.Bold else FontWeight.Normal)
+                            Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "Daftar Baru",
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                fontWeight = if (activeTabMode == 2) FontWeight.Bold else FontWeight.Normal
+                            )
                         }
                     }
                 )
@@ -381,7 +439,7 @@ fun AccountConnectionScreen(
             )
         } else if (activeTabMode == 1) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -397,50 +455,99 @@ fun AccountConnectionScreen(
                             statusMsgInput = ""
                             useTls = true
                             onSwitchAccount()
-                        }
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
                     ) {
-                        Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Ganti Akun Baru", fontSize = 12.sp)
                     }
                 }
             }
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(value = jidInput, onValueChange = { jidInput = it }, label = { Text("Jabber ID (JID)") }, leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
-                    OutlinedTextField(value = passwordInput, onValueChange = { passwordInput = it }, label = { Text("Kata Sandi") }, leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(12.dp))
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = jidInput, onValueChange = { jidInput = it }, label = { Text("Jabber ID (JID)") }, leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
+                    OutlinedTextField(value = passwordInput, onValueChange = { passwordInput = it }, label = { Text("Kata Sandi") }, leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
                 }
             }
 
-            SettingsCategoryHeader("Konfigurasi Lanjutan", Icons.Default.Lan)
+            // Collapsible Advanced Configuration
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(value = hostInput, onValueChange = { hostInput = it }, label = { Text("Host") }, placeholder = { Text("Auto") }, leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.weight(2f), singleLine = true, shape = RoundedCornerShape(12.dp))
-                        OutlinedTextField(value = portInput, onValueChange = { portInput = it }, label = { Text("Port") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(12.dp))
-                    }
-                    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)) {
-                        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Enkripsi TLS/SSL", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                Text("Amankan transmisi data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showLoginAdvancedOptions = !showLoginAdvancedOptions }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Lan, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(17.dp))
+                            Column {
+                                Text(
+                                    text = "Konfigurasi Lanjutan",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                if (!showLoginAdvancedOptions) {
+                                    Text(
+                                        text = "${hostInput.ifBlank { "Auto" }} • Port ${portInput.ifBlank { "5222" }} • ${if (useTls) "TLS Aktif" else "Tanpa TLS"}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
-                            Switch(checked = useTls, onCheckedChange = { useTls = it })
+                        }
+                        Icon(
+                            imageVector = if (showLoginAdvancedOptions) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = if (showLoginAdvancedOptions) "Tutup Konfigurasi Lanjutan" else "Buka Konfigurasi Lanjutan",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (showLoginAdvancedOptions) {
+                        Column(
+                            Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(value = hostInput, onValueChange = { hostInput = it }, label = { Text("Host") }, placeholder = { Text("Auto") }, leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.weight(2f), singleLine = true, shape = RoundedCornerShape(10.dp))
+                                OutlinedTextField(value = portInput, onValueChange = { portInput = it }, label = { Text("Port") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp))
+                            }
+                            Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)) {
+                                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Enkripsi TLS/SSL", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                        Text("Amankan transmisi data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Switch(checked = useTls, onCheckedChange = { useTls = it })
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (connectionStatus == ConnectionStatus.CONNECTED) {
                     OutlinedButton(
                         onClick = {
@@ -453,12 +560,12 @@ fun AccountConnectionScreen(
                             useTls = true
                             onSwitchAccount()
                         },
-                        modifier = Modifier.weight(1f).height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Icon(Icons.Default.SwitchAccount, null)
-                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text("Ganti Akun")
                     }
                 }
@@ -471,9 +578,9 @@ fun AccountConnectionScreen(
                     val user = if (cleanJid.contains("@")) cleanJid.substringBefore("@") else cleanJid
                     val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(hostInput.trim())
                     onConnect(XmppAccount(cleanJid, user.trim(), cleanDom, nicknameInput.trim().ifBlank { user.trim() }, cleanHost, port, useTls, false, statusMsgInput.trim()), passwordInput)
-                }, modifier = Modifier.weight(1f).height(52.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(16.dp)) {
-                    Icon(Icons.Default.Link, null)
-                    Spacer(Modifier.width(8.dp))
+                }, modifier = Modifier.weight(1f).height(46.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(12.dp)) {
+                    Icon(Icons.Default.Link, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text(if (connectionStatus == ConnectionStatus.CONNECTED) "Simpan" else "Masuk")
                 }
             }
@@ -482,12 +589,12 @@ fun AccountConnectionScreen(
             SettingsCategoryHeader("Pendaftaran Akun Baru XMPP", Icons.Default.PersonAdd)
 
             Card(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
             ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     var isServerDropdownExpanded by remember { mutableStateOf(false) }
 
                     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -803,9 +910,9 @@ fun AccountConnectionScreen(
                                 regUseTls
                             )
                         },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
                         enabled = registrationState !is RegistrationState.Registering,
-                        shape = RoundedCornerShape(14.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         if (registrationState is RegistrationState.Registering) {
                             CircularProgressIndicator(
@@ -1010,31 +1117,29 @@ fun AccountConnectionScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(8.dp))
 
         // FCM
         SettingsCategoryHeader("Push Service", Icons.Default.NotificationsActive)
-        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
-            Column(Modifier.padding(16.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) { Text("FCM Push", fontWeight = FontWeight.Bold); Text("Terima pesan saat offline", style = MaterialTheme.typography.labelSmall) }
-                    Switch(checked = isPushEnabled, onCheckedChange = { FcmPushManager.setPushEnabled(context, it) })
-                }
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("FCM Push", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text("Terima pesan saat offline", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Switch(checked = isPushEnabled, onCheckedChange = { FcmPushManager.setPushEnabled(context, it) })
             }
         }
 
         // Backup
         SettingsCategoryHeader("Cadangan", Icons.Default.Backup)
-        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = backupPassphrase, onValueChange = { backupPassphrase = it }, label = { Text("Kunci AES-256") }, leadingIcon = { Icon(Icons.Default.Key, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = { exportLauncher.launch("inchat_backup_${System.currentTimeMillis()}.enc") }, modifier = Modifier.weight(1f), enabled = !isBackupLoading, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.SystemUpdateAlt, null); Spacer(Modifier.width(4.dp)); Text("Ekspor") }
-                    OutlinedButton(onClick = { importLauncher.launch("*/*") }, modifier = Modifier.weight(1f), enabled = !isBackupLoading, shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Sync, null); Spacer(Modifier.width(4.dp)); Text("Impor") }
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = backupPassphrase, onValueChange = { backupPassphrase = it }, label = { Text("Kunci AES-256") }, leadingIcon = { Icon(Icons.Default.Key, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
+                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { exportLauncher.launch("inchat_backup_${System.currentTimeMillis()}.enc") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.SystemUpdateAlt, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Ekspor", fontSize = 13.sp) }
+                    OutlinedButton(onClick = { importLauncher.launch("*/*") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.Sync, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Impor", fontSize = 13.sp) }
                 }
             }
         }
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(16.dp))
         }
         
         // Native CAPTCHA Challenge Screen (XEP-0158 / XEP-0231 Bits of Binary)
@@ -1057,17 +1162,17 @@ fun AccountConnectionScreen(
 
 @Composable
 fun WelcomeSplashScreen(onGoToLogin: () -> Unit, onGoToRegister: () -> Unit, onInstantGuestLogin: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)), elevation = CardDefaults.cardElevation(4.dp)) {
-        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(modifier = Modifier.size(100.dp), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f), border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)), elevation = CardDefaults.cardElevation(2.dp)) {
+        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(modifier = Modifier.size(72.dp), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f), border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))) {
                 Image(painterResource(R.drawable.splash_logo), "Logo", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Selamat Datang", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text("Aplikasi chat XMPP modern dan aman.", textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 8.dp))
-            Button(onClick = onGoToLogin, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Login, null); Spacer(Modifier.width(8.dp)); Text("Masuk Ke Akun") }
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedButton(onClick = onGoToRegister, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Language, null); Spacer(Modifier.width(8.dp)); Text("Daftar Akun Baru") }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("Selamat Datang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text("Aplikasi chat XMPP modern dan aman.", style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
+            Button(onClick = onGoToLogin, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Masuk Ke Akun") }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onGoToRegister, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Language, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Daftar Akun Baru") }
         }
     }
 }
