@@ -648,26 +648,30 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         val replyTarget = replyingToMessage.value
-        val whisperTarget = whisperTargetOccupant.value
 
         // Clear input & reply bar immediately so UI responds instantaneously
         replyingToMessage.value = null
         currentInputText.value = ""
 
         viewModelScope.launch(Dispatchers.IO) {
-            if (whisperTarget != null) {
-                repository.sendWhisper(room.jid, whisperTarget.nickname, trimmed, myNick)
-                // Retain whisper target so the private whisper conversation continues smoothly!
-            } else {
-                repository.sendMessage(
-                    roomJid = room.jid,
-                    text = trimmed,
-                    myNickname = myNick,
-                    replyToMessageId = replyTarget?.id,
-                    replyToSender = replyTarget?.senderNickname,
-                    replyToText = replyTarget?.body
-                )
-            }
+            repository.sendMessage(
+                roomJid = room.jid,
+                text = trimmed,
+                myNickname = myNick,
+                replyToMessageId = replyTarget?.id,
+                replyToSender = replyTarget?.senderNickname,
+                replyToText = replyTarget?.body
+            )
+        }
+    }
+
+    fun sendWhisper(targetNickname: String, text: String) {
+        val trimmed = text.trim()
+        val room = activeRoom.value ?: return
+        if (trimmed.isBlank() || targetNickname.isBlank()) return
+        val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.sendWhisper(room.jid, targetNickname, trimmed, myNick)
         }
     }
 

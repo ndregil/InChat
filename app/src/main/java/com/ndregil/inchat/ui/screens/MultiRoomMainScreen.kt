@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.BubbleChart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Chat
@@ -251,6 +252,7 @@ fun MultiRoomMainScreen(
     val translationPrefs by viewModel.translationPreferences.collectAsStateWithLifecycle()
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
+    var isWhisperBubbleExpanded by remember { mutableStateOf(false) }
 
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
     val activeWindows = displayedRooms.filter { it.isJoined }
@@ -294,14 +296,18 @@ fun MultiRoomMainScreen(
         }
     }
 
-    // Auto scroll to latest message when active room changes or new messages arrive
-    val lastMsgId = remember(messages) { messages.lastOrNull()?.id }
-    val isLastMsgMine = remember(messages) { messages.lastOrNull()?.isMine == true }
+    val roomMessages = remember(messages) {
+        messages.filter { it.messageType != com.ndregil.inchat.data.model.MessageType.WHISPER }
+    }
+
+    // Auto scroll to latest room message when active room changes or new messages arrive
+    val lastMsgId = remember(roomMessages) { roomMessages.lastOrNull()?.id }
+    val isLastMsgMine = remember(roomMessages) { roomMessages.lastOrNull()?.isMine == true }
 
     // Scroll to bottom when room changes
     LaunchedEffect(activeRoom?.jid) {
-        if (messages.isNotEmpty()) {
-            val targetIndex = messages.size
+        if (roomMessages.isNotEmpty()) {
+            val targetIndex = roomMessages.size
             try {
                 listState.scrollToItem(targetIndex)
             } catch (_: Exception) {}
@@ -309,10 +315,10 @@ fun MultiRoomMainScreen(
     }
 
     // Auto scroll when user sends a message or when already near bottom (only if user is NOT currently touch-scrolling)
-    LaunchedEffect(messages.size, lastMsgId) {
-        if (messages.isNotEmpty() && !listState.isScrollInProgress) {
-            val targetIndex = messages.size
-            val isNearBottom = listState.firstVisibleItemIndex >= (messages.size - 4).coerceAtLeast(0)
+    LaunchedEffect(roomMessages.size, lastMsgId) {
+        if (roomMessages.isNotEmpty() && !listState.isScrollInProgress) {
+            val targetIndex = roomMessages.size
+            val isNearBottom = listState.firstVisibleItemIndex >= (roomMessages.size - 4).coerceAtLeast(0)
             if (isLastMsgMine || isNearBottom) {
                 try {
                     listState.animateScrollToItem(targetIndex)
@@ -323,9 +329,32 @@ fun MultiRoomMainScreen(
         }
     }
 
+    var lastReadWhisperId by remember(activeRoom?.jid) { mutableStateOf<String?>(null) }
+    LaunchedEffect(isWhisperBubbleExpanded, whisperTarget) {
+        if (isWhisperBubbleExpanded) {
+            lastReadWhisperId = messages.lastOrNull { it.messageType == com.ndregil.inchat.data.model.MessageType.WHISPER }?.id
+        }
+    }
+    val whisperUnreadCount = remember(messages, isWhisperBubbleExpanded, whisperTarget, lastReadWhisperId) {
+        if (isWhisperBubbleExpanded || whisperTarget == null) 0
+        else {
+            val partnerNick = whisperTarget?.nickname
+            val whisperList = messages.filter {
+                it.messageType == com.ndregil.inchat.data.model.MessageType.WHISPER && !it.isMine &&
+                    (partnerNick == null || it.senderNickname.equals(partnerNick, ignoreCase = true))
+            }
+            if (lastReadWhisperId == null) whisperList.size
+            else {
+                val idx = whisperList.indexOfLast { it.id == lastReadWhisperId }
+                if (idx == -1) whisperList.size else (whisperList.size - 1 - idx).coerceAtLeast(0)
+            }
+        }
+    }
+
     // Reset whisper target when active room changes
     LaunchedEffect(activeRoom?.jid) {
         viewModel.setWhisperTarget(null)
+        isWhisperBubbleExpanded = false
     }
 
     // Automatically maintain continuous whisper session when incoming whisper arrives
@@ -901,7 +930,7 @@ fun MultiRoomMainScreen(
                                             opacity = themePrefs.wallpaperOpacity
                                         )
 
-                                        if (messages.isEmpty()) {
+                                        if (roomMessages.isEmpty()) {
                                             Column(
                                                 modifier = Modifier.fillMaxSize().padding(32.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -951,7 +980,7 @@ fun MultiRoomMainScreen(
                                                         }
                                                     }
                                                 }
-                                                items(messages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
+                                                items(roomMessages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
                                                         myNickname = room.myNickname ?: currentAccount.nickname,
@@ -966,6 +995,7 @@ fun MultiRoomMainScreen(
                                                             val found = viewModel.activeRoomOccupants.value.find { it.nickname == targetNick }
                                                                 ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = whisperMsg.senderJid, avatarKey = whisperMsg.avatarKey)
                                                             viewModel.setWhisperTarget(found)
+                                                            isWhisperBubbleExpanded = true
                                                         },
                                                         onMentionClick = { nick -> viewModel.insertMention(nick) },
                                                          onTranslateClick = { translateMsg -> viewModel.translateMessage(translateMsg.id) },
@@ -1000,91 +1030,31 @@ fun MultiRoomMainScreen(
 
                                         ScrollNavigationButtons(
                                             listState = listState,
-                                            totalMessagesCount = messages.size,
+                                            totalMessagesCount = roomMessages.size,
                                             modifier = Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .padding(end = 12.dp, bottom = 12.dp)
                                         )
-                                    }
 
-                                    // Whisper Target Banner
-                                    AnimatedVisibility(visible = whisperTarget != null) {
-                                        whisperTarget?.let { target ->
-                                            Surface(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                color = Color(0xFF6D28D9),
-                                                shadowElevation = 2.dp
-                                            ) {
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.weight(1f)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Chat,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFFDDD6FE),
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                        ClientCapsIcon(
-                                                            platform = target.clientCaps.platform,
-                                                            clientCaps = target.clientCaps,
-                                                            tint = Color(0xFFDDD6FE),
-                                                            modifier = Modifier.size(15.dp).clickable { selectedCapsOccupant = target }
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Column {
-                                                            Text(
-                                                                text = "Percakapan Pribadi Aktif",
-                                                                color = Color(0xFFDDD6FE),
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Normal
-                                                            )
-                                                            Text(
-                                                                text = "Tertuju ke @${target.nickname}",
-                                                                color = Color.White,
-                                                                fontSize = 13.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                        }
-                                                    }
-
-                                                    // Explicit 'Akhiri' (End Whisper) Button
-                                                    Surface(
-                                                        shape = RoundedCornerShape(16.dp),
-                                                        color = Color.White.copy(alpha = 0.2f),
-                                                        modifier = Modifier
-                                                            .clip(RoundedCornerShape(16.dp))
-                                                            .clickable { viewModel.setWhisperTarget(null) }
-                                                    ) {
-                                                        Row(
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Default.Close,
-                                                                contentDescription = "Akhiri Percakapan Pribadi",
-                                                                tint = Color.White,
-                                                                modifier = Modifier.size(14.dp)
-                                                            )
-                                                            Text(
-                                                                text = "Akhiri",
-                                                                color = Color.White,
-                                                                fontSize = 11.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
-                                                        }
-                                                    }
+                                        // Floating Air Bubble ("Gelembung Udara") for room whispers (isolated from room feed)
+                                        if (whisperTarget != null) {
+                                            com.ndregil.inchat.ui.components.WhisperFloatingBubbleOverlay(
+                                                targetOccupant = whisperTarget,
+                                                allWhisperMessages = messages,
+                                                availableOccupants = viewModel.activeRoomOccupants.value,
+                                                unreadCount = whisperUnreadCount,
+                                                isExpanded = isWhisperBubbleExpanded,
+                                                onExpand = { isWhisperBubbleExpanded = true },
+                                                onMinimize = { isWhisperBubbleExpanded = false },
+                                                onClose = {
+                                                    isWhisperBubbleExpanded = false
+                                                    viewModel.setWhisperTarget(null)
+                                                },
+                                                onSelectPartner = { occ -> viewModel.setWhisperTarget(occ) },
+                                                onSendWhisper = { targetNick, text ->
+                                                    viewModel.sendWhisper(targetNick, text)
                                                 }
-                                            }
+                                            )
                                         }
                                     }
 
@@ -1139,7 +1109,7 @@ fun MultiRoomMainScreen(
                                             onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
                                             onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
                                             onCallClick = { viewModel.initiateCall(it) },
-                                            whisperTarget = whisperTarget,
+                                            whisperTarget = null,
                                             replyingToMessage = replyingToMessage,
                                             onCancelReply = { viewModel.clearReplyMessage() },
                                             onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) },

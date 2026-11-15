@@ -46,7 +46,11 @@ import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.filled.BubbleChart
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -239,10 +243,46 @@ fun MessageBubble(
         }
     }
 
-    val bubbleShape = if (isMine) {
-        RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
-    } else {
-        RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
+    val bubbleShape = when {
+        isWhisper && isMine -> RoundedCornerShape(topStart = 22.dp, topEnd = 12.dp, bottomEnd = 22.dp, bottomStart = 22.dp)
+        isWhisper && !isMine -> RoundedCornerShape(topStart = 12.dp, topEnd = 22.dp, bottomEnd = 22.dp, bottomStart = 22.dp)
+        isMine -> RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
+        else -> RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
+    }
+
+    val whisperAirBubbleBrush = remember(isMine) {
+        if (isMine) {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF6D28D9).copy(alpha = 0.90f),
+                    Color(0xFF2563EB).copy(alpha = 0.85f),
+                    Color(0xFF0284C7).copy(alpha = 0.88f)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(400f, 400f)
+            )
+        } else {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF1E1B4B).copy(alpha = 0.92f),
+                    Color(0xFF581C87).copy(alpha = 0.88f),
+                    Color(0xFF0F766E).copy(alpha = 0.85f)
+                ),
+                start = Offset(0f, 0f),
+                end = Offset(400f, 400f)
+            )
+        }
+    }
+
+    val whisperRimBrush = remember {
+        Brush.linearGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.88f),
+                Color(0xFF67E8F9).copy(alpha = 0.80f),
+                Color(0xFFC084FC).copy(alpha = 0.75f),
+                Color(0xFF38BDF8).copy(alpha = 0.85f)
+            )
+        )
     }
 
     Row(
@@ -272,26 +312,29 @@ fun MessageBubble(
                     if (isWhisper) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF7C3AED).copy(alpha = 0.15f),
-                            border = BorderStroke(0.8.dp, Color(0xFFA78BFA).copy(alpha = 0.4f)),
-                            modifier = Modifier.padding(end = 2.dp)
+                            color = Color(0xFF0284C7).copy(alpha = 0.20f),
+                            border = BorderStroke(0.9.dp, Color(0xFF38BDF8).copy(alpha = 0.6f)),
+                            modifier = Modifier
+                                .padding(end = 2.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onWhisperClick(message) }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Pesan Bisikan",
-                                    tint = Color(0xFFA78BFA),
-                                    modifier = Modifier.size(11.dp)
+                                    imageVector = Icons.Default.BubbleChart,
+                                    contentDescription = "Gelembung Bisikan",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = if (isMine) "Bisikan ke @${message.recipientNickname ?: "user"}" else "Bisikan dari ${message.senderNickname}",
+                                    text = if (isMine) "Gelembung Bisikan ke @${message.recipientNickname ?: "user"}" else "Gelembung Bisikan dari ${message.senderNickname}",
                                     fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFA78BFA)
+                                    color = Color(0xFF38BDF8)
                                 )
                             }
                         }
@@ -427,14 +470,14 @@ fun MessageBubble(
             Box(
                 modifier = Modifier
                     .clip(bubbleShape)
-                    .background(bubbleBg)
                     .then(
                         if (isWhisper) {
-                            Modifier.border(
-                                BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.5f)),
-                                bubbleShape
-                            )
-                        } else Modifier
+                            Modifier
+                                .background(whisperAirBubbleBrush)
+                                .border(BorderStroke(1.5.dp, whisperRimBrush), bubbleShape)
+                        } else {
+                            Modifier.background(bubbleBg)
+                        }
                     )
                     .combinedClickable(
                         onClick = { onReplyClick(message) },
@@ -442,6 +485,22 @@ fun MessageBubble(
                     )
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
+                // Gloss specular highlight at top of air bubble
+                if (isWhisper) {
+                    Canvas(modifier = Modifier.matchParentSize()) {
+                        val dotX = if (isMine) size.width - 24.dp.toPx() else 24.dp.toPx()
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.45f),
+                            radius = 4.dp.toPx(),
+                            center = Offset(dotX, 10.dp.toPx())
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.25f),
+                            radius = 2.dp.toPx(),
+                            center = Offset(dotX + (if (isMine) -6.dp.toPx() else 6.dp.toPx()), 15.dp.toPx())
+                        )
+                    }
+                }
                 Column {
                     // Render Quoted/Reply Preview Header if present
                     if (!message.replyToSender.isNullOrBlank() || !message.replyToText.isNullOrBlank()) {
