@@ -24,11 +24,11 @@ class TranslationPreferencesManager(private val context: Context) {
         .map { preferences ->
             val defaultLang = com.ndregil.inchat.data.network.TranslationService.getDefaultSystemLanguageCode()
             TranslationPreferences(
-                isAutoTranslateEnabled = preferences[PreferencesKeys.IS_AUTO_TRANSLATE_ENABLED] ?: true,
+                isAutoTranslateEnabled = preferences[PreferencesKeys.IS_AUTO_TRANSLATE_ENABLED] ?: false,
                 targetLanguageCode = preferences[PreferencesKeys.TARGET_LANGUAGE_CODE] ?: defaultLang,
-                translateRooms = preferences[PreferencesKeys.TRANSLATE_ROOMS] ?: true,
-                translateContacts = preferences[PreferencesKeys.TRANSLATE_CONTACTS] ?: true,
-                translateOutgoing = preferences[PreferencesKeys.TRANSLATE_OUTGOING] ?: true
+                translateRooms = preferences[PreferencesKeys.TRANSLATE_ROOMS] ?: false,
+                translateContacts = preferences[PreferencesKeys.TRANSLATE_CONTACTS] ?: false,
+                translateOutgoing = preferences[PreferencesKeys.TRANSLATE_OUTGOING] ?: false
             )
         }
 

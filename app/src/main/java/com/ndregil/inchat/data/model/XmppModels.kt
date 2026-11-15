@@ -710,9 +710,9 @@ data class ThemePreferences(
 )
 
 data class TranslationPreferences(
-    val isAutoTranslateEnabled: Boolean = true,
+    val isAutoTranslateEnabled: Boolean = false,
     val targetLanguageCode: String = com.ndregil.inchat.data.network.TranslationService.getDefaultSystemLanguageCode(),
-    val translateRooms: Boolean = true,
-    val translateContacts: Boolean = true,
-    val translateOutgoing: Boolean = true
+    val translateRooms: Boolean = false,
+    val translateContacts: Boolean = false,
+    val translateOutgoing: Boolean = false
 )

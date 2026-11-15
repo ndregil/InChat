@@ -3262,10 +3262,13 @@ fun ChatInputBar(
                                     Switch(
                                         checked = translationPreferences.translateOutgoing,
                                         onCheckedChange = { isChecked: Boolean ->
+                                            val needScope = isChecked && !translationPreferences.translateRooms && !translationPreferences.translateContacts
                                             onUpdateTranslationPreferences?.invoke(
                                                 translationPreferences.copy(
-                                                    isAutoTranslateEnabled = true,
-                                                    translateOutgoing = isChecked
+                                                    isAutoTranslateEnabled = if (isChecked) true else translationPreferences.isAutoTranslateEnabled,
+                                                    translateOutgoing = isChecked,
+                                                    translateRooms = if (needScope) true else translationPreferences.translateRooms,
+                                                    translateContacts = if (needScope) true else translationPreferences.translateContacts
                                                 )
                                             )
                                         },
@@ -3308,10 +3311,13 @@ fun ChatInputBar(
                                     }
                                 },
                                 onClick = {
+                                    val needScope = !translationPreferences.translateRooms && !translationPreferences.translateContacts
                                     onUpdateTranslationPreferences?.invoke(
                                         translationPreferences.copy(
                                             isAutoTranslateEnabled = true,
                                             translateOutgoing = true,
+                                            translateRooms = if (needScope) true else translationPreferences.translateRooms,
+                                            translateContacts = if (needScope) true else translationPreferences.translateContacts,
                                             targetLanguageCode = lang.code
                                         )
                                     )
