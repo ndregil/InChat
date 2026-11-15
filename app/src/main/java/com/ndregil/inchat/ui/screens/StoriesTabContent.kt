@@ -398,7 +398,7 @@ fun StoriesTabContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Bagikan momen harian atau pembaruan teks dengan kontak Anda seperti di WhatsApp. Status otomatis aktif selama 24 jam.",
+                                text = "Bagikan momen harian atau pembaruan teks dengan kontak Anda. Status otomatis aktif selama 24 jam.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
