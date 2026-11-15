@@ -162,6 +162,9 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessages(messages: List<MessageEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(messages: List<MessageEntity>)
+
     @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND body = :body AND isMine = :isMine ORDER BY timestamp DESC LIMIT 1")
     suspend fun findRecentMessage(roomJid: String, body: String, isMine: Boolean): MessageEntity?
 

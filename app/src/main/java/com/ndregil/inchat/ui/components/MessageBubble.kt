@@ -58,10 +58,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -726,9 +728,10 @@ fun MessageBubble(
                     modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        if (message.senderAvatar != null) {
+                        val avatarModel = rememberAvatarImageRequest(message.avatarKey)
+                        if (avatarModel != null) {
                             coil.compose.AsyncImage(
-                                model = message.senderAvatar,
+                                model = avatarModel,
                                 contentDescription = "Avatar ${message.senderNickname}",
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -1288,9 +1291,10 @@ fun IncomingAvatar(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (message.senderAvatar != null) {
+        val avatarModel = rememberAvatarImageRequest(message.avatarKey)
+        if (avatarModel != null) {
             coil.compose.AsyncImage(
-                model = message.senderAvatar,
+                model = avatarModel,
                 contentDescription = "Avatar ${message.senderNickname}",
                 modifier = Modifier
                     .fillMaxSize()
@@ -1328,9 +1332,10 @@ fun OutgoingAvatar(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (message.senderAvatar != null) {
+        val avatarModel = rememberAvatarImageRequest(message.avatarKey)
+        if (avatarModel != null) {
             coil.compose.AsyncImage(
-                model = message.senderAvatar,
+                model = avatarModel,
                 contentDescription = "Avatar ${message.senderNickname}",
                 modifier = Modifier
                     .fillMaxSize()
@@ -1349,12 +1354,52 @@ fun OutgoingAvatar(
 }
 
 @Composable
+private fun rememberAvatarImageRequest(avatarKey: String): Any? {
+    val context = LocalContext.current
+    val repo = remember(context) { com.ndregil.inchat.data.repository.XmppRepository.getInstance(context) }
+    var avatarBytes by remember(avatarKey) {
+        mutableStateOf(
+            if (avatarKey.isNotBlank()) {
+                try { repo.getRoomAvatar(avatarKey) } catch (_: Exception) { null }
+            } else null
+        )
+    }
+    LaunchedEffect(avatarKey) {
+        if (avatarKey.isNotBlank() && avatarBytes == null) {
+            try {
+                repo.smackAvatarManager.avatarUpdates.first { updated ->
+                    val matches = updated == "preloaded" ||
+                        updated.equals(avatarKey, ignoreCase = true) ||
+                        avatarKey.endsWith("/$updated", ignoreCase = true)
+                    if (matches) {
+                        val fetched = repo.getRoomAvatar(avatarKey)
+                        if (fetched != null) {
+                            avatarBytes = fetched
+                            return@first true
+                        }
+                    }
+                    false
+                }
+            } catch (_: Exception) {}
+        }
+    }
+    return remember(avatarKey, avatarBytes) {
+        if (avatarBytes != null) {
+            coil.request.ImageRequest.Builder(context)
+                .data(avatarBytes)
+                .memoryCacheKey("avatar_$avatarKey")
+                .build()
+        } else null
+    }
+}
+
+@Composable
 fun VCardProfileDialog(
     message: XmppMessage,
     onDismiss: () -> Unit
 ) {
     val senderColor = getSenderColor(message.senderNickname)
-    val avatarData = message.senderAvatar
+    val avatarData = rememberAvatarImageRequest(message.avatarKey)
     var showFullPhoto by remember { mutableStateOf(false) }
 
     AlertDialog(

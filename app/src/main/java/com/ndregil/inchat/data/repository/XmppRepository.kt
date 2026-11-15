@@ -1,5 +1,6 @@
 package com.ndregil.inchat.data.repository
 
+import androidx.room.withTransaction
 import com.ndregil.inchat.data.local.AppDatabase
 import android.util.Log
 import com.ndregil.inchat.data.local.entity.AccountEntity
@@ -370,9 +371,7 @@ class XmppRepository(
                 val model = entity.toModel()
                 val myJid = currentAccount.value.jid
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
-                val avatar = smackAvatarManager.getAvatar(avatarJid)
-                    ?: if (model.senderNickname.isNotBlank()) smackAvatarManager.getAvatar(model.senderNickname) else null
-                model.copy(senderAvatar = avatar)
+                model.copy(avatarKey = avatarJid)
             }
         }.flowOn(Dispatchers.IO)
     }
@@ -938,7 +937,7 @@ class XmppRepository(
                         roomJid = roomJid,
                         senderNickname = senderNick,
                         senderJid = fromStr,
-                        senderAvatar = avatar,
+                        avatarKey = fromStr,
                         senderClientCaps = cachedCaps ?: com.ndregil.inchat.data.model.ClientCaps.resolveFor(senderNick, fromStr),
                         body = bodyText,
                         timestamp = System.currentTimeMillis(),
@@ -997,7 +996,7 @@ class XmppRepository(
                     roomJid = targetRoomJid,
                     senderNickname = senderNick,
                     senderJid = if (isSentByMe) myJid else fromStr,
-                    senderAvatar = avatar,
+                    avatarKey = if (isSentByMe) myJid else fromStr,
                     senderClientCaps = cachedCaps ?: com.ndregil.inchat.data.model.ClientCaps.resolveFor(senderNick, if (isSentByMe) myJid else fromStr),
                     body = bodyText,
                     timestamp = System.currentTimeMillis(),
@@ -1406,6 +1405,7 @@ class XmppRepository(
                     val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
                     val myJid = currentAccount.value.jid
 
+                    val xmppMessages = mutableListOf<XmppMessage>()
                     messages.forEach { smackMsg ->
                         try {
                             val body = smackMsg.body ?: return@forEach
@@ -1422,7 +1422,7 @@ class XmppRepository(
 
                             val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                             val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                            val stanzaId = smackMsg.stanzaId ?: java.util.UUID.randomUUID().toString()
+                            val stanzaId = smackMsg.stanzaId ?: "${roomJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                             val xmppMsg = XmppMessage(
                                 id = stanzaId,
@@ -1436,9 +1436,20 @@ class XmppRepository(
                                 status = DeliveryStatus.DELIVERED,
                                 isHistory = true
                             )
-                            processIncomingMessage(xmppMsg)
+                            xmppMessages.add(xmppMsg)
                         } catch (e: Exception) {
                             Log.w("XmppRepository", "Error parsing MAM message: ${e.message}")
+                        }
+                    }
+
+                    if (xmppMessages.isNotEmpty()) {
+                        val entities = xmppMessages.map { it.toEntity() }
+                        val latest = xmppMessages.maxByOrNull { it.timestamp }
+                        database.withTransaction {
+                            database.messageDao().insertAll(entities)
+                            if (latest != null) {
+                                database.roomDao().updateLastMessage(roomJid, latest.body, latest.timestamp, 0)
+                            }
                         }
                     }
                 }
@@ -1471,6 +1482,7 @@ class XmppRepository(
             val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
             val myJid = currentAccount.value.jid
 
+            val xmppMessages = mutableListOf<XmppMessage>()
             messages.forEach { smackMsg ->
                 try {
                     val body = smackMsg.body ?: return@forEach
@@ -1487,7 +1499,7 @@ class XmppRepository(
 
                     val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                     val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                    val stanzaId = smackMsg.stanzaId ?: java.util.UUID.randomUUID().toString()
+                    val stanzaId = smackMsg.stanzaId ?: "${roomJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                     val xmppMsg = XmppMessage(
                         id = stanzaId,
@@ -1501,10 +1513,17 @@ class XmppRepository(
                         status = DeliveryStatus.DELIVERED,
                         isHistory = true
                     )
-                    processIncomingMessage(xmppMsg)
+                    xmppMessages.add(xmppMsg)
                     countAdded++
                 } catch (e: Exception) {
                     Log.w("XmppRepository", "Error parsing older MAM message: ${e.message}")
+                }
+            }
+
+            if (xmppMessages.isNotEmpty()) {
+                val entities = xmppMessages.map { it.toEntity() }
+                database.withTransaction {
+                    database.messageDao().insertAll(entities)
                 }
             }
         }
@@ -1980,9 +1999,8 @@ class XmppRepository(
         }
 
         val myJid = currentAccount.value.jid
-        val myAvatar = smackAvatarManager.getAvatar(myJid)
 
-        val msg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(senderAvatar = myAvatar)
+        val msg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(avatarKey = myJid)
         database.messageDao().insertMessage(msg.toEntity())
 
         try {

@@ -225,11 +225,9 @@ fun MultiRoomMainScreen(
 
     val savedRooms by viewModel.savedRooms.collectAsStateWithLifecycle()
     val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
-    val avatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
     var showOnlySavedRooms by remember { mutableStateOf(false) }
     val activeRoom by viewModel.activeRoom.collectAsStateWithLifecycle()
     val messages by viewModel.activeRoomMessages.collectAsStateWithLifecycle()
-    val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
     val stanzaLogs by viewModel.stanzaLogs.collectAsStateWithLifecycle()
     val directoryRooms by viewModel.directoryRooms.collectAsStateWithLifecycle()
     val isDirectoryLoading by viewModel.isDirectoryLoading.collectAsStateWithLifecycle()
@@ -336,8 +334,8 @@ fun MultiRoomMainScreen(
         if (lastMsg != null && lastMsg.messageType == com.ndregil.inchat.data.model.MessageType.WHISPER && !lastMsg.isMine) {
             val senderNick = lastMsg.senderNickname
             if (senderNick.isNotBlank()) {
-                val found = occupants.find { it.nickname == senderNick }
-                    ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = senderNick, jid = lastMsg.senderJid)
+                val found = viewModel.activeRoomOccupants.value.find { it.nickname == senderNick }
+                    ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = senderNick, jid = lastMsg.senderJid, avatarKey = lastMsg.avatarKey)
                 viewModel.setWhisperTarget(found)
             }
         }
@@ -831,13 +829,14 @@ fun MultiRoomMainScreen(
                                         }
                                     }
                                 } else {
+                                    val roomListAvatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         items(displayedRooms, key = { it.jid }) { room ->
-                                            val roomAvatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) }
+                                            val roomAvatar = remember(room.jid, roomListAvatarRevision) { viewModel.getRoomAvatar(room.jid) }
                                             RoomItemCard(
                                                 room = room,
                                                 isSelected = activeRoom?.jid == room.jid,
@@ -877,8 +876,8 @@ fun MultiRoomMainScreen(
                                     )
 
                                     // Room Occupancy and Capabilities Indicator
-                                    RoomOccupantsCapsBar(
-                                        occupants = occupants,
+                                    RoomOccupantsCapsBarHost(
+                                        viewModel = viewModel,
                                         onOccupantClick = { occ -> 
                                             selectedOccupantForMenu = occ
                                         },
@@ -943,28 +942,28 @@ fun MultiRoomMainScreen(
                                                         }
                                                     }
                                                 }
-                                                items(messages, key = { msg -> msg.id }) { msg ->
+                                                items(messages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
                                                         myNickname = room.myNickname ?: currentAccount.nickname,
                                                         onSenderClick = { senderNick ->
-                                                            val found = occupants.find { it.nickname == senderNick }
+                                                            val found = viewModel.activeRoomOccupants.value.find { it.nickname == senderNick }
                                                             viewModel.setWhisperTarget(found)
                                                         },
                                                         onReplyClick = { replyMsg -> viewModel.setReplyMessage(replyMsg) },
                                                         onQuoteClick = { quoteMsg -> viewModel.quoteMessage(quoteMsg) },
                                                         onWhisperClick = { whisperMsg ->
                                                             val targetNick = whisperMsg.senderNickname
-                                                            val found = occupants.find { it.nickname == targetNick }
-                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = whisperMsg.senderJid)
+                                                            val found = viewModel.activeRoomOccupants.value.find { it.nickname == targetNick }
+                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = whisperMsg.senderJid, avatarKey = whisperMsg.avatarKey)
                                                             viewModel.setWhisperTarget(found)
                                                         },
                                                         onMentionClick = { nick -> viewModel.insertMention(nick) },
                                                          onTranslateClick = { translateMsg -> viewModel.translateMessage(translateMsg.id) },
                                                         onViewProfile = { profileMsg ->
                                                             val targetNick = profileMsg.senderNickname
-                                                            val occ = occupants.find { it.nickname == targetNick }
-                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatar = profileMsg.senderAvatar)
+                                                            val occ = viewModel.activeRoomOccupants.value.find { it.nickname == targetNick }
+                                                                ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatarKey = profileMsg.avatarKey.ifBlank { profileMsg.senderJid })
                                                             val target = occ.fullJid.ifBlank { occ.jid.ifBlank { profileMsg.senderJid.ifBlank { "${room.jid}/$targetNick" } } }
                                                             if (target.isNotBlank()) {
                                                                 isLoadingProfile = true
@@ -974,9 +973,8 @@ fun MultiRoomMainScreen(
                                                                     if (profile != null && fetchedAvatar != null && profile.avatar == null) {
                                                                         profile.avatar = fetchedAvatar
                                                                     }
-                                                                    val finalAvatar = fetchedAvatar ?: profile?.avatar ?: profileMsg.senderAvatar ?: occ.avatar
                                                                     isLoadingProfile = false
-                                                                    selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
+                                                                    selectedProfileOccupant = Pair(occ, profile)
                                                                 }
                                                             } else {
                                                                 selectedProfileOccupant = Pair(occ, null)
@@ -1336,13 +1334,14 @@ fun MultiRoomMainScreen(
                                         }
                                     }
                                 } else {
+                                    val directListAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp, horizontal = 20.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         items(displayedList, key = { it.jid }) { room ->
-                                            val avatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) }
+                                            val avatar = remember(room.jid, directListAvatarRev) { viewModel.getRoomAvatar(room.jid) }
                                             RoomItemCard(
                                                 room = room,
                                                 isSelected = activeRoom?.jid == room.jid,
@@ -1360,7 +1359,8 @@ fun MultiRoomMainScreen(
                         } else {
                             // MODE B: Active Direct Conversation Screen
                             val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
-                            val roomAvatar = remember(activeRoom?.jid, avatarRevision) { activeRoom?.let { viewModel.getRoomAvatar(it.jid) } }
+                            val directHeaderAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
+                            val roomAvatar = remember(activeRoom?.jid, directHeaderAvatarRev) { activeRoom?.let { viewModel.getRoomAvatar(it.jid) } }
                             var showDirectMenu by remember { mutableStateOf(false) }
 
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -1625,7 +1625,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 }
                                             }
-                                            items(messages, key = { msg -> msg.id }) { msg ->
+                                            items(messages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
                                                 MessageBubble(
                                                     message = msg,
                                                     myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
@@ -1636,8 +1636,8 @@ fun MultiRoomMainScreen(
                                                     onTranslateClick = { translateMsg -> viewModel.translateMessage(translateMsg.id) },
                                                     onViewProfile = { profileMsg ->
                                                         val targetNick = profileMsg.senderNickname
-                                                        val occ = occupants.find { it.nickname == targetNick }
-                                                            ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatar = profileMsg.senderAvatar)
+                                                        val occ = viewModel.activeRoomOccupants.value.find { it.nickname == targetNick }
+                                                            ?: com.ndregil.inchat.data.model.RoomOccupant(nickname = targetNick, jid = profileMsg.senderJid, avatarKey = profileMsg.avatarKey.ifBlank { profileMsg.senderJid })
                                                         val target = occ.fullJid.ifBlank { occ.jid.ifBlank { profileMsg.senderJid.ifBlank { if (activeRoom != null) "${activeRoom!!.jid}/$targetNick" else "" } } }
                                                         if (target.isNotBlank()) {
                                                             isLoadingProfile = true
@@ -1647,9 +1647,8 @@ fun MultiRoomMainScreen(
                                                                 if (profile != null && fetchedAvatar != null && profile.avatar == null) {
                                                                     profile.avatar = fetchedAvatar
                                                                 }
-                                                                val finalAvatar = fetchedAvatar ?: profile?.avatar ?: profileMsg.senderAvatar ?: occ.avatar
                                                                 isLoadingProfile = false
-                                                                selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
+                                                                selectedProfileOccupant = Pair(occ, profile)
                                                             }
                                                         } else {
                                                             selectedProfileOccupant = Pair(occ, null)
@@ -1778,7 +1777,7 @@ fun MultiRoomMainScreen(
                             )
                             activeNavIndex = if (isMucJid(discRoom.jid)) 0 else 1
                         },
-                        avatarRevision = avatarRevision,
+                        avatarRevision = viewModel.avatarRevision.collectAsStateWithLifecycle().value,
                         getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) }
                     )
                 }
@@ -1791,7 +1790,7 @@ fun MultiRoomMainScreen(
                             onRemoveBookmark = { jid -> viewModel.removeSavedRoom(jid) },
                             onUpdateRoomColor = { jid, color -> viewModel.updateRoomColor(jid, color) },
                             onBack = { showBookmarksScreen = false },
-                            avatarRevision = avatarRevision,
+                            avatarRevision = viewModel.avatarRevision.collectAsStateWithLifecycle().value,
                             getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) }
                         )
                     } else if (showCustomThemeScreen) {
@@ -1957,9 +1956,8 @@ fun MultiRoomMainScreen(
                         if (profile != null && fetchedAvatar != null && profile.avatar == null) {
                             profile.avatar = fetchedAvatar
                         }
-                        val finalAvatar = fetchedAvatar ?: profile?.avatar ?: occ.avatar
                         isLoadingProfile = false
-                        selectedProfileOccupant = Pair(occ.copy(avatar = finalAvatar), profile)
+                        selectedProfileOccupant = Pair(occ, profile)
                     }
                 } else {
                     selectedProfileOccupant = Pair(occ, null)
@@ -2000,7 +1998,11 @@ fun MultiRoomMainScreen(
         }
         val org = vCard?.organization ?: "-"
         val email = vCard?.emailHome ?: vCard?.emailWork ?: "-"
-        val avatarBytes = vCard?.avatar ?: occupant.avatar
+        val avatarBytes = vCard?.avatar ?: remember(occupant.avatarKey) {
+            if (occupant.avatarKey.isNotBlank()) {
+                try { viewModel.getRoomAvatar(occupant.avatarKey) } catch (_: Exception) { null }
+            } else null
+        }
         var showFullPhoto by remember { mutableStateOf(false) }
 
         AlertDialog(
@@ -2119,6 +2121,7 @@ fun MultiRoomMainScreen(
     }
 
     if (isRosterOpen) {
+        val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
         OccupantRosterSheet(
             occupants = occupants,
             roomName = activeRoom?.name ?: "Room",
@@ -2176,6 +2179,7 @@ fun MultiRoomMainScreen(
     if (isRoomConfigOpen) {
         activeRoom?.let { room ->
             val config = roomConfigs.find { it.roomJid == room.jid }
+            val dialogAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
             RoomConfigurationDialog(
                 roomJid = room.jid,
                 initialInfo = roomConfigInfo,
@@ -2201,7 +2205,7 @@ fun MultiRoomMainScreen(
                 onUpdateNickname = { newNick -> viewModel.updateRoomNickname(room.jid, newNick) },
                 onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
                 onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(room.jid, room.name, uri) },
-                roomAvatar = remember(room.jid, avatarRevision) { viewModel.getRoomAvatar(room.jid) },
+                roomAvatar = remember(room.jid, dialogAvatarRev) { viewModel.getRoomAvatar(room.jid) },
                 onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, notifMode, maxUsers, enableLogging, allowInvites, whois ->
                     viewModel.configureRoom(
                         roomJid = room.jid,
@@ -2226,8 +2230,8 @@ fun MultiRoomMainScreen(
     }
 
     if (isThemeWallpaperOpen) {
-
-        val activeRoomAvatar = remember(activeRoom?.jid, avatarRevision) { activeRoom?.jid?.let { viewModel.getRoomAvatar(it) } }
+        val themeAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
+        val activeRoomAvatar = remember(activeRoom?.jid, themeAvatarRev) { activeRoom?.jid?.let { viewModel.getRoomAvatar(it) } }
         com.ndregil.inchat.ui.components.ChatThemeSettingsDialog(
             currentTheme = activeRoom?.bubbleTheme ?: "dregil-theme",
             currentWallpaper = activeRoom?.wallpaperStyle ?: "default",
@@ -2245,6 +2249,8 @@ fun MultiRoomMainScreen(
     }
 
     if (isAdminPanelOpen && activeRoom != null) {
+        val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
+        val adminAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
         com.ndregil.inchat.ui.components.RoomAdminPanel(
             roomJid = activeRoom!!.jid,
             roomName = activeRoom!!.name,
@@ -2261,7 +2267,7 @@ fun MultiRoomMainScreen(
             onUpdateTopic = { newTopic -> viewModel.updateTopic(newTopic) },
             onUpdateNickname = { newNick -> viewModel.updateRoomNickname(activeRoom!!.jid, newNick) },
             onUpdateRoomAvatar = { uri -> viewModel.updateRoomAvatar(activeRoom!!.jid, activeRoom!!.name, uri) },
-            roomAvatar = remember(activeRoom!!.jid, avatarRevision) { viewModel.getRoomAvatar(activeRoom!!.jid) },
+            roomAvatar = remember(activeRoom!!.jid, adminAvatarRev) { viewModel.getRoomAvatar(activeRoom!!.jid) },
             onSaveConfig = { name, desc, subj, persistent, public, membersOnly, moderated, allowSubjChange, pass, maxUsers, enableLogging, allowInvites, whois ->
                 viewModel.configureRoom(
                     roomJid = activeRoom!!.jid,
@@ -2412,6 +2418,20 @@ fun MultiRoomMainScreen(
 }
 
 @Composable
+fun RoomOccupantsCapsBarHost(
+    viewModel: XmppViewModel,
+    onOccupantClick: (RoomOccupant) -> Unit,
+    onOpenRosterClick: () -> Unit
+) {
+    val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
+    RoomOccupantsCapsBar(
+        occupants = occupants,
+        onOccupantClick = onOccupantClick,
+        onOpenRosterClick = onOpenRosterClick
+    )
+}
+
+@Composable
 fun RoomOccupantsCapsBar(
     occupants: List<RoomOccupant>,
     onOccupantClick: (RoomOccupant) -> Unit,
@@ -2470,9 +2490,23 @@ fun RoomOccupantsCapsBar(
                                         .background(MaterialTheme.colorScheme.primaryContainer),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    if (occupant.avatar != null) {
+                                    val context = LocalContext.current
+                                    val avatarBytes = remember(occupant.avatarKey) {
+                                        if (occupant.avatarKey.isNotBlank()) {
+                                            try { com.ndregil.inchat.data.repository.XmppRepository.getInstance(context).getRoomAvatar(occupant.avatarKey) } catch (_: Exception) { null }
+                                        } else null
+                                    }
+                                    val avatarRequest = remember(occupant.avatarKey, avatarBytes) {
+                                        if (avatarBytes != null) {
+                                            coil.request.ImageRequest.Builder(context)
+                                                .data(avatarBytes)
+                                                .memoryCacheKey("avatar_${occupant.avatarKey}")
+                                                .build()
+                                        } else null
+                                    }
+                                    if (avatarRequest != null) {
                                         coil.compose.AsyncImage(
-                                            model = occupant.avatar,
+                                            model = avatarRequest,
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                                             contentScale = androidx.compose.ui.layout.ContentScale.Crop
@@ -3471,9 +3505,15 @@ fun OccupantActionDialog(
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (occupant.avatar != null) {
+                    val context = LocalContext.current
+                    val avatarBytes = remember(occupant.avatarKey) {
+                        if (occupant.avatarKey.isNotBlank()) {
+                            try { com.ndregil.inchat.data.repository.XmppRepository.getInstance(context).getRoomAvatar(occupant.avatarKey) } catch (_: Exception) { null }
+                        } else null
+                    }
+                    if (avatarBytes != null) {
                         coil.compose.AsyncImage(
-                            model = occupant.avatar,
+                            model = avatarBytes,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                             contentScale = androidx.compose.ui.layout.ContentScale.Crop

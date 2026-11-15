@@ -388,9 +388,23 @@ fun OccupantItemRow(
                     .border(2.dp, presenceColor, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                if (occupant.avatar != null) {
+                val context = LocalContext.current
+                val avatarBytes = remember(occupant.avatarKey) {
+                    if (occupant.avatarKey.isNotBlank()) {
+                        try { com.ndregil.inchat.data.repository.XmppRepository.getInstance(context).getRoomAvatar(occupant.avatarKey) } catch (_: Exception) { null }
+                    } else null
+                }
+                val avatarRequest = remember(occupant.avatarKey, avatarBytes) {
+                    if (avatarBytes != null) {
+                        coil.request.ImageRequest.Builder(context)
+                            .data(avatarBytes)
+                            .memoryCacheKey("avatar_${occupant.avatarKey}")
+                            .build()
+                    } else null
+                }
+                if (avatarRequest != null) {
                     coil.compose.AsyncImage(
-                        model = occupant.avatar,
+                        model = avatarRequest,
                         contentDescription = "Avatar ${occupant.nickname}",
                         modifier = Modifier.fillMaxSize().clip(CircleShape),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop

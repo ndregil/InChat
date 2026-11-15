@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withPermit
 import org.jivesoftware.smack.MessageListener
@@ -116,9 +117,11 @@ class MultiUserChatManager(
     init {
         // Listen for avatar updates to refresh UI automatically
         scope.launch {
-            avatarManager.avatarUpdates.collect { updatedBareJid ->
-                refreshRoomsWithJid(updatedBareJid)
-            }
+            avatarManager.avatarUpdates
+                .debounce(500)
+                .collect { updatedBareJid ->
+                    refreshRoomsWithJid(updatedBareJid)
+                }
         }
     }
 
@@ -1152,7 +1155,7 @@ class MultiUserChatManager(
                         jid = senderJid
                     )
                 }
-                onMessageReceived(msg.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
+                onMessageReceived(msg.copy(avatarKey = senderJid, senderClientCaps = finalCaps))
             }
         )
         if (muc.addMessageListener(listener)) {
@@ -1172,7 +1175,6 @@ class MultiUserChatManager(
             myNicknameProvider = { roomNicknames[roomJid] ?: myNickname },
             onMessageProcessed = { xmppMessage ->
                 val senderJid = xmppMessage.senderJid
-                val avatar = avatarManager.getAvatar(senderJid) ?: avatarManager.getAvatar(xmppMessage.senderNickname)
                 val cachedCaps = getOccupantCaps(roomJid, xmppMessage.senderNickname)
                 val finalCaps = if (cachedCaps != null && cachedCaps.iconResId != null) {
                     cachedCaps
@@ -1184,7 +1186,7 @@ class MultiUserChatManager(
                         jid = senderJid
                     )
                 }
-                _incomingMessages.tryEmit(xmppMessage.copy(senderAvatar = avatar, senderClientCaps = finalCaps))
+                _incomingMessages.tryEmit(xmppMessage.copy(avatarKey = senderJid, senderClientCaps = finalCaps))
             },
             onTopicUpdated = { jid, newTopic ->
                 _topicUpdates.tryEmit(Pair(jid, newTopic))
@@ -1467,22 +1469,27 @@ class MultiUserChatManager(
                 val mucUser = org.jivesoftware.smackx.muc.packet.MUCUser.from(presence)
                 val realJid = mucUser?.item?.jid?.toString() ?: fromJid.toString()
 
+                var capsChanged = false
                 if (extracted != null) {
                     val (node, ver) = extracted
                     val caps = resolvePresenceCaps(fromJid, realJid, node, ver)
+                    val roomCapsMap = roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }
                     if (caps.iconResId != null) {
-                        roomOccupantCapsCache.computeIfAbsent(roomJid) { java.util.concurrent.ConcurrentHashMap() }[nick] = caps
+                        val prevCaps = roomCapsMap[nick]
+                        if (prevCaps != caps) {
+                            roomCapsMap[nick] = caps
+                            capsChanged = true
+                        }
                         ClientRegistryManager.putCachedCaps(realJid, caps)
                         if (!realJid.equals(fromJid.toString(), ignoreCase = true)) {
                             ClientRegistryManager.putCachedCaps(fromJid.toString(), caps)
                         }
                     } else {
-                        roomOccupantCapsCache[roomJid]?.remove(nick)
+                        if (roomCapsMap.remove(nick) != null) {
+                            capsChanged = true
+                        }
                     }
                 }
-
-                // Update real-time occupant presence list
-                updateOccupantsForRoom(roomJid, muc)
 
                 val userPresence = presence.toUserPresence()
                 val customStatus = presence.status ?: ""
@@ -1490,8 +1497,14 @@ class MultiUserChatManager(
                 val roomCache = roomOccupantPresenceCache.getOrPut(roomJid) { mutableMapOf() }
                 val prev = roomCache[nick]
                 val currentPair = Pair(userPresence, customStatus)
+                val presenceChanged = prev != currentPair
 
-                if (prev != currentPair) {
+                // Update real-time occupant presence list only when presence or caps actually changed
+                if (presenceChanged || capsChanged) {
+                    updateOccupantsForRoom(roomJid, muc)
+                }
+
+                if (presenceChanged) {
                     roomCache[nick] = currentPair
 
                     // Only emit status message if this is a subsequent change (avoid initial spam on join)
@@ -1527,15 +1540,6 @@ class MultiUserChatManager(
         val presenceFilter = org.jivesoftware.smack.filter.StanzaTypeFilter(Presence::class.java)
         connectionManager.getRawConnection()?.addAsyncStanzaListener(presenceListener, presenceFilter)
         roomPresenceListeners.getOrPut(roomJid) { mutableListOf() }.add(presenceListener)
-
-        // Also add direct ParticipantListener on MUC
-        try {
-            muc.addParticipantListener { presence ->
-                updateOccupantsForRoom(roomJid, muc)
-            }
-        } catch (e: Exception) {
-            // Handled safely
-        }
     }
 
     /**
@@ -1550,31 +1554,10 @@ class MultiUserChatManager(
      * Retrieves cached ClientCaps for an occupant in a room.
      */
     fun getOccupantCaps(roomJid: String, nickname: String): com.ndregil.inchat.data.model.ClientCaps? {
+        val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
+        if (roomCached != null) return roomCached
         val occupants = _roomOccupants.value[roomJid]
         val occupant = occupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
-        
-        // Try to get ver hash from current presence
-        val muc = activeMucs[roomJid]
-        val smackPresence = try { 
-            muc?.getOccupantPresence(org.jxmpp.jid.impl.JidCreate.entityFullFrom("$roomJid/$nickname")) 
-        } catch (e: Exception) { null }
-        val verHash = ClientRegistryManager.extractCapsFromPresence(smackPresence)?.second
-
-        // 1. Try Room Nick cache first (most specific for this session)
-        val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
-        if (roomCached != null && roomCached.iconResId != null) return roomCached
-
-        // 2. Try global cache if we have a REAL JID or ver hash
-        val realJid = occupant?.jid?.takeIf { it.isNotBlank() }
-        val global = ClientRegistryManager.getCachedCaps(realJid ?: "", verHash)
-        if (global != null && global.iconResId != null) return global
-        
-        // 3. Try global cache using the full MUC JID
-        val fullJid = occupant?.fullJid ?: "$roomJid/$nickname"
-        val globalFull = ClientRegistryManager.getCachedCaps(fullJid, verHash)
-        if (globalFull != null && globalFull.iconResId != null) return globalFull
-
-        // 4. Fallback to occupant property
         return occupant?.clientCaps
     }
 
@@ -1628,8 +1611,8 @@ class MultiUserChatManager(
         updateJobs[roomJid]?.cancel()
         
         updateJobs[roomJid] = scope.launch(Dispatchers.Default) {
-            // Small debounce to batch multiple rapid presence stanzas (e.g. on join)
-            kotlinx.coroutines.delay(150)
+            // Debounce to batch multiple rapid presence stanzas (e.g. on join)
+            kotlinx.coroutines.delay(400)
             
             try {
                 val myNickname = roomNicknames[roomJid] ?: ""
@@ -1737,12 +1720,7 @@ class MultiUserChatManager(
                         }
                     }
 
-                    // Fetch avatar (will trigger fetch if missing, with fallback for current user)
-                    // Memory cache check is fast, DB/Network fetch is async in Manager
-                    val avatar = (if (realJid.isNotBlank()) avatarManager.getAvatar(realJid) else null)
-                        ?: (if (isMe && myJid.isNotBlank()) avatarManager.getAvatar(myJid) else null)
-                        ?: avatarManager.getAvatar(occupantJid.toString())
-                        ?: avatarManager.getAvatar(nickname)
+                    val avatarKey = realJid.ifBlank { occupantJid.toString() }
 
                     occupantsList.add(
                         RoomOccupant(
@@ -1754,7 +1732,7 @@ class MultiUserChatManager(
                             presence = userPresence,
                             statusText = statusMessage.ifBlank { if (isMe) "Kamu" else defaultStatus },
                             isMe = isMe,
-                            avatar = avatar,
+                            avatarKey = avatarKey,
                             clientCaps = occupantCaps
                         )
                     )

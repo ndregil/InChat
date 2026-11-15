@@ -131,7 +131,7 @@ class XmppConnectionManager(
 ) {
     init {
         try {
-            SmackConfiguration.DEBUG = true
+            SmackConfiguration.DEBUG = com.ndregil.inchat.BuildConfig.DEBUG
         } catch (_: Exception) {}
         configureSmackIdentityAndCaps()
     }

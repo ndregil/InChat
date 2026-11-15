@@ -546,7 +546,7 @@ data class XmppMessage(
     val fileMimeType: String? = null,
     val fileName: String? = null,
     val fileSize: Long? = null,
-    val senderAvatar: ByteArray? = null,
+    val avatarKey: String = "",
     val senderClientCaps: ClientCaps = ClientCaps.resolveFor(senderNickname, senderJid),
     val replyToMessageId: String? = null,
     val replyToSender: String? = null,
@@ -566,7 +566,7 @@ data class RoomOccupant(
     val presence: UserPresence = UserPresence.ONLINE,
     val statusText: String = "",
     val isMe: Boolean = false,
-    val avatar: ByteArray? = null,
+    val avatarKey: String = "",
     val clientCaps: ClientCaps = ClientCaps.resolveFor(nickname, jid)
 )
 

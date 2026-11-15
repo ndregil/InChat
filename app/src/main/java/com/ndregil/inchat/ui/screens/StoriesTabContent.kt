@@ -136,7 +136,7 @@ fun StoriesTabContent(
         grouped.map { (jid, storyList) ->
             val contact = contacts.find { it.jid.equals(jid, ignoreCase = true) }
             val name = contact?.displayName ?: storyList.firstOrNull()?.senderName ?: jid.substringBefore("@")
-            val avatar = contact?.avatar ?: storyList.firstOrNull()?.senderAvatar
+            val avatar = contact?.avatar
             ContactStoryGroup(
                 jid = jid,
                 name = name,

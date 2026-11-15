@@ -28,11 +28,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
@@ -118,7 +123,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val _avatarRevision = MutableStateFlow(0)
-    val avatarRevision: StateFlow<Int> = _avatarRevision.asStateFlow()
+    val avatarRevision: StateFlow<Int> = _avatarRevision
+        .debounce(300)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun getRoomAvatar(roomJid: String): ByteArray? {
         return repository.getRoomAvatar(roomJid)
@@ -272,37 +279,27 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = null
     )
 
+    private companion object {
+        const val DEFAULT_LIMIT = 100
+    }
+
     private val _roomMessageLimits = MutableStateFlow<Map<String, Int>>(emptyMap())
     val isLoadingOlderMessages = MutableStateFlow(false)
 
     // Messages for active room
-    val activeRoomMessages: StateFlow<List<XmppMessage>> = combine(activeRoom, _roomMessageLimits) { room, limits ->
-        room to (limits[room?.jid] ?: 100)
-    }.transformLatest { (room, limit) ->
-        val repo = repository
-        if (room != null && repo != null && room.jid.isNotBlank()) {
-            try {
-                val flow = repo.getMessagesForRoom(room.jid, maxCount = limit)
-                if (flow != null) {
-                    emitAll(flow)
-                } else {
-                    Log.e("XmppViewModel", "repository.getMessagesForRoom returned null flow for ${room.jid}")
-                    emit(emptyList())
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                Log.e("XmppViewModel", "Error getting messages flow for ${room.jid}", e)
-                emit(emptyList())
-            }
-        } else {
-            emit(emptyList())
+    val activeRoomMessages: StateFlow<List<XmppMessage>> =
+        combine(_selectedRoomJid, _roomMessageLimits) { jid, limits ->
+            jid to (limits[jid] ?: DEFAULT_LIMIT)
         }
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = emptyList()
-    )
+            .distinctUntilChanged()
+            .flatMapLatest { (jid, limit) ->
+                if (jid.isNullOrBlank()) flowOf(emptyList())
+                else (repository.getMessagesForRoom(jid, maxCount = limit) ?: flowOf(emptyList()))
+                    .catch { emit(emptyList()) }
+            }
+            .conflate()
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun loadOlderMessagesForActiveRoom(onComplete: (Int) -> Unit = {}) {
         val room = activeRoom.value ?: return
@@ -613,7 +610,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun selectRoom(jid: String) {
         _selectedRoomJid.value = jid
         if (!_roomMessageLimits.value.containsKey(jid)) {
-            _roomMessageLimits.value = _roomMessageLimits.value + (jid to 30)
+            _roomMessageLimits.value = _roomMessageLimits.value + (jid to DEFAULT_LIMIT)
         }
         viewModelScope.launch {
             // Check if it's already in the room list and if it's NOT joined yet
