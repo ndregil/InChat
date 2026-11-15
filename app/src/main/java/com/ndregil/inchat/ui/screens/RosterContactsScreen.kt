@@ -537,7 +537,7 @@ fun RosterContactsScreen(
                                         onRenameClick = { contactToRename = contact },
                                         onDeleteClick = { contactToDelete = contact },
                                         onCapsClick = { selectedCapsContact = contact },
-                                        onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Voice") },
+                                        onCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Audio") },
                                         onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
                                         onSendFileClick = {
                                             selectedFileTargetJid = contact.jid
@@ -963,10 +963,9 @@ fun RosterContactListItem(
                                     Icon(
                                         Icons.Default.Call,
                                         contentDescription = null,
-                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray
+                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else MaterialTheme.colorScheme.primary
                                     )
                                 },
-                                enabled = contact.presence != UserPresence.OFFLINE,
                                 onClick = {
                                     menuExpanded = false
                                     onCallClick()
@@ -978,10 +977,9 @@ fun RosterContactListItem(
                                     Icon(
                                         Icons.Default.Videocam,
                                         contentDescription = null,
-                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else Color.Gray
+                                        tint = if (contact.presence != UserPresence.OFFLINE) OnlineGreen else MaterialTheme.colorScheme.primary
                                     )
                                 },
-                                enabled = contact.presence != UserPresence.OFFLINE,
                                 onClick = {
                                     menuExpanded = false
                                     onVideoCallClick()

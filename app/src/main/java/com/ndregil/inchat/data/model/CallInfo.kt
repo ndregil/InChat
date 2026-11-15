@@ -17,5 +17,8 @@ data class CallInfo(
     val startTime: Long = 0,
     val durationSeconds: Int = 0,
     val isVideoEnabled: Boolean = false,
-    val isAudioMuted: Boolean = false
+    val isAudioMuted: Boolean = false,
+    val isSpeakerOn: Boolean = false,
+    val isFrontCamera: Boolean = true,
+    val statusDetail: String = ""
 )

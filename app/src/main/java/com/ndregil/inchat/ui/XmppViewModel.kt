@@ -704,15 +704,21 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         val targetNick = whisperTargetOccupant.value?.nickname
-        
+
         viewModelScope.launch {
-            repository.initiateCall(room.jid, callType, myNick, targetNick)
+            val result = repository.initiateCall(room.jid, callType, myNick, targetNick)
+            result.onFailure { err ->
+                autoJoinToastStatus.value = err.localizedMessage ?: "Gagal memulai panggilan."
+            }
         }
     }
 
     fun initiate1on1Call(targetJid: String, nickname: String, callType: String) {
         viewModelScope.launch {
-            repository.initiate1on1Call(targetJid, nickname, callType)
+            val result = repository.initiate1on1Call(targetJid, nickname, callType)
+            result.onFailure { err ->
+                autoJoinToastStatus.value = err.localizedMessage ?: "Gagal memulai panggilan."
+            }
         }
     }
 
@@ -763,6 +769,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleVideo() {
         repository.smackCallManager.toggleVideo()
+    }
+
+    fun toggleSpeaker() {
+        repository.smackCallManager.toggleSpeaker()
+    }
+
+    fun switchCamera() {
+        repository.smackCallManager.switchCamera()
+    }
+
+    fun dismissEndedCall() {
+        repository.smackCallManager.dismissEndedCall()
     }
 
     fun joinOrCreateRoom(

@@ -2249,34 +2249,45 @@ class XmppRepository(
         }
     }
 
-    suspend fun initiateCall(roomJid: String, callType: String, myNickname: String, targetNickname: String? = null) {
-        val msgBody = if (targetNickname != null) {
-            "Memulai panggilan $callType ke @$targetNickname..."
-        } else {
-            "Memulai panggilan $callType grup..."
+    suspend fun initiateCall(
+        roomJid: String,
+        callType: String,
+        myNickname: String,
+        targetNickname: String? = null
+    ): Result<Unit> {
+        if (!isMucJid(roomJid)) {
+            val room = database.roomDao().getRoomByJid(roomJid)
+            val contactName = room?.name?.takeIf { it.isNotBlank() } ?: roomJid.substringBefore("@")
+            return initiate1on1Call(roomJid, contactName, callType)
         }
-        
-        val msg = engine.sendCallSignalling(roomJid, msgBody, myNickname)
-        database.messageDao().insertMessage(msg.toEntity())
-        
-        if (smackConnectionManager.isConnected()) {
-            val targetJid = if (targetNickname != null) "$roomJid/$targetNickname" else roomJid
-            smackCallManager.initiateCall(targetJid, targetNickname ?: "Group", callType)
-            
-            if (smackMucManager.isRoomJoined(roomJid)) {
-                try {
-                    smackMucManager.sendMessage(roomJid, msgBody)
-                } catch (e: Exception) {
-                    // Handled gracefully
-                }
+
+        if (!smackConnectionManager.isConnected()) {
+            return Result.failure(IllegalStateException("Belum terhubung ke server XMPP."))
+        }
+
+        val normalizedLabel = if (callType.equals("Video", ignoreCase = true)) "Video" else "Audio"
+        val targetJid = if (!targetNickname.isNullOrBlank()) "$roomJid/$targetNickname" else roomJid
+        val callResult = smackCallManager.initiateCall(targetJid, targetNickname ?: roomJid.substringBefore("@"), normalizedLabel)
+
+        if (callResult.isSuccess && smackMucManager.isRoomJoined(roomJid)) {
+            val msgBody = if (!targetNickname.isNullOrBlank()) {
+                "Memulai panggilan $normalizedLabel ke @$targetNickname..."
+            } else {
+                "Memulai panggilan $normalizedLabel grup..."
+            }
+            try {
+                smackMucManager.sendMessage(roomJid, msgBody)
+            } catch (_: Exception) {
             }
         }
+        return callResult
     }
 
-    suspend fun initiate1on1Call(targetJid: String, nickname: String, callType: String) {
-        if (smackConnectionManager.isConnected()) {
-            smackCallManager.initiateCall(targetJid, nickname, callType)
+    suspend fun initiate1on1Call(targetJid: String, nickname: String, callType: String): Result<Unit> {
+        if (!smackConnectionManager.isConnected()) {
+            return Result.failure(IllegalStateException("Belum terhubung ke server XMPP."))
         }
+        return smackCallManager.initiateCall(targetJid, nickname, callType)
     }
 
     suspend fun sendFileToContact(targetJid: String, uri: android.net.Uri) {

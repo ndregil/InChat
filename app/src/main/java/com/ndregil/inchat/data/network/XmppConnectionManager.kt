@@ -329,6 +329,12 @@ class XmppConnectionManager(
             try {
                 val sdm = org.jivesoftware.smackx.disco.ServiceDiscoveryManager.getInstanceFor(connection)
                 sdm.identity = org.jivesoftware.smackx.disco.packet.DiscoverInfo.Identity("client", "InChat", "phone")
+                sdm.addFeature("urn:xmpp:jingle:1")
+                sdm.addFeature("urn:xmpp:jingle:apps:rtp:1")
+                sdm.addFeature("urn:xmpp:jingle:apps:rtp:audio")
+                sdm.addFeature("urn:xmpp:jingle:apps:rtp:video")
+                sdm.addFeature("urn:xmpp:jingle:transports:ice-udp:1")
+                sdm.addFeature("urn:xmpp:jingle-message:0")
                 val capsManager = org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(connection)
                 if (!capsManager.entityCapsEnabled()) {
                     capsManager.enableEntityCaps()
