@@ -1765,8 +1765,21 @@ class MultiUserChatManager(
         try {
             val conn = connectionManager.getRawConnection() ?: return@withContext Result.failure(Exception("Not connected"))
             val bareJid = JidCreate.entityBareFrom(roomJid)
-            val mamManager = MamManager.getInstanceFor(conn, bareJid)
+            val domain = bareJid.domain.toString()
+            val isMuc = activeMucs.containsKey(roomJid) ||
+                domain.contains("conference", ignoreCase = true) ||
+                domain.contains("muc.", ignoreCase = true) ||
+                domain.contains("chat.", ignoreCase = true) ||
+                domain.contains("rooms.", ignoreCase = true)
+            val mamManager = if (isMuc) {
+                MamManager.getInstanceFor(conn, bareJid)
+            } else {
+                MamManager.getInstanceFor(conn)
+            }
             val queryArgsBuilder = MamManager.MamQueryArgs.builder()
+            if (!isMuc) {
+                queryArgsBuilder.limitResultsToJid(bareJid)
+            }
             if (since > 0L) {
                 queryArgsBuilder.limitResultsSince(java.util.Date(since))
                 queryArgsBuilder.setResultPageSize(limit)

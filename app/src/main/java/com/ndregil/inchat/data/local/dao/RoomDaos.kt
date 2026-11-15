@@ -177,6 +177,9 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE id = :id")
     suspend fun updateMessageStatus(id: String, status: DeliveryStatus)
 
+    @Query("UPDATE messages SET status = :status WHERE id = :id AND status = 'SENDING'")
+    suspend fun updateMessageStatusIfSending(id: String, status: DeliveryStatus)
+
     @Query("UPDATE messages SET translatedBody = :translatedBody, translationLanguage = :language WHERE id = :id")
     suspend fun updateMessageTranslation(id: String, translatedBody: String, language: String)
 
@@ -277,6 +280,9 @@ interface ContactDao {
 
     @Query("DELETE FROM contacts WHERE jid = :jid")
     suspend fun deleteContact(jid: String)
+
+    @Query("DELETE FROM contacts WHERE jid NOT IN (:activeJids)")
+    suspend fun deleteContactsNotIn(activeJids: List<String>)
 
     @Query("DELETE FROM contacts")
     suspend fun clearAllContacts()

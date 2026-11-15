@@ -126,10 +126,12 @@ fun RosterContactsScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val pagerState = rememberPagerState(initialPage = 0) { 3 }
+    val pagerState = rememberPagerState(initialPage = 1) { 3 }
     val selectedSubTab = pagerState.currentPage
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
     val isRosterLoading by viewModel.isRosterLoading.collectAsStateWithLifecycle()
+    val isAddingContact by viewModel.isAddingContact.collectAsStateWithLifecycle()
+    val addContactError by viewModel.addContactError.collectAsStateWithLifecycle()
     val avatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
     val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
     val myPresence by viewModel.myPresence.collectAsStateWithLifecycle()
@@ -237,6 +239,15 @@ fun RosterContactsScreen(
                                 }
                             }
                             1 -> {
+                                IconButton(
+                                    onClick = {
+                                        viewModel.clearAddContactError()
+                                        showAddDialog = true
+                                    },
+                                    modifier = Modifier.testTag("top_add_contact_button")
+                                ) {
+                                    Icon(imageVector = Icons.Default.PersonAdd, contentDescription = "Tambah Kontak")
+                                }
                                 IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
                                     Icon(imageVector = Icons.Default.Search, contentDescription = "Cari")
                                 }
@@ -328,7 +339,10 @@ fun RosterContactsScreen(
                 }
                 1 -> {
                     FloatingActionButton(
-                        onClick = { showAddDialog = true },
+                        onClick = {
+                            viewModel.clearAddContactError()
+                            showAddDialog = true
+                        },
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.testTag("add_contact_fab")
@@ -485,8 +499,22 @@ fun RosterContactsScreen(
                                     Text(
                                         text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                     )
+                                    if (searchQuery.isBlank()) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Button(
+                                            onClick = {
+                                                viewModel.clearAddContactError()
+                                                showAddDialog = true
+                                            }
+                                        ) {
+                                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Tambah Kontak")
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -515,6 +543,7 @@ fun RosterContactsScreen(
                                             selectedFileTargetJid = contact.jid
                                             filePickerLauncher.launch("*/*")
                                         },
+                                        onResendSubscribeClick = { viewModel.resendSubscriptionRequest(contact.jid) },
                                         themePrefs = themePrefs
                                     )
                                 }
@@ -556,11 +585,24 @@ fun RosterContactsScreen(
 
     // Add Contact Dialog
     if (showAddDialog) {
+        val myDomain = currentAccount.domain.ifBlank {
+            currentAccount.jid.substringAfter("@", "")
+        }
         AddContactDialog(
-            onDismiss = { showAddDialog = false },
+            myDomain = myDomain,
+            isLoading = isAddingContact,
+            externalError = addContactError,
+            onClearExternalError = { viewModel.clearAddContactError() },
+            onDismiss = {
+                if (!isAddingContact) {
+                    viewModel.clearAddContactError()
+                    showAddDialog = false
+                }
+            },
             onConfirm = { jid, name, group ->
-                viewModel.addRosterContact(jid, name, group)
-                showAddDialog = false
+                viewModel.addRosterContact(jid, name, group) {
+                    showAddDialog = false
+                }
             }
         )
     }
@@ -613,6 +655,7 @@ fun RosterContactListItem(
     onCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onSendFileClick: () -> Unit,
+    onResendSubscribeClick: (() -> Unit)? = null,
     themePrefs: ThemePreferences = com.ndregil.inchat.ui.theme.LocalThemePreferences.current
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -972,6 +1015,16 @@ fun RosterContactListItem(
                                     onCapsClick()
                                 }
                             )
+                            if (onResendSubscribeClick != null && (contact.subscriptionType == "none" || contact.subscriptionType == "from")) {
+                                DropdownMenuItem(
+                                    text = { Text("Kirim Ulang Permintaan") },
+                                    leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onResendSubscribeClick()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Ubah Nama") },
                                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
@@ -1004,21 +1057,26 @@ fun RosterContactListItem(
 
 @Composable
 fun AddContactDialog(
+    myDomain: String = "",
+    isLoading: Boolean = false,
+    externalError: String? = null,
+    onClearExternalError: () -> Unit = {},
     onDismiss: () -> Unit,
     onConfirm: (jid: String, name: String, group: String?) -> Unit
 ) {
     var jidInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
     var groupInput by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var localError by remember { mutableStateOf<String?>(null) }
+    val displayError = localError ?: externalError
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isLoading) onDismiss() },
         title = { Text("Tambah Kontak XMPP Baru") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Masukkan bare JID kontak (misal: user@xmpp.chat.org) untuk menambahkan ke Roster Smack.",
+                    text = "Masukkan bare JID kontak (misal: user@conversations.im) untuk menambahkan ke Roster dan mengirim permintaan pertemanan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1027,20 +1085,36 @@ fun AddContactDialog(
                     value = jidInput,
                     onValueChange = {
                         jidInput = it
-                        errorMessage = null
+                        localError = null
+                        if (externalError != null) onClearExternalError()
                     },
                     label = { Text("Bare JID *") },
-                    placeholder = { Text("teman@xmpp.org") },
+                    placeholder = { Text(if (myDomain.isNotBlank()) "teman@$myDomain" else "teman@xmpp.org") },
                     singleLine = true,
-                    isError = errorMessage != null,
+                    enabled = !isLoading,
+                    isError = displayError != null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("add_contact_jid_input")
                 )
 
-                if (errorMessage != null) {
+                val trimmedJid = jidInput.trim()
+                if (myDomain.isNotBlank() && trimmedJid.isNotBlank() && !trimmedJid.contains("@")) {
+                    FilterChip(
+                        selected = false,
+                        onClick = {
+                            jidInput = "$trimmedJid@$myDomain"
+                            localError = null
+                            if (externalError != null) onClearExternalError()
+                        },
+                        enabled = !isLoading,
+                        label = { Text("Lengkapi: $trimmedJid@$myDomain", fontSize = 12.sp) }
+                    )
+                }
+
+                if (displayError != null) {
                     Text(
-                        text = errorMessage ?: "",
+                        text = displayError,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -1052,6 +1126,7 @@ fun AddContactDialog(
                     label = { Text("Nama Kontak (Opsional)") },
                     placeholder = { Text("Nama panggilan") },
                     singleLine = true,
+                    enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("add_contact_name_input")
@@ -1063,6 +1138,7 @@ fun AddContactDialog(
                     label = { Text("Grup (Opsional)") },
                     placeholder = { Text("misal: Teman, Kerja") },
                     singleLine = true,
+                    enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("add_contact_group_input")
@@ -1072,20 +1148,37 @@ fun AddContactDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val cleanJid = jidInput.trim()
-                    if (cleanJid.isBlank() || !cleanJid.contains("@")) {
-                        errorMessage = "Format JID tidak valid. Harus menyertakan username@domain"
+                    val normalized = jidInput.trim()
+                        .removePrefix("xmpp:")
+                        .substringBefore("?")
+                        .substringBefore("/")
+                        .trim()
+                    if (normalized.isBlank()) {
+                        localError = "JID kontak tidak boleh kosong."
+                    } else if (!normalized.contains("@") || normalized.substringBefore("@").isBlank() || normalized.substringAfter("@").isBlank()) {
+                        localError = "Format JID tidak valid. Gunakan format user@domain."
                     } else {
-                        onConfirm(cleanJid, nameInput.trim(), groupInput.trim().ifBlank { null })
+                        onConfirm(normalized, nameInput.trim(), groupInput.trim().ifBlank { null })
                     }
                 },
+                enabled = !isLoading,
                 modifier = Modifier.testTag("submit_add_contact_button")
             ) {
-                Text("Tambah Kontak")
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Menambah...")
+                } else {
+                    Text("Tambah Kontak")
+                }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
                 Text("Batal")
             }
         }

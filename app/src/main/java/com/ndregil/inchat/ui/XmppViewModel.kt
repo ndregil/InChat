@@ -648,9 +648,13 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
 
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         val replyTarget = replyingToMessage.value
+        val whisperTarget = whisperTargetOccupant.value
 
-        viewModelScope.launch {
-            val whisperTarget = whisperTargetOccupant.value
+        // Clear input & reply bar immediately so UI responds instantaneously
+        replyingToMessage.value = null
+        currentInputText.value = ""
+
+        viewModelScope.launch(Dispatchers.IO) {
             if (whisperTarget != null) {
                 repository.sendWhisper(room.jid, whisperTarget.nickname, trimmed, myNick)
                 // Retain whisper target so the private whisper conversation continues smoothly!
@@ -664,8 +668,6 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     replyToText = replyTarget?.body
                 )
             }
-            replyingToMessage.value = null
-            currentInputText.value = ""
         }
     }
 
@@ -740,19 +742,18 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDirectChat(targetJid: String, displayName: String = "") {
-        viewModelScope.launch {
-            val cleanJid = targetJid.trim()
-            if (cleanJid.isBlank()) return@launch
-            val name = displayName.trim().ifBlank { cleanJid.substringBefore("@") }
-            val myNick = currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } }
-            repository.saveRoom(
-                roomJid = cleanJid,
-                roomName = name,
-                nickname = myNick,
-                topic = "Obrolan Langsung (1-on-1)",
-                password = null
+        val cleanJid = targetJid.trim()
+        if (cleanJid.isBlank()) return
+        val name = displayName.trim().ifBlank { cleanJid.substringBefore("@") }
+        val myNick = currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } }
+        _selectedRoomJid.value = cleanJid
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.ensureDirectChatRoom(
+                contactJid = cleanJid,
+                displayName = name,
+                myNickname = myNick
             )
-            _selectedRoomJid.value = cleanJid
+            repository.markRoomAsRead(cleanJid)
         }
     }
 
@@ -1349,27 +1350,67 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Roster & Presence methods (Smack Roster API)
      */
+    val isAddingContact = MutableStateFlow(false)
+    val addContactError = MutableStateFlow<String?>(null)
+    fun clearAddContactError() {
+        addContactError.value = null
+    }
+
     fun refreshRoster() {
         viewModelScope.launch {
             repository.loadRosterContacts()
         }
     }
 
-    fun addRosterContact(jid: String, name: String, group: String? = null) {
+    fun addRosterContact(
+        jid: String,
+        name: String,
+        group: String? = null,
+        onSuccess: () -> Unit = {}
+    ) {
+        if (isAddingContact.value) return
         viewModelScope.launch {
-            repository.addRosterContact(jid, name, group)
+            isAddingContact.value = true
+            addContactError.value = null
+            val result = repository.addRosterContact(jid, name, group)
+            isAddingContact.value = false
+            result.onSuccess {
+                autoJoinToastStatus.value = "Kontak $jid berhasil ditambahkan."
+                onSuccess()
+            }.onFailure { err ->
+                addContactError.value = err.localizedMessage ?: "Gagal menambahkan kontak."
+            }
+        }
+    }
+
+    fun resendSubscriptionRequest(jid: String) {
+        viewModelScope.launch {
+            val result = repository.resendSubscriptionRequest(jid)
+            result.onSuccess {
+                autoJoinToastStatus.value = "Permintaan pertemanan dikirim ulang ke $jid."
+            }.onFailure { err ->
+                autoJoinToastStatus.value = err.localizedMessage ?: "Gagal mengirim permintaan pertemanan."
+            }
         }
     }
 
     fun removeRosterContact(jid: String) {
         viewModelScope.launch {
-            repository.removeRosterContact(jid)
+            val result = repository.removeRosterContact(jid)
+            result.onFailure { err ->
+                autoJoinToastStatus.value = err.localizedMessage ?: "Gagal menghapus kontak."
+            }
         }
     }
 
     fun renameRosterContact(jid: String, newName: String) {
         viewModelScope.launch {
-            repository.renameRosterContact(jid, newName)
+            val result = repository.renameRosterContact(jid, newName)
+            result.onSuccess {
+                autoJoinToastStatus.value = "Nama kontak diperbarui."
+            }.onFailure { err ->
+                autoJoinToastStatus.value = err.localizedMessage ?: "Gagal mengubah nama kontak."
+            }
         }
     }
 

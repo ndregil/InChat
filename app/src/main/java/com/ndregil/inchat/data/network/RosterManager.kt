@@ -72,12 +72,10 @@ class RosterManager(
     }
 
     // Reactive StateFlows for UI observation
-    private val _contacts = MutableStateFlow<List<RosterContact>>(DEMO_CONTACTS)
+    private val _contacts = MutableStateFlow<List<RosterContact>>(emptyList())
     val contacts: StateFlow<List<RosterContact>> = _contacts.asStateFlow()
 
-    private val _presenceMap = MutableStateFlow<Map<String, UserPresence>>(
-        DEMO_CONTACTS.associate { it.jid to it.presence }
-    )
+    private val _presenceMap = MutableStateFlow<Map<String, UserPresence>>(emptyMap())
     val presenceMap: StateFlow<Map<String, UserPresence>> = _presenceMap.asStateFlow()
 
     private val _isLoaded = MutableStateFlow(false)
@@ -100,6 +98,14 @@ class RosterManager(
         }
     }
 
+    fun loadDemoContactsIfEmpty() {
+        if (_contacts.value.isEmpty()) {
+            _contacts.value = DEMO_CONTACTS
+            _presenceMap.value = DEMO_CONTACTS.associate { it.jid to it.presence }
+            _isLoaded.value = true
+        }
+    }
+
     fun setAutoApproveSubscription(enabled: Boolean) {
         _autoApproveSubscription.value = enabled
         activeRoster?.let { roster ->
@@ -107,16 +113,33 @@ class RosterManager(
         }
     }
 
-    // Active Smack Roster instance
+    // Active Smack Roster instance & attached connection listeners
     @Volatile
     private var activeRoster: Roster? = null
+
+    @Volatile
+    private var attachedListenerConnection: org.jivesoftware.smack.tcp.XMPPTCPConnection? = null
+    private var pepStanzaListener: org.jivesoftware.smack.StanzaListener? = null
+    private var subscriptionStanzaListener: org.jivesoftware.smack.StanzaListener? = null
 
     private val queriedContactVersions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     init {
         coroutineScope.launch {
-            avatarManager.avatarUpdates.collect {
-                refreshContactsFromRoster()
+            avatarManager.avatarUpdates.collect { updatedJid ->
+                if (_contacts.value.isEmpty()) return@collect
+                if (updatedJid.isNotBlank()) {
+                    val newAvatar = avatarManager.getAvatar(updatedJid)
+                    if (newAvatar != null) {
+                        _contacts.value = _contacts.value.map { contact ->
+                            if (contact.jid.equals(updatedJid, ignoreCase = true)) {
+                                contact.copy(avatar = newAvatar)
+                            } else contact
+                        }
+                    }
+                } else if (activeRoster?.isLoaded == true) {
+                    refreshContactsFromRoster()
+                }
             }
         }
     }
@@ -247,14 +270,18 @@ class RosterManager(
     }
 
     private fun setupPepStanzaListener(connection: org.jivesoftware.smack.tcp.XMPPTCPConnection) {
+        pepStanzaListener?.let { oldListener ->
+            try { attachedListenerConnection?.removeAsyncStanzaListener(oldListener) } catch (_: Exception) {}
+            try { connection.removeAsyncStanzaListener(oldListener) } catch (_: Exception) {}
+        }
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
-        connection.addAsyncStanzaListener({ stanza ->
-            val msg = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
-            val fromJid = msg.from?.asBareJid()?.toString() ?: return@addAsyncStanzaListener
+        val listener = org.jivesoftware.smack.StanzaListener { stanza ->
+            val msg = stanza as? org.jivesoftware.smack.packet.Message ?: return@StanzaListener
+            val fromJid = msg.from?.asBareJid()?.toString() ?: return@StanzaListener
 
             val event = try {
                 org.jivesoftware.smackx.pubsub.EventElement.from(msg)
-            } catch (e: Exception) { null } ?: return@addAsyncStanzaListener
+            } catch (e: Exception) { null } ?: return@StanzaListener
 
             var activity: String? = null
             var mood: String? = null
@@ -315,20 +342,27 @@ class RosterManager(
                     } else contact
                 }
             }
-        }, filter)
+        }
+        pepStanzaListener = listener
+        attachedListenerConnection = connection
+        connection.addAsyncStanzaListener(listener, filter)
     }
 
     private fun setupSubscriptionListener(connection: org.jivesoftware.smack.tcp.XMPPTCPConnection) {
+        subscriptionStanzaListener?.let { oldListener ->
+            try { attachedListenerConnection?.removeAsyncStanzaListener(oldListener) } catch (_: Exception) {}
+            try { connection.removeAsyncStanzaListener(oldListener) } catch (_: Exception) {}
+        }
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Presence::class.java)
-        connection.addAsyncStanzaListener({ stanza ->
-            val presence = stanza as? org.jivesoftware.smack.packet.Presence ?: return@addAsyncStanzaListener
+        val listener = org.jivesoftware.smack.StanzaListener { stanza ->
+            val presence = stanza as? org.jivesoftware.smack.packet.Presence ?: return@StanzaListener
             when (presence.type) {
                 org.jivesoftware.smack.packet.Presence.Type.subscribe -> {
                     if (!_autoApproveSubscription.value) {
                         Log.i(TAG, "Auto-approve subscription is disabled. Ignoring auto-accept for $presence")
-                        return@addAsyncStanzaListener
+                        return@StanzaListener
                     }
-                    val fromJid = presence.from?.asBareJid() ?: return@addAsyncStanzaListener
+                    val fromJid = presence.from?.asBareJid() ?: return@StanzaListener
                     Log.i(TAG, "Auto-accepting subscription request from $fromJid with mutual subscription")
                     try {
                         // 1. Accept incoming subscription request
@@ -372,7 +406,36 @@ class RosterManager(
                     // Handled by rosterListener
                 }
             }
-        }, filter)
+        }
+        subscriptionStanzaListener = listener
+        attachedListenerConnection = connection
+        connection.addAsyncStanzaListener(listener, filter)
+    }
+
+    @Synchronized
+    private fun ensureRosterAttached(connection: org.jivesoftware.smack.tcp.XMPPTCPConnection): Roster {
+        val roster = Roster.getInstanceFor(connection)
+        if (activeRoster !== roster) {
+            try {
+                activeRoster?.removeRosterListener(rosterListener)
+                activeRoster?.removeRosterLoadedListener(rosterLoadedListener)
+            } catch (_: Exception) {}
+            activeRoster = roster
+            roster.subscriptionMode = if (_autoApproveSubscription.value) {
+                Roster.SubscriptionMode.accept_all
+            } else {
+                Roster.SubscriptionMode.manual
+            }
+            roster.removeRosterListener(rosterListener)
+            roster.addRosterListener(rosterListener)
+            roster.removeRosterLoadedListener(rosterLoadedListener)
+            roster.addRosterLoadedListener(rosterLoadedListener)
+        }
+        if (attachedListenerConnection !== connection || pepStanzaListener == null || subscriptionStanzaListener == null) {
+            setupPepStanzaListener(connection)
+            setupSubscriptionListener(connection)
+        }
+        return roster
     }
 
     /**
@@ -382,7 +445,7 @@ class RosterManager(
     suspend fun initializeRoster(): Result<Unit> = withContext(Dispatchers.IO) {
         val connection = connectionManager.getRawConnection()
         if (connection == null || !connection.isAuthenticated) {
-            Log.d(TAG, "Not connected or authenticated. Using demo contact set.")
+            Log.d(TAG, "Not connected or authenticated. Skipping Smack Roster init.")
             _isLoaded.value = true
             return@withContext Result.success(Unit)
         }
@@ -391,21 +454,7 @@ class RosterManager(
             _isLoading.value = true
             _lastError.value = null
 
-            val roster = Roster.getInstanceFor(connection)
-            activeRoster = roster
-
-            // Automatically accept incoming presence subscription requests based on setting
-            roster.subscriptionMode = if (_autoApproveSubscription.value) Roster.SubscriptionMode.accept_all else Roster.SubscriptionMode.manual
-
-            // Attach listeners (ensure not duplicated)
-            roster.removeRosterListener(rosterListener)
-            roster.addRosterListener(rosterListener)
-
-            roster.removeRosterLoadedListener(rosterLoadedListener)
-            roster.addRosterLoadedListener(rosterLoadedListener)
-
-            setupPepStanzaListener(connection)
-            setupSubscriptionListener(connection)
+            val roster = ensureRosterAttached(connection)
 
             if (roster.isLoaded) {
                 _isLoaded.value = true
@@ -442,15 +491,7 @@ class RosterManager(
             _isLoading.value = true
             _lastError.value = null
 
-            val roster = activeRoster ?: Roster.getInstanceFor(connection).also {
-                activeRoster = it
-                it.removeRosterListener(rosterListener)
-                it.addRosterListener(rosterListener)
-                it.removeRosterLoadedListener(rosterLoadedListener)
-                it.addRosterLoadedListener(rosterLoadedListener)
-                setupPepStanzaListener(connection)
-                setupSubscriptionListener(connection)
-            }
+            val roster = ensureRosterAttached(connection)
 
             if (!roster.isLoaded || forceReload) {
                 try {
@@ -479,70 +520,142 @@ class RosterManager(
     suspend fun addContact(
         jidString: String,
         name: String,
-        groupName: String? = null
+        groupName: String? = null,
+        isDemoMode: Boolean = false
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val cleanJid = jidString.trim()
-        if (cleanJid.isBlank() || !cleanJid.contains("@")) {
-            return@withContext Result.failure(IllegalArgumentException("Invalid XMPP JID format: '$cleanJid'. Contact JID must be in user@domain format."))
+        val normalizedInput = jidString.trim()
+            .removePrefix("xmpp:")
+            .substringBefore("?")
+            .substringBefore("/")
+            .trim()
+        if (normalizedInput.isBlank() || !normalizedInput.contains("@")) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Format JID tidak valid: '$normalizedInput'. Gunakan format user@domain.")
+            )
         }
 
         val bareJid: BareJid = try {
-            JidCreate.bareFrom(cleanJid)
+            JidCreate.bareFrom(normalizedInput)
         } catch (e: Exception) {
-            return@withContext Result.failure(IllegalArgumentException("Invalid XMPP JID format: '$cleanJid'"))
+            return@withContext Result.failure(
+                IllegalArgumentException("Format JID tidak valid: '$normalizedInput'")
+            )
         }
 
-        val cleanName = name.trim().ifBlank { bareJid.localpartOrNull?.asUnescapedString() ?: cleanJid }
+        val bareJidStr = bareJid.toString()
+        if (!bareJid.hasLocalpart()) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Format JID harus menyertakan nama pengguna (user@domain).")
+            )
+        }
+
+        val cleanName = name.trim().ifBlank { bareJid.localpartOrNull?.asUnescapedString() ?: bareJidStr }
+        val cleanGroup = groupName?.trim()?.ifBlank { null }
         val connection = connectionManager.getRawConnection()
 
         if (connection != null && connection.isAuthenticated) {
+            if (connection.user?.asBareJid()?.equals(bareJid) == true) {
+                return@withContext Result.failure(
+                    IllegalArgumentException("Tidak dapat menambahkan akun Anda sendiri sebagai kontak.")
+                )
+            }
             try {
-                val roster = activeRoster ?: Roster.getInstanceFor(connection).also { activeRoster = it }
-                val groups = if (!groupName.isNullOrBlank()) arrayOf(groupName.trim()) else null
+                val roster = ensureRosterAttached(connection)
+                if (!roster.isLoaded) {
+                    try {
+                        roster.reloadAndWait()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Roster reloadAndWait warning before addContact: ${e.message}")
+                    }
+                }
 
-                // Create item in Smack roster
-                roster.createItem(bareJid, cleanName, groups)
+                val existingEntry = roster.getEntry(bareJid)
+                if (existingEntry != null) {
+                    // Contact already exists in Smack roster: update display name / group & re-send subscribe if needed
+                    if (name.trim().isNotBlank() && existingEntry.name != cleanName) {
+                        existingEntry.name = cleanName
+                    }
+                    if (cleanGroup != null) {
+                        val grp = roster.getGroup(cleanGroup) ?: roster.createGroup(cleanGroup)
+                        if (!grp.contains(existingEntry)) {
+                            grp.addEntry(existingEntry)
+                        }
+                    }
+                    if (existingEntry.type != org.jivesoftware.smack.roster.packet.RosterPacket.ItemType.to &&
+                        existingEntry.type != org.jivesoftware.smack.roster.packet.RosterPacket.ItemType.both
+                    ) {
+                        val subscribePresence = PresenceBuilder.buildPresence()
+                            .ofType(Presence.Type.subscribe)
+                            .to(bareJid)
+                            .build()
+                        connection.sendStanza(subscribePresence)
+                    }
+                } else {
+                    val groups = if (cleanGroup != null) arrayOf(cleanGroup) else null
+                    roster.createItem(bareJid, cleanName, groups)
 
-                // Send subscription request presence
-                val subscribePresence = PresenceBuilder.buildPresence()
-                    .ofType(Presence.Type.subscribe)
-                    .to(bareJid)
-                    .build()
-                connection.sendStanza(subscribePresence)
+                    val subscribePresence = PresenceBuilder.buildPresence()
+                        .ofType(Presence.Type.subscribe)
+                        .to(bareJid)
+                        .build()
+                    connection.sendStanza(subscribePresence)
+                }
 
-                Log.i(TAG, "Contact added to roster and subscription sent: $bareJid")
-                
-                val immediateContact = RosterContact(
-                    jid = cleanJid,
+                Log.i(TAG, "Contact added to roster and subscription sent: $bareJidStr")
+
+                val existingContact = _contacts.value.find { it.jid.equals(bareJidStr, ignoreCase = true) }
+                val immediateContact = (existingContact ?: RosterContact(
+                    jid = bareJidStr,
                     name = cleanName,
                     presence = UserPresence.OFFLINE,
                     statusMessage = "Menunggu konfirmasi...",
-                    groups = if (!groupName.isNullOrBlank()) listOf(groupName.trim()) else listOf("Kontak"),
+                    groups = if (cleanGroup != null) listOf(cleanGroup) else emptyList(),
                     subscriptionType = "none",
                     isPendingApproval = true
+                )).copy(
+                    name = if (name.trim().isNotBlank()) cleanName else (existingContact?.name?.ifBlank { cleanName } ?: cleanName),
+                    groups = if (cleanGroup != null) ((existingContact?.groups ?: emptyList()) + cleanGroup).distinct() else (existingContact?.groups ?: emptyList())
                 )
-                _contacts.value = _contacts.value.filterNot { it.jid.equals(cleanJid, ignoreCase = true) } + immediateContact
-                
-                refreshContactsFromRoster()
+
+                // Update state immediately first so UI shows the contact without waiting for Roster Push
+                _contacts.value = _contacts.value.filterNot { it.jid.equals(bareJidStr, ignoreCase = true) } + immediateContact
+                _presenceMap.value = _presenceMap.value + (bareJidStr to immediateContact.presence)
+
+                // Only rebuild from Smack Roster if the server's Roster Push has already populated the entry
+                if (roster.getEntry(bareJid) != null) {
+                    refreshContactsFromRoster()
+                }
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to add contact '$cleanJid' to Smack roster: ${e.message}", e)
-                _lastError.value = e.localizedMessage ?: "Failed to add contact"
-                Result.failure(e)
+                Log.e(TAG, "Failed to add contact '$bareJidStr' to Smack roster: ${e.message}", e)
+                val msg = when (e) {
+                    is org.jivesoftware.smack.XMPPException.XMPPErrorException ->
+                        "Server menolak kontak (${e.stanzaError.condition}): ${e.stanzaError.descriptiveText ?: e.message}"
+                    is org.jivesoftware.smack.SmackException.NoResponseException ->
+                        "Server XMPP tidak merespons tepat waktu. Coba lagi."
+                    is org.jivesoftware.smack.SmackException.NotConnectedException ->
+                        "Koneksi XMPP terputus. Tunggu hingga terhubung kembali."
+                    else -> e.localizedMessage ?: "Gagal menambahkan kontak"
+                }
+                _lastError.value = msg
+                Result.failure(Exception(msg, e))
             }
-        } else {
-            // Local offline demo mode addition
+        } else if (isDemoMode) {
             val newContact = RosterContact(
-                jid = cleanJid,
+                jid = bareJidStr,
                 name = cleanName,
                 presence = UserPresence.ONLINE,
-                statusMessage = "Added in local session",
-                groups = if (!groupName.isNullOrBlank()) listOf(groupName.trim()) else listOf("Contacts"),
+                statusMessage = "Ditambahkan di sesi lokal",
+                groups = if (cleanGroup != null) listOf(cleanGroup) else listOf("Kontak"),
                 subscriptionType = "both"
             )
-            _contacts.value = _contacts.value.filterNot { it.jid.equals(cleanJid, ignoreCase = true) } + newContact
-            _presenceMap.value = _presenceMap.value + (cleanJid to UserPresence.ONLINE)
+            _contacts.value = _contacts.value.filterNot { it.jid.equals(bareJidStr, ignoreCase = true) } + newContact
+            _presenceMap.value = _presenceMap.value + (bareJidStr to UserPresence.ONLINE)
             Result.success(Unit)
+        } else {
+            val msg = "Belum terhubung ke server XMPP. Pastikan akun sudah terhubung sebelum menambah kontak."
+            _lastError.value = msg
+            Result.failure(IllegalStateException(msg))
         }
     }
 
@@ -560,7 +673,7 @@ class RosterManager(
         val connection = connectionManager.getRawConnection()
         if (connection != null && connection.isAuthenticated) {
             try {
-                val roster = activeRoster ?: Roster.getInstanceFor(connection).also { activeRoster = it }
+                val roster = ensureRosterAttached(connection)
                 val entry = roster.getEntry(bareJid)
                 if (entry != null) {
                     roster.removeEntry(entry)
@@ -572,6 +685,10 @@ class RosterManager(
                     .to(bareJid)
                     .build()
                 connection.sendStanza(unsubscribePresence)
+
+                val bareJidStr = bareJid.toString()
+                _contacts.value = _contacts.value.filterNot { it.jid.equals(bareJidStr, ignoreCase = true) }
+                _presenceMap.value = _presenceMap.value.filterKeys { !it.equals(bareJidStr, ignoreCase = true) }
 
                 Log.i(TAG, "Contact removed from roster: $bareJid")
                 refreshContactsFromRoster()
@@ -604,7 +721,7 @@ class RosterManager(
         if (connection != null && connection.isAuthenticated) {
             try {
                 val bareJid = JidCreate.bareFrom(cleanJid)
-                val roster = activeRoster ?: Roster.getInstanceFor(connection).also { activeRoster = it }
+                val roster = ensureRosterAttached(connection)
                 val entry = roster.getEntry(bareJid)
                 if (entry != null) {
                     entry.name = cleanName
@@ -644,7 +761,7 @@ class RosterManager(
         if (connection != null && connection.isAuthenticated) {
             try {
                 val bareJid = JidCreate.bareFrom(cleanJid)
-                val roster = activeRoster ?: Roster.getInstanceFor(connection).also { activeRoster = it }
+                val roster = ensureRosterAttached(connection)
                 val entry = roster.getEntry(bareJid)
                     ?: return@withContext Result.failure(IllegalStateException("Contact not found in roster"))
 
@@ -684,7 +801,7 @@ class RosterManager(
         if (connection != null && connection.isAuthenticated) {
             try {
                 val bareJid = JidCreate.bareFrom(jidString)
-                val roster = activeRoster ?: Roster.getInstanceFor(connection)
+                val roster = Roster.getInstanceFor(connection)
                 val presence = roster.getPresence(bareJid)
                 val userPresence = presence.toUserPresence()
                 _presenceMap.value = _presenceMap.value + (jidString to userPresence)
@@ -793,6 +910,10 @@ class RosterManager(
             emptySet()
         }
 
+        if (!roster.isLoaded && entries.isEmpty()) {
+            return _contacts.value
+        }
+
         if (entries.isEmpty() && !connectionManager.isAuthenticated()) {
             return _contacts.value
         }
@@ -844,14 +965,20 @@ class RosterManager(
                 ClientRegistryManager.putCachedCaps(jidString, contactCaps)
             }
 
+            val resolvedName = entry.name?.takeIf { it.isNotBlank() }
+                ?: existing?.name?.takeIf { it.isNotBlank() }
+                ?: ""
+
             RosterContact(
                 jid = jidString,
-                name = entry.name ?: "",
+                name = resolvedName,
                 presence = userPresence,
                 statusMessage = statusMsg,
                 groups = groupNames,
                 subscriptionType = entry.type.name.lowercase(),
-                isPendingApproval = entry.isApproved.not(),
+                isPendingApproval = entry.isSubscriptionPending ||
+                    entry.type == org.jivesoftware.smack.roster.packet.RosterPacket.ItemType.none ||
+                    entry.type == org.jivesoftware.smack.roster.packet.RosterPacket.ItemType.from,
                 avatar = avatarManager.getAvatar(jidString) ?: existing?.avatar,
                 clientCaps = contactCaps,
                 pepActivity = existing?.pepActivity,
@@ -903,10 +1030,16 @@ class RosterManager(
         try {
             activeRoster?.removeRosterListener(rosterListener)
             activeRoster?.removeRosterLoadedListener(rosterLoadedListener)
+            pepStanzaListener?.let { attachedListenerConnection?.removeAsyncStanzaListener(it) }
+            subscriptionStanzaListener?.let { attachedListenerConnection?.removeAsyncStanzaListener(it) }
         } catch (e: Exception) {
             Log.w(TAG, "Exception during RosterManager release: ${e.message}")
         } finally {
             activeRoster = null
+            attachedListenerConnection = null
+            pepStanzaListener = null
+            subscriptionStanzaListener = null
+            _isLoaded.value = false
             _contacts.value = emptyList()
             _presenceMap.value = emptyMap()
             queriedContactVersions.clear()

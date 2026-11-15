@@ -265,9 +265,15 @@ class XmppRepository(
         scope.launch {
             try {
                 smackRosterManager.contacts.collect { contactsList ->
+                    if (currentAccount.value.isDemoMode) return@collect
                     if (contactsList.isNotEmpty()) {
                         val entities = contactsList.map { ContactEntity.fromModel(it) }
                         database.contactDao().insertOrUpdateContacts(entities)
+                        if (smackRosterManager.isLoaded.value && smackConnectionManager.isAuthenticated()) {
+                            database.contactDao().deleteContactsNotIn(contactsList.map { it.jid })
+                        }
+                    } else if (smackRosterManager.isLoaded.value && smackConnectionManager.isAuthenticated()) {
+                        database.contactDao().clearAllContacts()
                     }
                 }
             } catch (e: Exception) {
@@ -333,10 +339,7 @@ class XmppRepository(
             Log.e("XmppRepository", "Error accessing messageDao for $roomJid", e)
             flowOf(emptyList())
         }
-        return combine(
-            roomFlow,
-            smackAvatarManager.avatarUpdates.onStart { emit("") }
-        ) { entities, _ ->
+        return roomFlow.map { entities ->
             val list = entities ?: emptyList()
             if (list.isNotEmpty()) {
                 scope.launch(Dispatchers.IO) {
@@ -367,9 +370,9 @@ class XmppRepository(
                 }
             }
 
+            val myJid = currentAccount.value.jid
             list.map { entity ->
                 val model = entity.toModel()
-                val myJid = currentAccount.value.jid
                 val avatarJid = if (model.isMine && myJid.isNotBlank()) myJid else model.senderJid
                 model.copy(avatarKey = avatarJid)
             }
@@ -454,6 +457,7 @@ class XmppRepository(
         
         // 2. Do not open a conflicting parallel raw socket connection if Smack is handling the real XMPP session
         if (smackResult.isFailure && account.isDemoMode) {
+            smackRosterManager.loadDemoContactsIfEmpty()
             try {
                 engine.connect(account, pwdToSave)
             } catch (e: Exception) {
@@ -739,12 +743,20 @@ class XmppRepository(
         conn.addAsyncStanzaListener({ stanza ->
             val message = stanza as? org.jivesoftware.smack.packet.Message ?: return@addAsyncStanzaListener
 
-            val xml = message.toXML().toString()
-
             // Handle XEP-0184 Delivery Receipts (<received xmlns='urn:xmpp:receipts' id='...'/>)
-            val receiptId = (message.getExtension("received", "urn:xmpp:receipts") as? org.jivesoftware.smackx.receipts.DeliveryReceipt)?.id
-                ?: Regex("""<received[^>]*xmlns=['"]urn:xmpp:receipts['"][^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
-                ?: Regex("""<received[^>]*id=['"]([^'"]+)['"][^>]*xmlns=['"]urn:xmpp:receipts['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+            val receiptExt = message.getExtension("received", "urn:xmpp:receipts") as? org.jivesoftware.smackx.receipts.DeliveryReceipt
+            val displayedExt = message.getExtension("displayed", "urn:xmpp:chat-markers:0") as? org.jivesoftware.smack.packet.StandardExtensionElement
+
+            val cachedXml: String? by lazy(LazyThreadSafetyMode.NONE) {
+                message.toXML().toString()
+            }
+
+            val receiptId = receiptExt?.id
+                ?: if (message.hasExtension("received", "urn:xmpp:receipts")) {
+                    val xml = cachedXml ?: ""
+                    Regex("""<received[^>]*xmlns=['"]urn:xmpp:receipts['"][^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+                        ?: Regex("""<received[^>]*id=['"]([^'"]+)['"][^>]*xmlns=['"]urn:xmpp:receipts['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+                } else null
 
             if (!receiptId.isNullOrBlank()) {
                 scope.launch(Dispatchers.IO) {
@@ -758,7 +770,10 @@ class XmppRepository(
             }
 
             // Handle XEP-0333 Chat Markers (<displayed xmlns='urn:xmpp:chat-markers:0' id='...'/>)
-            val displayedId = Regex("""<displayed[^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(xml)?.groupValues?.get(1)
+            val displayedId = displayedExt?.getAttributeValue("id")
+                ?: if (message.hasExtension("displayed", "urn:xmpp:chat-markers:0")) {
+                    Regex("""<displayed[^>]*id=['"]([^'"]+)['"]""", RegexOption.IGNORE_CASE).find(cachedXml ?: "")?.groupValues?.get(1)
+                } else null
             if (!displayedId.isNullOrBlank()) {
                 scope.launch(Dispatchers.IO) {
                     try {
@@ -895,9 +910,11 @@ class XmppRepository(
                 val isBodyImageUrl = bodyUrl != null && isImageUrl(bodyUrl)
 
                 // XEP-0066 OOB Detection
-                val xml = message.toXML().toString()
-                val oobRegex = Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
-                val oobUrl = oobRegex.find(xml)?.groupValues?.get(1)?.trim()
+                val oobUrl = if (message.hasExtension("x", "jabber:x:oob")) {
+                    val xml = cachedXml ?: message.toXML().toString()
+                    Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+                        .find(xml)?.groupValues?.get(1)?.trim()
+                } else null
                 val isOobImage = (oobUrl != null && isImageUrl(oobUrl))
 
                 val isVoice = bodyText.contains("🎤 Pesan Suara", ignoreCase = true) ||
@@ -1651,8 +1668,8 @@ class XmppRepository(
             database.roomDao().insertOrUpdateRoom(newRoom)
         }
 
-        // Sync with server
-        if (smackConnectionManager.isConnected()) {
+        // Sync MUC room bookmark with server only for actual MUC rooms (never for 1-on-1 contacts)
+        if (isMucJid(cleanJid) && smackConnectionManager.isConnected()) {
             smackMucManager.saveBookmark(
                 roomJid = cleanJid,
                 name = name,
@@ -1660,6 +1677,43 @@ class XmppRepository(
                 password = password,
                 autoJoin = true
             )
+        }
+    }
+
+    suspend fun ensureDirectChatRoom(
+        contactJid: String,
+        displayName: String,
+        myNickname: String
+    ) = withContext(Dispatchers.IO) {
+        val cleanJid = contactJid.substringBefore("/").trim()
+        if (cleanJid.isBlank()) return@withContext
+        val name = displayName.trim().ifBlank { cleanJid.substringBefore("@") }
+        val nick = myNickname.trim().ifBlank { currentAccount.value.nickname.ifBlank { "User" } }
+
+        val existingRoom = database.roomDao().getRoomByJid(cleanJid)
+        if (existingRoom != null) {
+            if (existingRoom.name != name && name.isNotBlank()) {
+                database.roomDao().insertOrUpdateRoom(existingRoom.copy(name = name, myNickname = nick))
+            }
+        } else {
+            val newRoom = RoomEntity(
+                jid = cleanJid,
+                name = name,
+                topic = "Obrolan Langsung (1-on-1)",
+                myNickname = nick,
+                occupantCount = 2,
+                unreadCount = 0,
+                lastMessageText = "",
+                lastMessageTime = System.currentTimeMillis(),
+                isJoined = true,
+                isBookmarked = false,
+                myRole = OccupantRole.MEMBER,
+                myAffiliation = OccupantAffiliation.MEMBER,
+                colorHex = randomColorForRoom(cleanJid),
+                isAutoJoin = false,
+                isGroupChat = false
+            )
+            database.roomDao().insertOrUpdateRoom(newRoom)
         }
     }
 
@@ -1812,148 +1866,55 @@ class XmppRepository(
         replyToMessageId: String? = null,
         replyToSender: String? = null,
         replyToText: String? = null
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val cleanJid = roomJid.trim()
+        if (cleanJid.isBlank() || text.isBlank()) return@withContext
+
         val myJid = currentAccount.value.jid
-        val myAvatar = smackAvatarManager.getAvatar(myJid)
-
+        val isGroup = isMucJid(cleanJid)
         val isUrl = text.trim().startsWith("http")
-        val cleanJidJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
-
-        var isSentSuccessfully = false
-        var stanzaId = java.util.UUID.randomUUID().toString()
+        val stanzaId = java.util.UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
 
-        Log.d("XmppRepository", "Sending message to $cleanJid (isUrl=$isUrl)")
-
-        // Check if outgoing auto-translate is enabled to translate the text BEFORE sending out
-        var textToSend = text
-        try {
-            val prefs = translationPreferencesManager.translationPreferences.first()
-            val isGroup = isMucJid(cleanJid)
-            val shouldTranslateOutgoing = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
-                    if (isGroup) prefs.translateRooms else prefs.translateContacts
-
-            if (text.isNotBlank() && !isUrl && shouldTranslateOutgoing) {
-                val translated = translationService.translateText(text, prefs.targetLanguageCode)
-                if (!translated.isNullOrBlank()) {
-                    textToSend = translated
-                    Log.i("XmppRepository", "Translated outgoing message from '${text.take(20)}...' to '${textToSend.take(20)}...' (${prefs.targetLanguageCode})")
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("XmppRepository", "Failed to translate outgoing message: ${e.message}")
-        }
-
-        val isUrlFinal = textToSend.trim().startsWith("http")
-
-        // 1. If Smack MUC is connected and room joined, send via Smack MUC
-        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
-            try {
-                if (isUrlFinal) {
-                    engine.sendGroupFile(cleanJid, textToSend, "File", "image/jpeg", 0L, myNickname)
-                    isSentSuccessfully = true
-                } else {
-                    smackMucManager.sendMessage(cleanJid, textToSend)
-                    isSentSuccessfully = true
-                }
-                Log.i("XmppRepository", "Sent MUC message to $cleanJid via Smack")
-            } catch (e: Exception) {
-                Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${e.message}")
-            }
-        }
-        
-        // 2. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) - Only if not already sent via MUC
-        if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
-            try {
-                if (isUrlFinal) {
-                    engine.sendDirectOobMessage(cleanJid, textToSend, myNickname)
-                    isSentSuccessfully = true
-                    Log.i("XmppRepository", "Sent 1-on-1 direct OOB message to $cleanJid")
-                } else {
-                    val conn = smackConnectionManager.getRawConnection()
-                    if (conn != null) {
-                        val msgStanza = org.jivesoftware.smack.packet.Message(cleanJidJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
-                            body = textToSend
-                            setStanzaId(stanzaId)
-                            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
-                        }
-                        conn.sendStanza(msgStanza)
-                        isSentSuccessfully = true
-                        Log.i("XmppRepository", "Sent 1-on-1 direct XMPP stanza to $cleanJid")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $cleanJid: ${e.message}")
-            }
-        }
-
-        // 3. Fallback to raw engine if still not sent (e.g. demo mode or connection issues)
-        if (!isSentSuccessfully) {
-            try {
-                engine.sendGroupMessage(cleanJid, textToSend, myNickname)
-                isSentSuccessfully = true
-                Log.i("XmppRepository", "Sent message to $cleanJid via raw engine fallback")
-            } catch (e: Exception) {
-                Log.e("XmppRepository", "Final fallback send failed for $cleanJid: ${e.message}")
-            }
-        }
-
-        // 4. SAVE sent message locally in Room DB so it appears in UI immediately
-        val isImage = isUrlFinal && (
-            textToSend.contains(".jpg", ignoreCase = true) ||
-            textToSend.contains(".jpeg", ignoreCase = true) ||
-            textToSend.contains(".png", ignoreCase = true) ||
-            textToSend.contains(".gif", ignoreCase = true) ||
-            textToSend.contains(".webp", ignoreCase = true) ||
-            textToSend.contains("/preview/", ignoreCase = true)
+        val isImage = isUrl && (
+            text.contains(".jpg", ignoreCase = true) ||
+            text.contains(".jpeg", ignoreCase = true) ||
+            text.contains(".png", ignoreCase = true) ||
+            text.contains(".gif", ignoreCase = true) ||
+            text.contains(".webp", ignoreCase = true) ||
+            text.contains("/preview/", ignoreCase = true)
         )
-        
-        val msg = XmppMessage(
+
+        // 1. Optimistic local DB insert immediately so UI shows the outgoing message without waiting on network/translation
+        val initialMsg = XmppMessage(
             id = stanzaId,
             roomJid = cleanJid,
             senderJid = myJid,
             senderNickname = myNickname,
-            body = text, // Keep original text locally so the sender can see what they wrote
+            body = text,
             timestamp = timestamp,
             isMine = true,
             messageType = when {
                 isImage -> MessageType.FILE
-                isMucJid(cleanJid) -> MessageType.GROUPCHAT
+                isGroup -> MessageType.GROUPCHAT
                 else -> MessageType.CHAT
             },
-            status = if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED,
+            status = DeliveryStatus.SENDING,
             replyToMessageId = replyToMessageId,
             replyToSender = replyToSender,
             replyToText = replyToText,
-            fileUrl = if (isUrl) textToSend.trim() else null,
+            fileUrl = if (isUrl) text.trim() else null,
             fileMimeType = if (isImage) "image/jpeg" else if (isUrl) "application/octet-stream" else null,
-            fileName = if (isUrl) "Lampiran" else null,
-            translatedBody = if (textToSend != text) textToSend else null,
-            translationLanguage = if (textToSend != text) try { translationPreferencesManager.translationPreferences.first().targetLanguageCode } catch (_: Exception) { "id" } else null
+            fileName = if (isUrl) "Lampiran" else null
         )
-        
+
         try {
-            database.messageDao().insertMessage(msg.toEntity())
-            Log.d("XmppRepository", "Saved sent message to local DB: $stanzaId")
-        } catch (e: Exception) {
-            Log.e("XmppRepository", "Failed to save sent message to DB: ${e.message}")
-        }
-        
-        // 5. Update or Create Room Entity to ensure it stays in the list
-        try {
+            database.messageDao().insertMessage(initialMsg.toEntity())
             val existing = database.roomDao().getRoomByJid(cleanJid)
+            val previewText = if (isUrl) "[Berkas] $text" else text
             if (existing != null) {
-                database.roomDao().updateLastMessage(
-                    cleanJid, 
-                    if (isUrl) "[Berkas] $text" else text, 
-                    timestamp, 
-                    0 // unread stays same for mine
-                )
-                Log.d("XmppRepository", "Updated last message for existing room: $cleanJid")
+                database.roomDao().updateLastMessage(cleanJid, previewText, timestamp, 0)
             } else {
-                // Auto-create room entity for 1-on-1 chat if it doesn't exist
-                val isGroup = isMucJid(cleanJid)
                 val newRoom = RoomEntity(
                     jid = cleanJid,
                     name = cleanJid.substringBefore("@"),
@@ -1961,21 +1922,114 @@ class XmppRepository(
                     myNickname = myNickname,
                     occupantCount = if (isGroup) 1 else 2,
                     unreadCount = 0,
-                    lastMessageText = if (isUrl) "[Berkas] $text" else text,
+                    lastMessageText = previewText,
                     lastMessageTime = timestamp,
                     isJoined = true,
                     isBookmarked = false,
                     myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.MEMBER,
-                    myAffiliation = if (isGroup) OccupantAffiliation.MEMBER else OccupantAffiliation.MEMBER,
+                    myAffiliation = OccupantAffiliation.MEMBER,
                     colorHex = randomColorForRoom(cleanJid),
                     isAutoJoin = isGroup,
                     isGroupChat = isGroup
                 )
                 database.roomDao().insertOrUpdateRoom(newRoom)
-                Log.d("XmppRepository", "Created new room entity for: $cleanJid")
             }
         } catch (e: Exception) {
-            Log.e("XmppRepository", "Failed to update room last message: ${e.message}")
+            Log.e("XmppRepository", "Failed optimistic local insert for $cleanJid: ${e.message}")
+        }
+
+        // 2. Check if outgoing auto-translate is enabled
+        var textToSend = text
+        var targetLangCode: String? = null
+        try {
+            val prefs = translationPreferencesManager.translationPreferences.first()
+            val shouldTranslateOutgoing = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
+                    if (isGroup) prefs.translateRooms else prefs.translateContacts
+
+            if (!isUrl && shouldTranslateOutgoing) {
+                val translated = translationService.translateText(text, prefs.targetLanguageCode)
+                if (!translated.isNullOrBlank()) {
+                    textToSend = translated
+                    targetLangCode = prefs.targetLanguageCode
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Failed to translate outgoing message: ${e.message}")
+        }
+
+        val isUrlFinal = textToSend.trim().startsWith("http")
+        var isSentSuccessfully = false
+
+        // 3. Send via Smack MUC if joined room
+        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
+            val sendRes = smackMucManager.sendMessage(cleanJid, textToSend)
+            isSentSuccessfully = sendRes.isSuccess
+            if (!isSentSuccessfully) {
+                Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${sendRes.exceptionOrNull()?.message}")
+            }
+        }
+
+        // 4. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
+        if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+            try {
+                val conn = smackConnectionManager.getRawConnection()
+                if (conn != null) {
+                    val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                    val msgStanza = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
+                        body = textToSend
+                        setStanzaId(stanzaId)
+                        if (isUrlFinal) {
+                            val oob = org.jivesoftware.smack.packet.StandardExtensionElement
+                                .builder("x", "jabber:x:oob")
+                                .addElement("url", textToSend.trim())
+                                .build()
+                            addExtension(oob)
+                        }
+                        if (!hasExtension(
+                                org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.ELEMENT,
+                                org.jivesoftware.smackx.receipts.DeliveryReceipt.NAMESPACE
+                            )
+                        ) {
+                            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
+                        }
+                    }
+                    conn.sendStanza(msgStanza)
+                    isSentSuccessfully = true
+                    Log.i("XmppRepository", "Sent 1-on-1 direct XMPP stanza to $cleanJid (id=$stanzaId)")
+                }
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $cleanJid: ${e.message}")
+            }
+        }
+
+        // 5. Fallback to raw engine ONLY in demo mode
+        if (!isSentSuccessfully && currentAccount.value.isDemoMode) {
+            try {
+                if (isUrlFinal && !isGroup) {
+                    engine.sendDirectOobMessage(cleanJid, textToSend, myNickname)
+                } else {
+                    engine.sendGroupMessage(cleanJid, textToSend, myNickname)
+                }
+                isSentSuccessfully = true
+            } catch (e: Exception) {
+                Log.e("XmppRepository", "Demo fallback send failed for $cleanJid: ${e.message}")
+            }
+        }
+
+        // 6. Update delivery status (only if still SENDING so fast DELIVERED receipt is preserved)
+        try {
+            database.messageDao().updateMessageStatusIfSending(
+                stanzaId,
+                if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED
+            )
+            if (textToSend != text && targetLangCode != null) {
+                database.messageDao().updateMessageTranslation(stanzaId, textToSend, targetLangCode)
+            }
+            if (!isSentSuccessfully && !currentAccount.value.isDemoMode) {
+                checkAndReconnectIfNeeded()
+            }
+        } catch (e: Exception) {
+            Log.e("XmppRepository", "Failed updating status for $stanzaId: ${e.message}")
         }
     }
 
@@ -2058,38 +2112,56 @@ class XmppRepository(
         fileSize: Long,
         mimeType: String,
         myNickname: String
-    ) {
+    ) = withContext(Dispatchers.IO) {
         // 1. Upload via XEP-0363 if connected
         if (!smackConnectionManager.isConnected()) {
              android.util.Log.e("XmppRepository", "Gagal upload: Tidak terhubung ke server XMPP")
-             return
+             return@withContext
         }
 
-        val connection = smackConnectionManager.getRawConnection() ?: return
+        val connection = smackConnectionManager.getRawConnection() ?: return@withContext
         
         // Use real XEP-0363 upload
         val uploadResult = smackFileUploadManager.uploadFile(connection, uri, fileName, fileSize, mimeType)
         
         uploadResult.fold(
             onSuccess = { url ->
-                // 2. Send message via engine (local storage)
+                val stanzaId = "file_${java.util.UUID.randomUUID()}"
                 val msg = engine.sendGroupFile(roomJid, url, fileName, mimeType, fileSize, myNickname).copy(
-                    senderJid = connection.user.asBareJid().toString()
+                    id = stanzaId,
+                    senderJid = connection.user.asBareJid().toString(),
+                    messageType = MessageType.FILE
                 )
                 database.messageDao().insertMessage(msg.toEntity())
 
-                // 3. Send via Smack MUC to the room
                 if (smackMucManager.isRoomJoined(roomJid)) {
                     try {
                         smackMucManager.sendMessage(roomJid, url)
                     } catch (e: Exception) {
                         android.util.Log.e("XmppRepository", "Gagal mengirim URL file ke MUC: ${e.message}")
                     }
+                } else if (!isMucJid(roomJid)) {
+                    try {
+                        val targetJid = org.jxmpp.jid.impl.JidCreate.from(roomJid.trim())
+                        val directMsg = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
+                            body = url
+                            setStanzaId(stanzaId)
+                            addExtension(
+                                org.jivesoftware.smack.packet.StandardExtensionElement
+                                    .builder("x", "jabber:x:oob")
+                                    .addElement("url", url)
+                                    .build()
+                            )
+                            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
+                        }
+                        connection.sendStanza(directMsg)
+                    } catch (e: Exception) {
+                        android.util.Log.e("XmppRepository", "Gagal mengirim URL file ke kontak: ${e.message}")
+                    }
                 }
             },
             onFailure = { error ->
                 android.util.Log.e("XmppRepository", "XEP-0363 Upload failed: ${error.message}", error)
-                // We could insert a system message or failed message here
             }
         )
     }
@@ -2099,35 +2171,33 @@ class XmppRepository(
         audioFile: java.io.File,
         durationSeconds: Int,
         myNickname: String
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val fileName = audioFile.name
         val fileSize = audioFile.length()
         val mimeType = "audio/mp4"
 
         // 1. Try uploading via XEP-0363 if connected
         var finalUrl = "file://${audioFile.absolutePath}"
-        if (smackConnectionManager.isConnected()) {
-            val connection = smackConnectionManager.getRawConnection()
-            if (connection != null) {
-                val uploadResult = smackFileUploadManager.uploadFile(
-                    connection,
-                    android.net.Uri.fromFile(audioFile),
-                    fileName,
-                    fileSize,
-                    mimeType
-                )
-                uploadResult.onSuccess { uploadedUrl ->
-                    finalUrl = uploadedUrl
-                }.onFailure {
-                    android.util.Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
-                }
+        val connection = if (smackConnectionManager.isConnected()) smackConnectionManager.getRawConnection() else null
+        if (connection != null) {
+            val uploadResult = smackFileUploadManager.uploadFile(
+                connection,
+                android.net.Uri.fromFile(audioFile),
+                fileName,
+                fileSize,
+                mimeType
+            )
+            uploadResult.onSuccess { uploadedUrl ->
+                finalUrl = uploadedUrl
+            }.onFailure {
+                android.util.Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
             }
         }
 
         // 2. Build XmppMessage
-        val msgId = "voice_${System.currentTimeMillis()}"
+        val msgId = "voice_${java.util.UUID.randomUUID()}"
         val body = "🎤 Pesan Suara (${durationSeconds}d)\n$finalUrl"
-        val myJid = smackConnectionManager.getRawConnection()?.user?.asBareJid()?.toString() ?: "$roomJid/$myNickname"
+        val myJid = connection?.user?.asBareJid()?.toString() ?: "$roomJid/$myNickname"
 
         val msg = XmppMessage(
             id = msgId,
@@ -2149,12 +2219,32 @@ class XmppRepository(
         // Save to local database
         database.messageDao().insertMessage(msg.toEntity())
 
-        // 3. Send via Smack MUC if room joined
+        // 3. Send via Smack MUC or 1-on-1 direct chat
         if (smackMucManager.isRoomJoined(roomJid)) {
             try {
                 smackMucManager.sendMessage(roomJid, body)
             } catch (e: Exception) {
                 android.util.Log.e("XmppRepository", "Gagal mengirim voice message ke MUC: ${e.message}")
+            }
+        } else if (!isMucJid(roomJid) && connection != null && connection.isAuthenticated) {
+            try {
+                val targetJid = org.jxmpp.jid.impl.JidCreate.from(roomJid.trim())
+                val directMsg = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
+                    this.body = body
+                    setStanzaId(msgId)
+                    if (finalUrl.startsWith("http")) {
+                        addExtension(
+                            org.jivesoftware.smack.packet.StandardExtensionElement
+                                .builder("x", "jabber:x:oob")
+                                .addElement("url", finalUrl)
+                                .build()
+                        )
+                    }
+                    org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
+                }
+                connection.sendStanza(directMsg)
+            } catch (e: Exception) {
+                android.util.Log.e("XmppRepository", "Gagal mengirim voice message ke kontak: ${e.message}")
             }
         }
     }
@@ -2252,13 +2342,26 @@ class XmppRepository(
     }
 
     suspend fun addRosterContact(jid: String, name: String, group: String? = null): Result<Unit> {
-        return smackRosterManager.addContact(jid, name, group)
+        return smackRosterManager.addContact(
+            jidString = jid,
+            name = name,
+            groupName = group,
+            isDemoMode = currentAccount.value.isDemoMode
+        )
+    }
+
+    suspend fun resendSubscriptionRequest(jid: String): Result<Unit> {
+        return smackRosterManager.sendSubscriptionRequest(jid)
     }
 
     suspend fun removeRosterContact(jid: String): Result<Unit> {
         val result = smackRosterManager.removeContact(jid)
         try {
-            database.contactDao().deleteContact(jid.trim())
+            val bareJid = jid.trim().removePrefix("xmpp:").substringBefore("?").substringBefore("/")
+            database.contactDao().deleteContact(bareJid)
+            if (bareJid != jid.trim()) {
+                database.contactDao().deleteContact(jid.trim())
+            }
         } catch (e: Exception) {
             Log.w("XmppRepository", "Error deleting contact from database: ${e.message}")
         }
