@@ -84,24 +84,23 @@ fun RoomItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .testTag("room_item_${room.jid}"),
         colors = CardDefaults.cardColors(containerColor = cardBg),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(if (isSelected) 2.dp else 1.dp, cardBorder)
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(if (isSelected) 1.5.dp else 1.dp, cardBorder)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Room Avatar Icon with bitmap or initial
             Box(
                 modifier = Modifier
-                    .size(46.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(roomColor.copy(alpha = 0.2f))
                     .border(1.5.dp, roomColor, CircleShape),
@@ -110,7 +109,7 @@ fun RoomItemCard(
                 Text(
                     text = room.name.trimStart('#', ' ').take(2).uppercase(Locale.getDefault()),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 14.sp,
                     color = roomColor
                 )
 
@@ -147,23 +146,32 @@ fun RoomItemCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (room.isBookmarked) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Favorit",
+                            modifier = Modifier.size(13.dp),
+                            tint = Color(0xFFFFD700)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+
                     Text(
                         text = room.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontSize = themePrefs.contactFontSizeSp.sp,
-                        lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,
+                        lineHeight = (themePrefs.contactFontSizeSp * 1.25f).sp,
                         fontWeight = if (room.unreadCount > 0 || isSelected) FontWeight.Bold else FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                        modifier = Modifier.weight(1f),
                         color = if (themePrefs.isCustomThemeEnabled) {
                             try { Color(android.graphics.Color.parseColor(themePrefs.contactColorHex)) } catch (e: Exception) { Color.Unspecified }
                         } else {
@@ -171,65 +179,31 @@ fun RoomItemCard(
                         }
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Text(
-                        text = formatTime(room.lastMessageTime),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(2.dp))
-
-                Text(
-                    text = room.lastMessageText.ifBlank { room.topic.ifBlank { "Ruang obrolan XMPP MUC" } },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
-                    lineHeight = ((themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f) * 1.3f).sp,
-                    color = if (room.unreadCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Bookmarked indicator
-                    if (room.isBookmarked) {
-                        Icon(
-                            imageVector = Icons.Default.Star,
-                            contentDescription = "Favorit",
-                            modifier = Modifier.size(14.dp),
-                            tint = Color(0xFFFFD700) // Gold color
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     if (room.isGroupChat) {
-                        // Occupants pill
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Group,
                                 contentDescription = "Anggota",
-                                modifier = Modifier.size(12.dp),
+                                modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "${room.occupantCount}",
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
+                                lineHeight = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
                     } else {
                         Icon(
                             imageVector = Icons.Default.Person,
@@ -237,31 +211,47 @@ fun RoomItemCard(
                             modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                         )
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
 
-                    // JID indicator
                     Text(
-                        text = room.jid.substringBefore("@"),
+                        text = formatTime(room.lastMessageTime),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
 
-            if (room.unreadCount > 0) {
-                Spacer(modifier = Modifier.width(8.dp))
-                Badge(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${room.unreadCount}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
+                        text = room.lastMessageText.ifBlank { room.topic.ifBlank { "Ruang obrolan XMPP MUC" } },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
+                        lineHeight = ((themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f) * 1.25f).sp,
+                        color = if (room.unreadCount > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
+
+                    if (room.unreadCount > 0) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Badge(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ) {
+                            Text(
+                                text = "${room.unreadCount}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -772,32 +772,41 @@ fun MultiRoomMainScreen(
                                 // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
                                 Column(modifier = Modifier.fillMaxSize()) {
                                 Surface(
-                                    modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                                    modifier = Modifier.fillMaxWidth(),
                                     color = MaterialTheme.colorScheme.surface,
-                                    shadowElevation = 2.dp
+                                    shadowElevation = 1.dp
                                 ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text(
-                                            text = "Ruang Obrolan",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Grup Chat & Diskusi Publik",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        
+                                    Column(
+                                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Ruang Obrolan",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "Grup Chat & Diskusi Publik",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
+                                            val groupRoomCount = viewModel.groupRooms.collectAsStateWithLifecycle().value.size
                                             FilterChip(
                                                 selected = !showOnlySavedRooms,
                                                 onClick = { showOnlySavedRooms = false },
-                                                label = { Text("Semua (${viewModel.groupRooms.collectAsStateWithLifecycle().value.size})", fontSize = 12.sp) }
+                                                label = { Text("Semua ($groupRoomCount)", fontSize = 12.sp) }
                                             )
                                             FilterChip(
                                                 selected = showOnlySavedRooms,
@@ -832,8 +841,8 @@ fun MultiRoomMainScreen(
                                     val roomListAvatarRevision by viewModel.avatarRevision.collectAsStateWithLifecycle()
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         items(displayedRooms, key = { it.jid }) { room ->
                                             val roomAvatar = remember(room.jid, roomListAvatarRevision) { viewModel.getRoomAvatar(room.jid) }
