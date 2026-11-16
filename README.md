@@ -1,44 +1,44 @@
 # InChat
 
-Klien XMPP modern untuk Android.
+A modern XMPP client for Android.
 
-## Fitur
+## Features
 
-- **Panggilan video dan audio**
-- **Chat room (MUC)**: gabung dan kelola grup chat
-- **Cari room publik**
-- **Moderasi room**: kelola peserta dan pengaturan room
-- **Pesan terenkripsi**
-- **Pesan bisik (whisper)** dalam bubble chat
-- **Terjemahan chat**
-- **Berbagi lokasi**
-- **Cek versi klien** lawan bicara
-- Notifikasi pesan di latar belakang
-- Antarmuka modern dengan Jetpack Compose
+- **Video and audio calls**
+- **Chat rooms (MUC)**: join and manage group chats
+- **Search public rooms**
+- **Room moderation**: manage participants and room settings
+- **Encrypted messages**
+- **Whispered messages** in chat bubbles
+- **Chat translation**
+- **Location sharing**
+- **Client version check** for your contacts
+- Background message notifications
+- Modern UI built with Jetpack Compose
 
-## Unduh
+## Download
 
-Unduh APK terbaru di halaman [Releases](https://github.com/ndregil/InChat/releases).
+Get the latest APK from the [Releases](https://github.com/ndregil/InChat/releases) page.
 
-Anda juga bisa memakai [Obtainium](https://github.com/ImranR98/Obtainium) agar update otomatis terdeteksi. Cukup tempelkan link repo ini.
+You can also use [Obtainium](https://github.com/ImranR98/Obtainium) to get automatic update notifications. Just paste this repository's link.
 
-Persyaratan: Android 7.0 (API 24) atau lebih baru.
+Requirements: Android 7.0 (API 24) or newer.
 
-## Izin yang diminta
+## Permissions
 
-| Izin | Kegunaan |
-|------|----------|
-| Internet | Terhubung ke server XMPP |
-| Notifikasi | Menampilkan pesan masuk |
-| Kamera | Panggilan video dan kirim foto |
-| Mikrofon | Panggilan audio dan video |
-| Lokasi | Berbagi lokasi |
-| Foreground service | Menjaga koneksi tetap aktif |
-| Abaikan optimasi baterai | Mencegah koneksi dimatikan sistem |
+| Permission | Purpose |
+|------------|---------|
+| Internet | Connect to the XMPP server |
+| Notifications | Show incoming messages |
+| Camera | Video calls and sending photos |
+| Microphone | Audio and video calls |
+| Location | Share your location |
+| Foreground service | Keep the connection alive |
+| Ignore battery optimizations | Prevent the system from killing the connection |
 
-## Membangun dari source
+## Building from source
 
-Kebutuhan: JDK 17 dan Android SDK.
+Requirements: JDK 17 and the Android SDK.
 
 ```
 git clone https://github.com/ndregil/InChat.git
@@ -47,21 +47,21 @@ cp .env.example .env
 ./gradlew assembleDebug
 ```
 
-Untuk build release yang ditandatangani, siapkan keystore sendiri lalu atur:
+For a signed release build, create your own keystore and set:
 
 ```
-export KEYSTORE_PATH=/path/ke/keystore.jks
+export KEYSTORE_PATH=/path/to/keystore.jks
 export STORE_PASSWORD="..."
 export KEY_PASSWORD="..."
 ./gradlew assembleRelease
 ```
 
-Alias key yang dipakai: `upload`.
+The key alias used is `upload`.
 
-## Teknologi
+## Tech stack
 
 Kotlin, Jetpack Compose, Room, Smack (XMPP), OkHttp, Retrofit, Moshi, Coil, CameraX, WorkManager.
 
-## Lisensi
+## License
 
-Dirilis di bawah lisensi GPL-3.0. Lihat file [LICENSE](LICENSE).
+Released under the GPL-3.0 license. See the [LICENSE](LICENSE) file.
