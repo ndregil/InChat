@@ -53,6 +53,7 @@ fun EmojiKeyboard(
     onEmojiSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var selectedCategoryIndex by remember { mutableStateOf(0) }
     val category = EMOJI_CATEGORIES[selectedCategoryIndex]
 
@@ -72,10 +73,19 @@ fun EmojiKeyboard(
                 divider = {}
             ) {
                 EMOJI_CATEGORIES.forEachIndexed { index, cat ->
+                    val localizedTitle = when (index) {
+                        0 -> strings.emojiCatSmileys
+                        1 -> strings.emojiCatPeople
+                        2 -> strings.emojiCatAnimals
+                        3 -> strings.emojiCatFood
+                        4 -> strings.emojiCatActivities
+                        5 -> strings.emojiCatObjects
+                        else -> cat.title
+                    }
                     Tab(
                         selected = selectedCategoryIndex == index,
                         onClick = { selectedCategoryIndex = index },
-                        text = { Text(cat.title, fontSize = 12.sp) },
+                        text = { Text(localizedTitle, fontSize = 12.sp) },
                         modifier = Modifier.testTag("emoji_tab_${cat.title}")
                     )
                 }

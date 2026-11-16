@@ -38,6 +38,7 @@ fun RegistrationCaptchaScreen(
 ) {
     BackHandler { onCancel() }
 
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
@@ -90,14 +91,14 @@ fun RegistrationCaptchaScreen(
             Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (hasCaptcha) "Verifikasi Pendaftaran" else "Lengkapi Form Pendaftaran",
+                text = if (hasCaptcha) strings.verifyRegistrationTitle else strings.completeRegFormTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
         }
 
         Text(
-            text = "Server ${challenge.domain} meminta data tambahan untuk akun ${challenge.username}.",
+            text = "${challenge.domain} • ${challenge.username}: ${strings.serverRequestsExtraData}",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -136,7 +137,7 @@ fun RegistrationCaptchaScreen(
                         if (bitmap != null) {
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Gambar CAPTCHA",
+                                contentDescription = strings.captchaImageDesc,
                                 modifier = Modifier.fillMaxSize().padding(8.dp),
                                 contentScale = ContentScale.Fit
                             )
@@ -149,7 +150,7 @@ fun RegistrationCaptchaScreen(
                             }
                             AsyncImage(
                                 model = req,
-                                contentDescription = "Gambar CAPTCHA",
+                                contentDescription = strings.captchaImageDesc,
                                 modifier = Modifier.fillMaxSize().padding(8.dp),
                                 contentScale = ContentScale.Fit
                             )
@@ -161,8 +162,8 @@ fun RegistrationCaptchaScreen(
             OutlinedTextField(
                 value = captchaInputText,
                 onValueChange = { captchaInputText = it },
-                label = { Text("Jawaban CAPTCHA *") },
-                placeholder = { Text("Ketik kode verifikasi") },
+                label = { Text(strings.captchaAnswerLabel) },
+                placeholder = { Text(strings.captchaAnswerPlaceholder) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("input_captcha_answer"),
@@ -283,7 +284,7 @@ fun RegistrationCaptchaScreen(
             ) {
                 Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Buka Halaman Pendaftaran Web")
+                Text(strings.openWebRegPage)
             }
         }
 
@@ -296,7 +297,7 @@ fun RegistrationCaptchaScreen(
                     .testTag("btn_cancel_captcha"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Batal")
+                Text(strings.cancel)
             }
             Button(
                 onClick = { onSolveCaptcha(captchaInputText, fieldValues.toMap()) },
@@ -309,7 +310,7 @@ fun RegistrationCaptchaScreen(
             ) {
                 Icon(Icons.Default.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Kirim", fontWeight = FontWeight.Bold)
+                Text(strings.send, fontWeight = FontWeight.Bold)
             }
         }
     }

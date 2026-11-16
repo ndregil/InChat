@@ -182,6 +182,7 @@ fun MessageBubble(
     var showAvatarMenu by remember { mutableStateOf(false) }
     var showVCardDialog by remember { mutableStateOf(false) }
     var showActionMenu by remember { mutableStateOf(false) }
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
 
     if (message.messageType == MessageType.SYSTEM_JOIN ||
         message.messageType == MessageType.SYSTEM_LEAVE ||
@@ -326,12 +327,12 @@ fun MessageBubble(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.BubbleChart,
-                                    contentDescription = "Gelembung Bisikan",
+                                    contentDescription = strings.whisperBubble,
                                     tint = Color(0xFF38BDF8),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = if (isMine) "Gelembung Bisikan ke @${message.recipientNickname ?: "user"}" else "Gelembung Bisikan dari ${message.senderNickname}",
+                                    text = if (isMine) "${strings.whisperBubbleToPrefix} @${message.recipientNickname ?: strings.userFallbackLabel}" else "${strings.whisperBubbleFromPrefix} ${message.senderNickname}",
                                     fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF38BDF8)
@@ -366,7 +367,7 @@ fun MessageBubble(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Reply,
-                                contentDescription = "Balas Pesan",
+                                contentDescription = strings.replyMessageAction,
                                 modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -386,7 +387,7 @@ fun MessageBubble(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
-                                contentDescription = "Kutip Pesan",
+                                contentDescription = strings.quoteMessageAction,
                                 modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
@@ -407,7 +408,7 @@ fun MessageBubble(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Translate,
-                                    contentDescription = "Terjemahkan Pesan",
+                                    contentDescription = strings.translateMessageAction,
                                     modifier = Modifier.size(11.dp),
                                     tint = MaterialTheme.colorScheme.tertiary
                                 )
@@ -430,7 +431,7 @@ fun MessageBubble(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Chat,
-                                    contentDescription = "Pesan Pribadi",
+                                    contentDescription = strings.privateMessageDesc,
                                     modifier = Modifier.size(11.dp),
                                     tint = Color(0xFFA855F7)
                                 )
@@ -457,7 +458,7 @@ fun MessageBubble(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.FormatQuote,
-                                contentDescription = "Kutip Pesan Sendiri",
+                                contentDescription = strings.quoteOwnMessageDesc,
                                 modifier = Modifier.size(12.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
@@ -526,7 +527,7 @@ fun MessageBubble(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        text = "Membalas @${message.replyToSender ?: "user"}",
+                                        text = "${strings.replyingToAtPrefix} @${message.replyToSender ?: strings.userFallbackLabel}",
                                         fontSize = (themePrefs.messageFontSizeSp - 3f).coerceAtLeast(10f).sp,
                                         fontWeight = FontWeight.Bold,
                                         color = palette.accentColor
@@ -583,7 +584,7 @@ fun MessageBubble(
                                                         )
                                                         Spacer(modifier = Modifier.width(4.dp))
                                                         Text(
-                                                            text = "Diterjemahkan ke $langName",
+                                                            text = "${strings.translatedToPrefix} $langName",
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = palette.accentColor
@@ -596,7 +597,7 @@ fun MessageBubble(
                                                         modifier = Modifier.clickable { showOriginal = !showOriginal }
                                                     ) {
                                                         Text(
-                                                            text = if (showOriginal) "Tampilkan terjemahan" else "Lihat pesan asli",
+                                                            text = if (showOriginal) strings.showTranslationLabel else strings.viewOriginalLabel,
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = palette.accentColor,
@@ -662,31 +663,31 @@ fun MessageBubble(
                             when (message.status) {
                                 DeliveryStatus.SENDING -> Icon(
                                     imageVector = Icons.Default.Schedule,
-                                    contentDescription = "Mengirim",
+                                    contentDescription = strings.statusSending,
                                     tint = textColor.copy(alpha = 0.5f),
                                     modifier = Modifier.size(13.dp)
                                 )
                                 DeliveryStatus.SENT -> Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Terkirim ke Server",
+                                    contentDescription = strings.statusSent,
                                     tint = textColor.copy(alpha = 0.7f),
                                     modifier = Modifier.size(13.dp)
                                 )
                                 DeliveryStatus.DELIVERED -> Icon(
                                     imageVector = Icons.Default.DoneAll,
-                                    contentDescription = "Sampai ke Penerima",
+                                    contentDescription = strings.statusDelivered,
                                     tint = textColor.copy(alpha = 0.85f),
                                     modifier = Modifier.size(14.dp)
                                 )
                                 DeliveryStatus.READ -> Icon(
                                     imageVector = Icons.Default.DoneAll,
-                                    contentDescription = "Telah Dibaca",
+                                    contentDescription = strings.statusRead,
                                     tint = Color(0xFF3B82F6), // Blue double check
                                     modifier = Modifier.size(14.dp)
                                 )
                                 DeliveryStatus.FAILED -> Icon(
                                     imageVector = Icons.Default.Error,
-                                    contentDescription = "Gagal",
+                                    contentDescription = strings.statusFailed,
                                     tint = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(13.dp)
                                 )
@@ -713,7 +714,7 @@ fun MessageBubble(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Reply, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Balas Pesan", fontSize = 13.sp)
+                    Text(strings.replyMessageAction, fontSize = 13.sp)
                 }
             },
             onClick = {
@@ -726,7 +727,7 @@ fun MessageBubble(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.FormatQuote, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Kutip Pesan", fontSize = 13.sp)
+                    Text(strings.quoteMessageAction, fontSize = 13.sp)
                 }
             },
             onClick = {
@@ -740,7 +741,7 @@ fun MessageBubble(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Terjemahkan Pesan", fontSize = 13.sp)
+                        Text(strings.translateMessageAction, fontSize = 13.sp)
                     }
                 },
                 onClick = {
@@ -755,7 +756,7 @@ fun MessageBubble(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.AlternateEmail, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Mention @${message.senderNickname}", fontSize = 13.sp)
+                        Text("${strings.mentionPrefix} @${message.senderNickname}", fontSize = 13.sp)
                     }
                 },
                 onClick = {
@@ -769,7 +770,7 @@ fun MessageBubble(
     if (showCapsDialog) {
         ClientCapsDialog(
             clientCaps = message.senderClientCaps,
-            userName = "${message.senderNickname} (${if (message.isMine) "Kamu" else message.senderJid.ifBlank { "User" }})",
+            userName = "${message.senderNickname} (${if (message.isMine) strings.youLabel else message.senderJid.ifBlank { strings.userFallbackLabel }})",
             targetJid = message.senderJid,
             onQuerySoftwareVersion = onQuerySoftwareVersion,
             onDismiss = { showCapsDialog = false }
@@ -823,7 +824,7 @@ fun MessageBubble(
                     )
                     if (!isMine) {
                         DropdownMenuItem(
-                            text = { Text("Mention (@${message.senderNickname})") },
+                            text = { Text("${strings.mentionPrefix} (@${message.senderNickname})") },
                             leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
                             onClick = {
                                 showAvatarMenu = false
@@ -831,7 +832,7 @@ fun MessageBubble(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Kirim Pesan Pribadi (Bisikan)") },
+                            text = { Text(strings.sendPrivateWhisperMenu) },
                             leadingIcon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
                             onClick = {
                                 showAvatarMenu = false
@@ -841,7 +842,7 @@ fun MessageBubble(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Cek Versi Klien (XEP-0092)") },
+                        text = { Text(strings.checkClientVersionMenu) },
                         leadingIcon = { Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary) },
                         onClick = {
                             showAvatarMenu = false
@@ -849,7 +850,7 @@ fun MessageBubble(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Info Profil Anggota") },
+                        text = { Text(strings.memberProfileInfoMenu) },
                         leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
                         onClick = {
                             showAvatarMenu = false
@@ -864,7 +865,7 @@ fun MessageBubble(
             },
             confirmButton = {
                 TextButton(onClick = { showAvatarMenu = false }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             },
             shape = RoundedCornerShape(20.dp)
@@ -891,6 +892,7 @@ fun FormattedMessageText(
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val linkColor = if (textColor.luminance() > 0.5f) Color(0xFF60A5FA) else Color(0xFF2563EB)
 
     val urlRegex = Regex("""(https?://[^\s]+|www\.[^\s]+)""", RegexOption.IGNORE_CASE)
@@ -985,7 +987,7 @@ fun FormattedMessageText(
                         }
                         context.startActivity(intent)
                     } catch (err: Exception) {
-                        Toast.makeText(context, "Tidak dapat membuka URL: ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "${strings.cannotOpenUrlToast} ${err.localizedMessage}", Toast.LENGTH_SHORT).show()
                     }
                 }
             } else {
@@ -1065,6 +1067,7 @@ private fun formatFullDateTime(timestamp: Long): String {
 
 @Composable
 fun CallSignallingBubble(message: XmppMessage, textColor: Color) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val isVideo = message.body.lowercase().contains("video")
 
     Row(
@@ -1091,7 +1094,7 @@ fun CallSignallingBubble(message: XmppMessage, textColor: Color) {
         )
         Spacer(modifier = Modifier.weight(1f))
         TextButton(onClick = { /* Answer call */ }) {
-            Text("Answer", color = textColor)
+            Text(strings.answerCallBtn, color = textColor)
         }
     }
 }
@@ -1119,6 +1122,7 @@ private fun getSenderColor(nickname: String): Color {
 @Composable
 fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
     val context = LocalContext.current
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val body = message.body
 
     // Extract lat/lng coordinates
@@ -1134,10 +1138,10 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
         } else Pair(-6.200000, 106.816666)
     }
 
-    val displayTitle = remember(body) {
-        val clean = body.substringBefore("http").substringBefore("geo:").replace("📍", "").trim()
-        clean.ifBlank { "Lokasi Terkini" }
+    val rawTitle = remember(body) {
+        body.substringBefore("http").substringBefore("geo:").replace("📍", "").trim()
     }
+    val displayTitle = rawTitle.ifBlank { strings.currentLocationTitle }
 
     val openInMaps = {
         val labelEncoded = java.net.URLEncoder.encode(displayTitle, "UTF-8")
@@ -1145,7 +1149,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
         val webMapsUrl = "https://www.google.com/maps/search/?api=1&query=$lat,$lng"
         
         val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(geoUrl))
-        val chooser = android.content.Intent.createChooser(intent, "Pilih Aplikasi Peta")
+        val chooser = android.content.Intent.createChooser(intent, strings.chooseMapAppTitle)
         chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         
         try {
@@ -1156,7 +1160,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
                 webIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(webIntent)
             } catch (e2: Exception) {
-                Toast.makeText(context, "Tidak dapat membuka aplikasi peta", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, strings.cannotOpenMapAppToast, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1183,7 +1187,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
             ) {
                 Icon(
                     imageVector = Icons.Default.Place,
-                    contentDescription = "Lokasi",
+                    contentDescription = strings.currentLocationTitle,
                     tint = Color(0xFFEF4444),
                     modifier = Modifier.size(24.dp)
                 )
@@ -1196,7 +1200,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
                     color = textColor
                 )
                 Text(
-                    text = "Koordinat: %.5f, %.5f".format(Locale.getDefault(), lat, lng),
+                    text = "${strings.coordinatesPrefix} %.5f, %.5f".format(Locale.getDefault(), lat, lng),
                     fontSize = 11.sp,
                     color = textColor.copy(alpha = 0.85f),
                     maxLines = 1,
@@ -1230,7 +1234,7 @@ fun LocationMessageBubbleContent(message: XmppMessage, textColor: Color) {
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "Buka Peta (Google Maps)",
+                    text = strings.openInMapsBtn,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = textColor
@@ -1457,6 +1461,7 @@ fun VCardProfileDialog(
     message: XmppMessage,
     onDismiss: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val senderColor = getSenderColor(message.senderNickname)
     val avatarData = rememberAvatarImageRequest(message.avatarKey)
     var showFullPhoto by remember { mutableStateOf(false) }
@@ -1480,7 +1485,7 @@ fun VCardProfileDialog(
                     if (avatarData != null) {
                         coil.compose.AsyncImage(
                             model = avatarData,
-                            contentDescription = "Foto vCard ${message.senderNickname}",
+                            contentDescription = "${strings.vcardPhotoDesc} ${message.senderNickname}",
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(16.dp)),
@@ -1518,14 +1523,14 @@ fun VCardProfileDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text("JID / Alamat XMPP:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(message.senderJid.ifBlank { "User" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(strings.jidXmppAddressLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(message.senderJid.ifBlank { strings.userFallbackLabel }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 }
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Tutup")
+                Text(strings.close)
             }
         },
         shape = RoundedCornerShape(20.dp)
@@ -1534,7 +1539,7 @@ fun VCardProfileDialog(
     if (showFullPhoto && avatarData != null) {
         AlertDialog(
             onDismissRequest = { showFullPhoto = false },
-            title = { Text("Foto vCard ${message.senderNickname}") },
+            title = { Text("${strings.vcardPhotoDesc} ${message.senderNickname}") },
             text = {
                 Box(
                     modifier = Modifier
@@ -1545,7 +1550,7 @@ fun VCardProfileDialog(
                 ) {
                     coil.compose.AsyncImage(
                         model = avatarData,
-                        contentDescription = "Foto vCard Full",
+                        contentDescription = strings.vcardPhotoDesc,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit
                     )
@@ -1553,7 +1558,7 @@ fun VCardProfileDialog(
             },
             confirmButton = {
                 TextButton(onClick = { showFullPhoto = false }) {
-                    Text("Tutup Foto")
+                    Text(strings.closePhotoBtn)
                 }
             }
         )

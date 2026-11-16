@@ -226,6 +226,7 @@ fun MultiRoomMainScreen(
 
     val savedRooms by viewModel.savedRooms.collectAsStateWithLifecycle()
     val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showOnlySavedRooms by remember { mutableStateOf(false) }
     val activeRoom by viewModel.activeRoom.collectAsStateWithLifecycle()
     val messages by viewModel.activeRoomMessages.collectAsStateWithLifecycle()
@@ -450,7 +451,7 @@ fun MultiRoomMainScreen(
                             activeNavIndex = 0
                         },
                         icon = Icons.Default.Forum,
-                        label = "Room",
+                        label = strings.tabRooms,
                         badgeCount = roomUnread,
                         testTag = "nav_tab_rooms"
                     )
@@ -464,7 +465,7 @@ fun MultiRoomMainScreen(
                             }
                         },
                         icon = Icons.Default.Person,
-                        label = "Chat",
+                        label = strings.tabChat,
                         badgeCount = directUnread,
                         testTag = "nav_tab_direct"
                     )
@@ -476,7 +477,7 @@ fun MultiRoomMainScreen(
                             viewModel.refreshRoster()
                         },
                         icon = Icons.Default.Contacts,
-                        label = "Kontak",
+                        label = strings.tabContacts,
                         testTag = "nav_tab_roster"
                     )
 
@@ -487,7 +488,7 @@ fun MultiRoomMainScreen(
                             viewModel.loadDirectory()
                         },
                         icon = Icons.Default.Explore,
-                        label = "Discover",
+                        label = strings.tabDiscover,
                         testTag = "nav_tab_discover"
                     )
 
@@ -498,7 +499,7 @@ fun MultiRoomMainScreen(
                             showAccountSettingsDirectly = false
                         },
                         icon = Icons.Default.Settings,
-                        label = "Setelan",
+                        label = strings.tabSettings,
                         testTag = "nav_tab_settings"
                     )
                 }
@@ -512,7 +513,7 @@ fun MultiRoomMainScreen(
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { viewModel.updateSearchQuery(it) },
-                                placeholder = { Text("Cari ruangan atau topik...", fontSize = 14.sp) },
+                                placeholder = { Text(strings.searchHint, fontSize = 14.sp) },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .testTag("search_rooms_input"),
@@ -522,7 +523,7 @@ fun MultiRoomMainScreen(
                                         viewModel.updateSearchQuery("")
                                         isSearchExpanded = false
                                     }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Tutup Pencarian")
+                                        Icon(Icons.Default.Close, contentDescription = strings.closeSearchDesc)
                                     }
                                 }
                             )
@@ -562,11 +563,11 @@ fun MultiRoomMainScreen(
                                     ) {
                                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Hubungkan", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(strings.connectBtn, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                                 Text(
-                                    text = if (activeRoom?.isGroupChat == true) (activeRoom?.name ?: "Ruang Obrolan") else (if (roomPagerState.currentPage == 0) "Ruang Obrolan" else (filteredRooms.firstOrNull()?.name ?: "InChat")),
+                                    text = if (activeRoom?.isGroupChat == true) (activeRoom?.name ?: strings.roomTitle) else (if (roomPagerState.currentPage == 0) strings.roomTitle else (filteredRooms.firstOrNull()?.name ?: strings.appName)),
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
@@ -582,7 +583,7 @@ fun MultiRoomMainScreen(
                         ) {
                             Icon(
                                 imageVector = if (isDarkMode) Icons.Default.WbSunny else Icons.Default.NightsStay,
-                                contentDescription = "Toggle Tema",
+                                contentDescription = strings.toggleThemeDesc,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(19.dp)
                             )
@@ -593,7 +594,7 @@ fun MultiRoomMainScreen(
                                 onClick = { isSearchExpanded = true },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(Icons.Default.Search, contentDescription = "Cari Room", modifier = Modifier.size(19.dp))
+                                Icon(Icons.Default.Search, contentDescription = strings.searchRoomDesc, modifier = Modifier.size(19.dp))
                             }
 
                             // Quick Bookmark Toggle (XEP-0048)
@@ -606,7 +607,7 @@ fun MultiRoomMainScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    contentDescription = if (isCurrentBookmarked) "Hapus dari Favorit" else "Simpan ke Favorit (XEP-0048)",
+                                    contentDescription = if (isCurrentBookmarked) strings.removeFromFavorites else strings.saveToFavoritesXep,
                                     tint = if (isCurrentBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(19.dp)
                                 )
@@ -618,7 +619,7 @@ fun MultiRoomMainScreen(
                                     onClick = { showRoomMenu = true },
                                     modifier = Modifier.size(36.dp)
                                 ) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "Menu", modifier = Modifier.size(19.dp))
+                                    Icon(Icons.Default.MoreVert, contentDescription = strings.menuDesc, modifier = Modifier.size(19.dp))
                                 }
 
                                 DropdownMenu(
@@ -626,7 +627,7 @@ fun MultiRoomMainScreen(
                                     onDismissRequest = { showRoomMenu = false }
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("Lihat Topik & Info Ruang") },
+                                        text = { Text(strings.viewTopicRoomInfoMenu) },
                                         leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                         onClick = {
                                             showRoomMenu = false
@@ -634,7 +635,7 @@ fun MultiRoomMainScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Buat / Gabung Room Baru") },
+                                        text = { Text(strings.createOrJoinNewRoomMenu) },
                                         leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
                                         onClick = {
                                             showRoomMenu = false
@@ -643,7 +644,7 @@ fun MultiRoomMainScreen(
                                     )
                                     val isBookmarked = activeRoom?.isBookmarked == true
                                     DropdownMenuItem(
-                                        text = { Text(if (isBookmarked) "Hapus dari Ruangan Tersimpan" else "Simpan Room ke Favorit") },
+                                        text = { Text(if (isBookmarked) strings.removeFromSavedRoomsMenu else strings.saveRoomToFavoritesMenu) },
                                         leadingIcon = {
                                             Icon(
                                                 imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -657,7 +658,7 @@ fun MultiRoomMainScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Warna Chat & Wallpaper") },
+                                        text = { Text(strings.chatColorsAndWallpaperMenu) },
                                         leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                         onClick = {
                                             showRoomMenu = false
@@ -665,7 +666,7 @@ fun MultiRoomMainScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Ganti nickname") },
+                                        text = { Text(strings.changeNicknameTitle) },
                                         leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
                                         onClick = {
                                             showRoomMenu = false
@@ -681,7 +682,7 @@ fun MultiRoomMainScreen(
                                     )
                                     if (activeRoom?.myRole == OccupantRole.ADMIN || activeRoom?.myRole == OccupantRole.OWNER || activeRoom?.myAffiliation == OccupantAffiliation.ADMIN || activeRoom?.myAffiliation == OccupantAffiliation.OWNER) {
                                         DropdownMenuItem(
-                                            text = { Text("Konfigurasi & Kelola Room") },
+                                            text = { Text(strings.configAndManageRoomMenu) },
                                             leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                             onClick = {
                                                 showRoomMenu = false
@@ -699,7 +700,7 @@ fun MultiRoomMainScreen(
                                     if (activeRoom != null) {
                                         if (activeRoom!!.isJoined) {
                                             DropdownMenuItem(
-                                                text = { Text("Tinggalkan Room Ini") },
+                                                text = { Text(strings.leaveThisRoomMenu) },
                                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                                 onClick = {
                                                     showRoomMenu = false
@@ -710,7 +711,7 @@ fun MultiRoomMainScreen(
                                             )
                                         } else {
                                             DropdownMenuItem(
-                                                text = { Text("Gabung ke Room Ini") },
+                                                text = { Text(strings.joinThisRoomMenu) },
                                                 leadingIcon = { Icon(Icons.Default.Login, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                                                 onClick = {
                                                     showRoomMenu = false
@@ -723,7 +724,7 @@ fun MultiRoomMainScreen(
                                         }
                                     }
                                     DropdownMenuItem(
-                                         text = { Text("Bersihkan Riwayat Chat") },
+                                         text = { Text(strings.clearChatHistoryMenu) },
                                          leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
                                          onClick = {
                                              showRoomMenu = false
@@ -731,7 +732,7 @@ fun MultiRoomMainScreen(
                                          }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("Hapus Penanda Room") },
+                                        text = { Text(strings.deleteRoomBookmarkMenu) },
                                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             showRoomMenu = false
@@ -814,12 +815,12 @@ fun MultiRoomMainScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "Ruang Obrolan",
+                                                text = strings.roomTitle,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Text(
-                                                text = "Grup Chat & Diskusi Publik",
+                                                text = strings.roomSubtitle,
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
@@ -835,12 +836,12 @@ fun MultiRoomMainScreen(
                                             FilterChip(
                                                 selected = !showOnlySavedRooms,
                                                 onClick = { showOnlySavedRooms = false },
-                                                label = { Text("Semua ($groupRoomCount)", fontSize = 12.sp) }
+                                                label = { Text("${strings.allRooms} ($groupRoomCount)", fontSize = 12.sp) }
                                             )
                                             FilterChip(
                                                 selected = showOnlySavedRooms,
                                                 onClick = { showOnlySavedRooms = true },
-                                                label = { Text("Favorit (${savedRooms.size})", fontSize = 12.sp) },
+                                                label = { Text("${strings.favoriteRooms} (${savedRooms.size})", fontSize = 12.sp) },
                                                 leadingIcon = {
                                                     Icon(Icons.Default.Bookmark, null, modifier = Modifier.size(14.dp))
                                                 }
@@ -857,13 +858,13 @@ fun MultiRoomMainScreen(
                                     ) {
                                         Icon(Icons.Default.Forum, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        Text("Belum Ada Ruangan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Text("Cari atau buat ruangan baru di tab Discover atau tekan tombol tambah.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                        Text(strings.noRoomsYetTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Text(strings.noRoomsYetDesc, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                         Spacer(modifier = Modifier.height(24.dp))
                                         Button(onClick = { viewModel.isJoinCreateDialogOpen.value = true }) {
                                             Icon(Icons.Default.Add, null)
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Buat / Gabung Room")
+                                            Text(strings.joinOrCreateRoom)
                                         }
                                     }
                                 } else {
@@ -938,8 +939,8 @@ fun MultiRoomMainScreen(
                                             ) {
                                                 Icon(Icons.Default.Forum, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                                 Spacer(modifier = Modifier.height(12.dp))
-                                                Text("Belum ada pesan di ruang ${room.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                                Text("Kirim pesan pertama untuk memulai obrolan.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("${strings.noMessagesRoom} (${room.name})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                                Text(strings.firstMessageHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         } else {
                                             LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -957,7 +958,7 @@ fun MultiRoomMainScreen(
                                                             ) {
                                                                 androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                                                 Text(
-                                                                    text = "Memuat pesan sebelumnya...",
+                                                                    text = strings.loadingOlderMessages,
                                                                     style = MaterialTheme.typography.labelMedium,
                                                                     color = MaterialTheme.colorScheme.primary
                                                                 )
@@ -968,12 +969,12 @@ fun MultiRoomMainScreen(
                                                             ) {
                                                                 Icon(
                                                                     imageVector = Icons.Default.Refresh,
-                                                                    contentDescription = "Muat Pesan Sebelumnya",
+                                                                    contentDescription = strings.loadOlderMessages,
                                                                     modifier = Modifier.size(16.dp)
                                                                 )
                                                                 Spacer(modifier = Modifier.width(4.dp))
                                                                 Text(
-                                                                    text = "Muat Pesan Sebelumnya",
+                                                                    text = strings.loadOlderMessages,
                                                                     style = MaterialTheme.typography.labelMedium
                                                                 )
                                                             }
@@ -1072,13 +1073,13 @@ fun MultiRoomMainScreen(
                                             ) {
                                                 Column(modifier = Modifier.weight(1f)) {
                                                     Text(
-                                                        text = "Anda telah meninggalkan ruangan ini",
+                                                        text = strings.leftRoomNotice,
                                                         style = MaterialTheme.typography.bodyMedium,
                                                         fontWeight = FontWeight.SemiBold,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                     Text(
-                                                        text = "Gabung kembali untuk mulai mengobrol",
+                                                        text = strings.rejoinRoomHint,
                                                         style = MaterialTheme.typography.bodySmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -1095,7 +1096,7 @@ fun MultiRoomMainScreen(
                                                 ) {
                                                     Icon(Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
                                                     Spacer(Modifier.width(6.dp))
-                                                    Text("Gabung")
+                                                    Text(strings.join)
                                                 }
                                             }
                                         }
@@ -1180,13 +1181,13 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Column {
                                                 Text(
-                                                    text = "Chat Pribadi",
+                                                    text = strings.directChatTitle,
                                                     style = MaterialTheme.typography.titleLarge,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
-                                                    text = "Pesan 1-on-1 & Obrolan Langsung",
+                                                    text = strings.directChatSubtitle,
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -1207,7 +1208,7 @@ fun MultiRoomMainScreen(
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Text("Chat Baru", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text(strings.newChat, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
 
@@ -1217,12 +1218,12 @@ fun MultiRoomMainScreen(
                                         OutlinedTextField(
                                             value = searchDirectQuery,
                                             onValueChange = { searchDirectQuery = it },
-                                            placeholder = { Text("Cari obrolan atau kontak...", fontSize = 13.5.sp) },
+                                            placeholder = { Text(strings.searchChatOrContact, fontSize = 13.5.sp) },
                                             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                             trailingIcon = {
                                                 if (searchDirectQuery.isNotEmpty()) {
                                                     IconButton(onClick = { searchDirectQuery = "" }) {
-                                                        Icon(Icons.Default.Close, contentDescription = "Bersihkan", modifier = Modifier.size(16.dp))
+                                                        Icon(Icons.Default.Close, contentDescription = strings.close, modifier = Modifier.size(16.dp))
                                                     }
                                                 }
                                             },
@@ -1241,12 +1242,12 @@ fun MultiRoomMainScreen(
                                             FilterChip(
                                                 selected = !showOnlySavedDirects,
                                                 onClick = { showOnlySavedDirects = false },
-                                                label = { Text("Semua Chat (${directChats.size})", fontSize = 12.sp) }
+                                                label = { Text("${strings.allChats} (${directChats.size})", fontSize = 12.sp) }
                                             )
                                             FilterChip(
                                                 selected = showOnlySavedDirects,
                                                 onClick = { showOnlySavedDirects = true },
-                                                label = { Text("Favorit (${savedDirects.size})", fontSize = 12.sp) },
+                                                label = { Text("${strings.favoriteRooms} (${savedDirects.size})", fontSize = 12.sp) },
                                                 leadingIcon = {
                                                     Icon(
                                                         Icons.Default.Star,
@@ -1288,13 +1289,13 @@ fun MultiRoomMainScreen(
                                         }
                                         Spacer(modifier = Modifier.height(16.dp))
                                         Text(
-                                            text = if (searchDirectQuery.isNotBlank()) "Tidak Ada Chat yang Cocok" else "Belum Ada Chat Pribadi",
+                                            text = if (searchDirectQuery.isNotBlank()) strings.noMatchingChats else strings.noDirectChats,
                                             style = MaterialTheme.typography.titleMedium,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = if (searchDirectQuery.isNotBlank()) "Coba kata kunci lain untuk mencari kontak." else "Mulai obrolan 1-on-1 dengan memilih kontak dari daftar kontak Anda.",
+                                            text = if (searchDirectQuery.isNotBlank()) strings.noMatchingChatsDesc else strings.noDirectChatsDesc,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1309,7 +1310,7 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Icon(Icons.Default.Contacts, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Pilih Kontak")
+                                            Text(strings.chooseContact)
                                         }
                                     }
                                 } else {
@@ -1364,7 +1365,7 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Icon(
                                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                                contentDescription = "Kembali ke Daftar Chat Pribadi"
+                                                contentDescription = strings.backToDirectChatListDesc
                                             )
                                         }
 
@@ -1444,7 +1445,7 @@ fun MultiRoomMainScreen(
                                                     val presText = activeContact.presence.name.lowercase(Locale.getDefault()).replaceFirstChar { it.uppercase() }
                                                     if (activeContact.statusMessage.isNotBlank()) "${activeContact.statusMessage} • $presText" else presText
                                                 } else {
-                                                    activeRoom?.jid ?: "Chat 1-on-1"
+                                                    activeRoom?.jid ?: strings.directChatDefaultSub
                                                 },
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = if (themePrefs.isCustomThemeEnabled) {
@@ -1464,7 +1465,7 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Icon(
                                                 Icons.Default.Call,
-                                                contentDescription = "Panggilan Audio",
+                                                contentDescription = strings.audioCallDesc,
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(20.dp)
                                             )
@@ -1476,7 +1477,7 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Icon(
                                                 Icons.Default.VideoCall,
-                                                contentDescription = "Panggilan Video",
+                                                contentDescription = strings.videoCallDesc,
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(20.dp)
                                             )
@@ -1487,7 +1488,7 @@ fun MultiRoomMainScreen(
                                                 onClick = { showDirectMenu = true },
                                                 modifier = Modifier.size(36.dp)
                                             ) {
-                                                Icon(Icons.Default.MoreVert, contentDescription = "Menu Chat", modifier = Modifier.size(20.dp))
+                                                Icon(Icons.Default.MoreVert, contentDescription = strings.chatMenuDesc, modifier = Modifier.size(20.dp))
                                             }
 
                                             DropdownMenu(
@@ -1496,7 +1497,7 @@ fun MultiRoomMainScreen(
                                             ) {
                                                 val isCurrentBookmarked = activeRoom?.isBookmarked == true
                                                 DropdownMenuItem(
-                                                    text = { Text(if (isCurrentBookmarked) "Hapus dari Favorit" else "Tambah ke Favorit") },
+                                                    text = { Text(if (isCurrentBookmarked) strings.removeFromFavorites else strings.addToFavoritesMenu) },
                                                     leadingIcon = {
                                                         Icon(
                                                             imageVector = if (isCurrentBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -1509,7 +1510,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("Warna Chat & Wallpaper") },
+                                                    text = { Text(strings.chatColorsAndWallpaperMenu) },
                                                     leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                                     onClick = {
                                                         showDirectMenu = false
@@ -1517,7 +1518,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 )
                                                  DropdownMenuItem(
-                                                    text = { Text("Bersihkan Riwayat Chat") },
+                                                    text = { Text(strings.clearChatHistoryMenu) },
                                                     leadingIcon = { Icon(Icons.Default.Clear, contentDescription = null) },
                                                     onClick = {
                                                         showDirectMenu = false
@@ -1530,7 +1531,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("Tutup Conversation") },
+                                                    text = { Text(strings.closeConversationMenu) },
                                                     leadingIcon = { Icon(Icons.Default.Close, contentDescription = null) },
                                                     onClick = {
                                                         showDirectMenu = false
@@ -1561,9 +1562,9 @@ fun MultiRoomMainScreen(
                                         ) {
                                             Icon(Icons.Default.Person, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                             Spacer(modifier = Modifier.height(12.dp))
-                                            Text("Belum ada pesan pribadi dengan ${activeRoom?.name ?: "kontak ini"}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                                            Text("${strings.noDirectMessagesWithPrefix} ${activeRoom?.name ?: strings.thisContactFallback}", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Kirim pesan pertama untuk memulai obrolan langsung.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(strings.sendFirstDirectMessageHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     } else {
                                         LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1581,7 +1582,7 @@ fun MultiRoomMainScreen(
                                                         ) {
                                                             androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                                             Text(
-                                                                text = "Memuat pesan sebelumnya...",
+                                                                text = strings.loadingOlderMessages,
                                                                 style = MaterialTheme.typography.labelMedium,
                                                                 color = MaterialTheme.colorScheme.primary
                                                             )
@@ -1592,12 +1593,12 @@ fun MultiRoomMainScreen(
                                                         ) {
                                                             Icon(
                                                                 imageVector = Icons.Default.Refresh,
-                                                                contentDescription = "Muat Pesan Sebelumnya",
+                                                                contentDescription = strings.loadOlderMessages,
                                                                 modifier = Modifier.size(16.dp)
                                                             )
                                                             Spacer(modifier = Modifier.width(4.dp))
                                                             Text(
-                                                                text = "Muat Pesan Sebelumnya",
+                                                                text = strings.loadOlderMessages,
                                                                 style = MaterialTheme.typography.labelMedium
                                                             )
                                                         }
@@ -1852,13 +1853,13 @@ fun MultiRoomMainScreen(
                                     ) {
                                         Icon(
                                             Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Kembali",
+                                            contentDescription = strings.back,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "Konfigurasi Akun & Server",
+                                        text = strings.accountAndServerConfigTitle,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1949,7 +1950,7 @@ fun MultiRoomMainScreen(
     if (isLoadingProfile) {
         AlertDialog(
             onDismissRequest = { isLoadingProfile = false },
-            title = { Text("Memuat Profil...") },
+            title = { Text(strings.loadingProfileTitle) },
             text = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1957,7 +1958,7 @@ fun MultiRoomMainScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    Text("Mengambil data vCard dari server...")
+                    Text(strings.fetchingVcardDesc)
                 }
             },
             confirmButton = {}
@@ -2003,7 +2004,7 @@ fun MultiRoomMainScreen(
                         if (avatarBytes != null) {
                             coil.compose.AsyncImage(
                                 model = avatarBytes,
-                                contentDescription = "Foto Profil ${occupant.nickname}",
+                                contentDescription = "${strings.profilePhotoOfPrefix} ${occupant.nickname}",
                                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
@@ -2037,34 +2038,34 @@ fun MultiRoomMainScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Status / Presence:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.presenceStatusLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(occupant.statusText.ifBlank { occupant.presence.name }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Peran di Room:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.roomRoleLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${occupant.role.name} (${occupant.affiliation.name})", style = MaterialTheme.typography.bodyMedium)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Organisasi:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.organizationLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(org, style = MaterialTheme.typography.bodyMedium)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Email:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.emailLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(email, style = MaterialTheme.typography.bodyMedium)
                     }
 
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("JID / Alamat XMPP:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.jidXmppAddressLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(effectiveJid, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { selectedProfileOccupant = null }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             },
             shape = RoundedCornerShape(20.dp)
@@ -2073,7 +2074,7 @@ fun MultiRoomMainScreen(
         if (showFullPhoto && avatarBytes != null) {
             AlertDialog(
                 onDismissRequest = { showFullPhoto = false },
-                title = { Text("Foto vCard ${occupant.nickname}") },
+                title = { Text("${strings.vcardPhotoDesc} ${occupant.nickname}") },
                 text = {
                     Box(
                         modifier = Modifier
@@ -2084,7 +2085,7 @@ fun MultiRoomMainScreen(
                     ) {
                         coil.compose.AsyncImage(
                             model = avatarBytes,
-                            contentDescription = "Foto vCard Full",
+                            contentDescription = strings.vcardPhotoDesc,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = androidx.compose.ui.layout.ContentScale.Fit
                         )
@@ -2092,7 +2093,7 @@ fun MultiRoomMainScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = { showFullPhoto = false }) {
-                        Text("Tutup Foto")
+                        Text(strings.closePhotoBtn)
                     }
                 }
             )
@@ -2103,7 +2104,7 @@ fun MultiRoomMainScreen(
         val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
         OccupantRosterSheet(
             occupants = occupants,
-            roomName = activeRoom?.name ?: "Room",
+            roomName = activeRoom?.name ?: strings.roomTitle,
             sheetState = rosterSheetState,
             onDismiss = { viewModel.isRosterSheetOpen.value = false },
             onRefresh = { viewModel.refreshRoomOccupants() },
@@ -2286,7 +2287,7 @@ fun MultiRoomMainScreen(
     selectedCapsOccupant?.let { occ ->
         ClientCapsDialog(
             clientCaps = occ.clientCaps,
-            userName = "${occ.nickname} (${occ.jid.ifBlank { "MUC Occupant" }})",
+            userName = "${occ.nickname} (${occ.jid.ifBlank { strings.mucOccupantLabel }})",
             targetJid = occ.fullJid,
             onQuerySoftwareVersion = { jid, onResult -> viewModel.querySoftwareVersion(jid, onResult) },
             onDismiss = { selectedCapsOccupant = null }
@@ -2306,7 +2307,7 @@ fun MultiRoomMainScreen(
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Topik Ruang: ${activeRoom!!.name}", style = MaterialTheme.typography.titleMedium)
+                    Text("${strings.roomTopicHeaderPrefix} ${activeRoom!!.name}", style = MaterialTheme.typography.titleMedium)
                 }
             },
             text = {
@@ -2317,13 +2318,13 @@ fun MultiRoomMainScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (currentTopic.isNotBlank()) currentTopic else "(Belum ada topik yang diatur untuk ruang ini)",
+                            text = if (currentTopic.isNotBlank()) currentTopic else strings.noRoomTopicSetNotice,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(12.dp)
                         )
                     }
                     Text(
-                        text = "JID: ${activeRoom!!.jid}",
+                        text = "${strings.roomJidShortPrefix} ${activeRoom!!.jid}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2342,13 +2343,13 @@ fun MultiRoomMainScreen(
                     }) {
                         Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Ubah Topik")
+                        Text(strings.editTopicDesc)
                     }
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showTopicDetailDialog = false }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             }
         )
@@ -2357,11 +2358,11 @@ fun MultiRoomMainScreen(
     if (isTopicModalOpen && activeRoom != null) {
         AlertDialog(
             onDismissRequest = { viewModel.isTopicModalOpen.value = false },
-            title = { Text("Ubah Topik Ruangan") },
+            title = { Text(strings.editRoomTopicTitle) },
             text = {
                 Column {
                     Text(
-                        text = "Topik akan disiarkan ke seluruh partisipan MUC (${activeRoom!!.name}).",
+                        text = "${strings.topicBroadcastPrefix} (${activeRoom!!.name}).",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -2369,7 +2370,7 @@ fun MultiRoomMainScreen(
                     OutlinedTextField(
                         value = editTopicText,
                         onValueChange = { editTopicText = it },
-                        label = { Text("Topik Baru") },
+                        label = { Text(strings.newTopicLabel) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = false,
                         maxLines = 3
@@ -2382,12 +2383,12 @@ fun MultiRoomMainScreen(
                         viewModel.updateTopic(editTopicText)
                     }
                 ) {
-                    Text("Simpan")
+                    Text(strings.save)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.isTopicModalOpen.value = false }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -2416,6 +2417,7 @@ fun RoomOccupantsCapsBar(
     onOccupantClick: (RoomOccupant) -> Unit,
     onOpenRosterClick: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
@@ -2546,7 +2548,7 @@ fun RoomOccupantsCapsBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Group,
-                        contentDescription = "Buka Roster Anggota",
+                        contentDescription = strings.openOccupantRosterDesc,
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -2571,6 +2573,7 @@ fun MultiRoomTabHeader(
     onSelectRoom: (String) -> Unit,
     onAddRoomClick: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val tabListState = rememberLazyListState()
 
     androidx.compose.runtime.LaunchedEffect(selectedRoomJid, rooms) {
@@ -2600,7 +2603,7 @@ fun MultiRoomTabHeader(
             ) {
                 Icon(
                     imageVector = if (showOnlySavedRooms) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                    contentDescription = "Filter Room Tersimpan",
+                    contentDescription = strings.filterSavedRoomsDesc,
                     tint = if (showOnlySavedRooms) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp)
                 )
@@ -2614,7 +2617,7 @@ fun MultiRoomTabHeader(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
-                        text = "Memuat daftar room...",
+                        text = strings.loadingRoomListHint,
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2673,7 +2676,7 @@ fun MultiRoomTabHeader(
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Icon(
                                         imageVector = Icons.Default.Bookmark,
-                                        contentDescription = "Tersimpan",
+                                        contentDescription = strings.savedDesc,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(10.dp)
                                     )
@@ -2711,7 +2714,7 @@ fun MultiRoomTabHeader(
             ) {
                 Icon(
                     imageVector = Icons.Default.Forum,
-                    contentDescription = "Daftar Room Saat Ini",
+                    contentDescription = strings.currentRoomListDesc,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(16.dp)
                 )
@@ -2801,6 +2804,7 @@ fun ChatInputBar(
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
     onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showEmojiKeyboard by remember { mutableStateOf(false) }
     var showAttachMenu by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
@@ -2860,9 +2864,9 @@ fun ChatInputBar(
                     android.net.Uri.fromFile(photoFile)
                 }
                 onAttachPhoto?.invoke(uri, photoFile.name, photoFile.length())
-                android.widget.Toast.makeText(context, "Foto berhasil diambil!", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, strings.photoCapturedToast, android.widget.Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "Gagal menyimpan foto: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "${strings.photoSaveFailedPrefix} ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -2873,7 +2877,7 @@ fun ChatInputBar(
         if (isGranted) {
             takePictureLauncher.launch(null)
         } else {
-            android.widget.Toast.makeText(context, "Izin kamera diperlukan untuk mengambil foto", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, strings.cameraPermissionRequiredToast, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2899,10 +2903,10 @@ fun ChatInputBar(
                 isRecording = true
                 showEmojiKeyboard = false
             } else {
-                android.widget.Toast.makeText(context, "Gagal memulai rekaman audio: ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "${strings.audioRecordFailedPrefix} ${result.exceptionOrNull()?.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
         } else {
-            android.widget.Toast.makeText(context, "Izin mikrofon diperlukan untuk merekam pesan suara", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, strings.micPermissionRequiredToast, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2929,11 +2933,11 @@ fun ChatInputBar(
 
         val lat = loc?.latitude ?: -6.200000
         val lng = loc?.longitude ?: 106.816666
-        onShareLocation(lat, lng, "Lokasi GPS Terkini")
+        onShareLocation(lat, lng, strings.currentGpsLocationLabel)
         if (isGranted) {
-            android.widget.Toast.makeText(context, "Lokasi GPS berhasil dibagikan!", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, strings.gpsSharedToast, android.widget.Toast.LENGTH_SHORT).show()
         } else {
-            android.widget.Toast.makeText(context, "Izin lokasi tidak diberikan, membagikan lokasi standar", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, strings.locationPermDeniedStdToast, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -2962,14 +2966,14 @@ fun ChatInputBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Reply,
-                                contentDescription = "Membalas",
+                                contentDescription = strings.replyingDesc,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Membalas ${replyingToMessage.senderNickname.replace("@System", "").trim()}",
+                                    text = "${strings.replyingTo} ${replyingToMessage.senderNickname.replace("@System", "").trim()}",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.primary
@@ -2990,7 +2994,7 @@ fun ChatInputBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Batal Balas",
+                                contentDescription = strings.cancelReply,
                                 modifier = Modifier.size(15.dp)
                             )
                         }
@@ -3026,7 +3030,7 @@ fun ChatInputBar(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Terjemahkan Outgoing: $activeLangName (${translationPreferences.targetLanguageCode.uppercase()})",
+                                text = "${strings.translateOutgoingLabel}: $activeLangName (${translationPreferences.targetLanguageCode.uppercase()})",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -3048,7 +3052,7 @@ fun ChatInputBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Nonaktifkan",
+                            contentDescription = strings.disableLabel,
                             tint = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.size(14.dp)
                         )
@@ -3071,7 +3075,7 @@ fun ChatInputBar(
                         if (file != null && file.exists() && file.length() > 0) {
                             onSendVoice?.invoke(file, duration)
                         } else {
-                            android.widget.Toast.makeText(context, "Rekaman terlalu pendek", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, strings.voiceRecordingTooShort, android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
@@ -3131,7 +3135,7 @@ fun ChatInputBar(
                             ) {
                                 if (inputText.isEmpty()) {
                                     Text(
-                                        text = if (whisperTarget != null) "Bisikkan ke @${whisperTarget.nickname}..." else "Tulis pesan...",
+                                        text = if (whisperTarget != null) "${strings.whisperTargetTo} @${whisperTarget.nickname}..." else strings.writeMessagePlaceholder,
                                         fontSize = inputFontSizeSp.sp,
                                         color = if (whisperTarget != null) Color(0xFFA855F7).copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
@@ -3172,7 +3176,7 @@ fun ChatInputBar(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Translate,
-                                        contentDescription = "Pilihan Bahasa Terjemahan",
+                                        contentDescription = strings.translationLanguageOptionsDesc,
                                         tint = if (translationPreferences.translateOutgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(19.dp)
                                     )
@@ -3225,7 +3229,7 @@ fun ChatInputBar(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "Terjemahkan Outgoing",
+                                        text = strings.translateOutgoingTitleShort,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
                                     )
@@ -3252,7 +3256,7 @@ fun ChatInputBar(
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                         Text(
-                            text = "Pilih Bahasa Terjemahan Pesan Keluar:",
+                            text = strings.chooseOutgoingTranslationLang,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -3314,7 +3318,7 @@ fun ChatInputBar(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Send,
-                                contentDescription = "Kirim",
+                                contentDescription = strings.send,
                                 tint = Color.White,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -3350,6 +3354,7 @@ private fun VoiceRecordingActiveBar(
     onCancel: () -> Unit,
     onSend: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val infiniteTransition = rememberInfiniteTransition(label = "pulse_rec")
     val alphaAnim by infiniteTransition.animateFloat(
         initialValue = 0.35f,
@@ -3379,7 +3384,7 @@ private fun VoiceRecordingActiveBar(
         ) {
             Icon(
                 imageVector = Icons.Default.Delete,
-                contentDescription = "Batal Rekaman",
+                contentDescription = strings.cancelRecordingDesc,
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(18.dp)
             )
@@ -3453,7 +3458,7 @@ private fun VoiceRecordingActiveBar(
         ) {
             Icon(
                 imageVector = Icons.Default.Send,
-                contentDescription = "Kirim Pesan Suara",
+                contentDescription = strings.sendVoiceMessageDesc,
                 tint = Color.White,
                 modifier = Modifier.size(18.dp)
             )
@@ -3479,6 +3484,7 @@ fun OccupantActionDialog(
     onQueryVersion: () -> Unit,
     onViewProfile: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -3514,7 +3520,7 @@ fun OccupantActionDialog(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(text = occupant.nickname, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Text(text = occupant.jid.ifBlank { "Anggota Room" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = occupant.jid.ifBlank { strings.roomMemberFallback }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
@@ -3523,22 +3529,22 @@ fun OccupantActionDialog(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(bottom = 4.dp))
                 
                 DropdownMenuItem(
-                    text = { Text("Mention (@${occupant.nickname})") },
+                    text = { Text("${strings.mentionPrefix} (@${occupant.nickname})") },
                     leadingIcon = { Icon(Icons.Default.AlternateEmail, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { onMention(); onDismiss() }
                 )
                 DropdownMenuItem(
-                    text = { Text("Kirim Pesan Pribadi (Bisikan)") },
+                    text = { Text(strings.sendPrivateWhisperMenu) },
                     leadingIcon = { Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { onWhisper(); onDismiss() }
                 )
                 DropdownMenuItem(
-                    text = { Text("Cek Versi Klien (XEP-0092)") },
+                    text = { Text(strings.checkClientVersionMenu) },
                     leadingIcon = { Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { onQueryVersion(); onDismiss() }
                 )
                 DropdownMenuItem(
-                    text = { Text("Lihat Profil Anggota") },
+                    text = { Text(strings.viewMemberProfileMenu) },
                     leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { onViewProfile(); onDismiss() }
                 )
@@ -3546,7 +3552,7 @@ fun OccupantActionDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Tutup")
+                Text(strings.close)
             }
         },
         shape = RoundedCornerShape(20.dp)
@@ -3559,6 +3565,7 @@ fun ScrollNavigationButtons(
     totalMessagesCount: Int,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val coroutineScope = rememberCoroutineScope()
     val showScrollToBottom by remember(listState, totalMessagesCount) {
         derivedStateOf {
@@ -3597,7 +3604,7 @@ fun ScrollNavigationButtons(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Ke Pesan Teratas",
+                        contentDescription = strings.scrollToTopDesc,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -3620,7 +3627,7 @@ fun ScrollNavigationButtons(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Ke Pesan Terbaru",
+                        contentDescription = strings.scrollToBottomDesc,
                         modifier = Modifier.size(22.dp)
                     )
                 }

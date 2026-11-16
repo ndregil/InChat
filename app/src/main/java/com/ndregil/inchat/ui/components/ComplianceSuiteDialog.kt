@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ndregil.inchat.ui.i18n.LocalAppStrings
 import com.ndregil.inchat.ui.theme.OnlineGreen
 
 data class ProtocolComplianceItem(
@@ -52,54 +53,55 @@ fun ComplianceSuiteDialog(
     serviceName: String = "search.jabber.network",
     onDismiss: () -> Unit
 ) {
+    val strings = LocalAppStrings.current
     val complianceItems = listOf(
         ProtocolComplianceItem(
             standard = "RFC 6120",
-            title = "XMPP Core Protocol",
-            description = "XML streams, channel encryption, stanza semantics (message, presence, iq), and core error handling.",
-            status = "100% Compliant",
+            title = strings.compRfc6120Title,
+            description = strings.compRfc6120Desc,
+            status = strings.compRfc6120Status,
             reference = "Core RFC"
         ),
         ProtocolComplianceItem(
             standard = "RFC 7590",
-            title = "Use of TLS for XMPP",
-            description = "Mandatory STARTTLS transport security, cipher suites enforcement, and certificate chain validation.",
-            status = "Enforced & Verified",
+            title = strings.compRfc7590Title,
+            description = strings.compRfc7590Desc,
+            status = strings.compRfc7590Status,
             reference = "Security RFC"
         ),
         ProtocolComplianceItem(
             standard = "XEP-0030",
-            title = "Service Discovery (disco#info / disco#items)",
-            description = "Querying server features, namespaces, conference components, and public room directories.",
-            status = "Fully Supported",
+            title = strings.compXep0030Title,
+            description = strings.compXep0030Desc,
+            status = strings.compXep0030Status,
             reference = "search.jabber.network Ref"
         ),
         ProtocolComplianceItem(
             standard = "XEP-0045",
-            title = "Multi-User Chat (MUC)",
-            description = "Room joining, subject updates, moderation, occupant rosters, and voice/video in rooms.",
-            status = "Active & Stable",
+            title = strings.compXep0045Title,
+            description = strings.compXep0045Desc,
+            status = strings.compXep0045Status,
             reference = "MUC Spec"
         ),
         ProtocolComplianceItem(
             standard = "XEP-0048 & XEP-0402",
-            title = "Bookmarks & PEP Bookmarks",
-            description = "Server-side synchronization of favorite rooms and direct URL bookmarks with automatic autojoin.",
-            status = "Enabled",
+            title = strings.compXep0048Title,
+            description = strings.compXep0048Desc,
+            status = strings.compXep0048Status,
             reference = "PEP Storage"
         ),
         ProtocolComplianceItem(
             standard = "XEP-0055 & XEP-0004",
-            title = "Jabber Search & Data Forms",
-            description = "User directory lookup and custom form fields for global server searching.",
-            status = "Ready",
+            title = strings.compXep0055Title,
+            description = strings.compXep0055Desc,
+            status = strings.compXep0055Status,
             reference = "Directory Search"
         ),
         ProtocolComplianceItem(
             standard = "XEP-0166 / XEP-0167",
-            title = "Jingle Audio/Video Sessions",
-            description = "Peer-to-peer media session establishment with background foreground service notifications.",
-            status = "Configured",
+            title = strings.compXep0166Title,
+            description = strings.compXep0166Desc,
+            status = strings.compXep0166Status,
             reference = "Jingle A/V"
         )
     )
@@ -121,19 +123,19 @@ fun ComplianceSuiteDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text("Compliance Suite", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("$serviceName Reference", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(strings.complianceSuiteTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("$serviceName ${strings.complianceReferenceSuffix}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
                 IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Tutup", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Close, contentDescription = strings.close, modifier = Modifier.size(18.dp))
                 }
             }
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Aplikasi ini mematuhi standar protokol XMPP resmi sesuai rujukan $serviceName dan spesifikasi IETF/XSF:",
+                    text = "${strings.complianceIntroPrefix} $serviceName ${strings.complianceIntroSuffix}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -210,7 +212,7 @@ fun ComplianceSuiteDialog(
         },
         confirmButton = {
             Button(onClick = onDismiss, shape = RoundedCornerShape(10.dp)) {
-                Text("Tutup")
+                Text(strings.close)
             }
         },
         shape = RoundedCornerShape(20.dp)

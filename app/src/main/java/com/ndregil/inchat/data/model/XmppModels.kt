@@ -706,7 +706,8 @@ data class ThemePreferences(
     val messageFontSizeSp: Float = 14f,
     val appFontSizeSp: Float = 14f,
     val contactFontSizeSp: Float = 14f,
-    val fontFamily: String = "default"
+    val fontFamily: String = "default",
+    val appLanguage: String = "system"
 )
 
 data class TranslationPreferences(

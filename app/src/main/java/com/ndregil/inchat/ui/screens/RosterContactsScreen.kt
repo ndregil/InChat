@@ -126,6 +126,7 @@ fun RosterContactsScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val pagerState = rememberPagerState(initialPage = 1) { 3 }
     val selectedSubTab = pagerState.currentPage
     val contacts by viewModel.rosterContacts.collectAsStateWithLifecycle()
@@ -193,7 +194,7 @@ fun RosterContactsScreen(
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Cari kontak...", fontSize = 14.sp) },
+                                placeholder = { Text(strings.searchContacts, fontSize = 14.sp) },
                                 modifier = Modifier.fillMaxWidth().height(48.dp),
                                 singleLine = true,
                                 shape = RoundedCornerShape(24.dp),
@@ -202,7 +203,7 @@ fun RosterContactsScreen(
                                         searchQuery = ""
                                         isSearchVisible = false 
                                     }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Tutup")
+                                        Icon(Icons.Default.Close, contentDescription = strings.close)
                                     }
                                 },
                                 colors = OutlinedTextFieldDefaults.colors(
@@ -215,9 +216,9 @@ fun RosterContactsScreen(
                         } else {
                             Text(
                                 text = when (selectedSubTab) {
-                                    0 -> "Stories"
-                                    1 -> "Kontak"
-                                    else -> "Grup Chat"
+                                    0 -> strings.storiesTab
+                                    1 -> strings.contactsTab
+                                    else -> strings.groupsTab
                                 },
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleLarge
@@ -246,10 +247,10 @@ fun RosterContactsScreen(
                                     },
                                     modifier = Modifier.testTag("top_add_contact_button")
                                 ) {
-                                    Icon(imageVector = Icons.Default.PersonAdd, contentDescription = "Tambah Kontak")
+                                    Icon(imageVector = Icons.Default.PersonAdd, contentDescription = strings.addContact)
                                 }
                                 IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
-                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Cari")
+                                    Icon(imageVector = Icons.Default.Search, contentDescription = strings.searchContacts)
                                 }
                                 IconButton(
                                     onClick = { viewModel.refreshRoster() },
@@ -262,7 +263,7 @@ fun RosterContactsScreen(
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     } else {
-                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Muat Ulang Roster")
+                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = strings.refreshRoster)
                                     }
                                 }
                             }
@@ -279,7 +280,7 @@ fun RosterContactsScreen(
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                     } else {
-                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Sinkronkan Bookmark")
+                                        Icon(imageVector = Icons.Default.Refresh, contentDescription = strings.syncBookmarks)
                                     }
                                 }
                             }
@@ -306,7 +307,7 @@ fun RosterContactsScreen(
                                     .size
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Stories")
+                                Text(strings.storiesTab)
                                 if (unseenCount > 0) {
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Box(
@@ -322,12 +323,12 @@ fun RosterContactsScreen(
                     androidx.compose.material3.Tab(
                         selected = selectedSubTab == 1,
                         onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                        text = { Text("Kontak") }
+                        text = { Text(strings.contactsTab) }
                     )
                     androidx.compose.material3.Tab(
                         selected = selectedSubTab == 2,
                         onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
-                        text = { Text("Grup Chat") }
+                        text = { Text(strings.groupsTab) }
                     )
                 }
             }
@@ -347,7 +348,7 @@ fun RosterContactsScreen(
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.testTag("add_contact_fab")
                     ) {
-                        Icon(imageVector = Icons.Default.PersonAdd, contentDescription = "Tambah Kontak")
+                        Icon(imageVector = Icons.Default.PersonAdd, contentDescription = strings.addContact)
                     }
                 }
                 2 -> {
@@ -357,7 +358,7 @@ fun RosterContactsScreen(
                         contentColor = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.testTag("add_room_fab_roster")
                     ) {
-                        Icon(imageVector = Icons.Default.GroupAdd, contentDescription = "Gabung/Buat Room")
+                        Icon(imageVector = Icons.Default.GroupAdd, contentDescription = strings.joinOrCreateRoom)
                     }
                 }
             }
@@ -433,7 +434,7 @@ fun RosterContactsScreen(
                                 FilterChip(
                                     selected = selectedFilter == "ALL",
                                     onClick = { selectedFilter = "ALL" },
-                                    label = { Text("Semua (${contacts.size})") },
+                                    label = { Text("${strings.allRooms} (${contacts.size})") },
                                     modifier = Modifier.testTag("filter_all_contacts")
                                 )
                             }
@@ -441,7 +442,7 @@ fun RosterContactsScreen(
                                 FilterChip(
                                     selected = selectedFilter == "ONLINE",
                                     onClick = { selectedFilter = "ONLINE" },
-                                    label = { Text("Online (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
+                                    label = { Text("${strings.presenceOnline} (${contacts.count { it.presence == UserPresence.ONLINE || it.presence == UserPresence.CHAT }})") },
                                     modifier = Modifier.testTag("filter_online_contacts")
                                 )
                             }
@@ -449,7 +450,7 @@ fun RosterContactsScreen(
                                 FilterChip(
                                     selected = selectedFilter == "AWAY",
                                     onClick = { selectedFilter = "AWAY" },
-                                    label = { Text("Away (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
+                                    label = { Text("${strings.presenceAway} (${contacts.count { it.presence == UserPresence.AWAY || it.presence == UserPresence.XA }})") },
                                     modifier = Modifier.testTag("filter_away_contacts")
                                 )
                             }
@@ -457,7 +458,7 @@ fun RosterContactsScreen(
                                 FilterChip(
                                     selected = selectedFilter == "DND",
                                     onClick = { selectedFilter = "DND" },
-                                    label = { Text("DND (${contacts.count { it.presence == UserPresence.DND }})") },
+                                    label = { Text("${strings.presenceDnd} (${contacts.count { it.presence == UserPresence.DND }})") },
                                     modifier = Modifier.testTag("filter_dnd_contacts")
                                 )
                             }
@@ -465,7 +466,7 @@ fun RosterContactsScreen(
                                 FilterChip(
                                     selected = selectedFilter == "OFFLINE",
                                     onClick = { selectedFilter = "OFFLINE" },
-                                    label = { Text("Offline (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
+                                    label = { Text("${strings.presenceOffline} (${contacts.count { it.presence == UserPresence.OFFLINE }})") },
                                     modifier = Modifier.testTag("filter_offline_contacts")
                                 )
                             }
@@ -491,13 +492,13 @@ fun RosterContactsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Text(
-                                        text = if (searchQuery.isNotBlank()) "Kontak tidak ditemukan" else "Belum ada kontak di Roster",
+                                        text = if (searchQuery.isNotBlank()) strings.contactNotFound else strings.noContactsYet,
                                         fontWeight = FontWeight.SemiBold,
                                         style = MaterialTheme.typography.titleMedium
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = if (searchQuery.isNotBlank()) "Coba kata kunci lain" else "Tekan tombol + untuk menambahkan kontak baru menggunakan bare JID.",
+                                        text = if (searchQuery.isNotBlank()) strings.tryAnotherKeyword else strings.noContactsDesc,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -512,7 +513,7 @@ fun RosterContactsScreen(
                                         ) {
                                             Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Tambah Kontak")
+                                            Text(strings.addContact)
                                         }
                                     }
                                 }
@@ -623,8 +624,8 @@ fun RosterContactsScreen(
     contactToDelete?.let { contact ->
         AlertDialog(
             onDismissRequest = { contactToDelete = null },
-            title = { Text("Hapus Kontak Roster?") },
-            text = { Text("Apakah Anda yakin ingin menghapus '${contact.displayName}' (${contact.jid}) dari daftar kontak XMPP?") },
+            title = { Text(strings.deleteContactTitle) },
+            text = { Text("${strings.deleteContactConfirmLead}\n\n${contact.displayName} (${contact.jid})") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -633,12 +634,12 @@ fun RosterContactsScreen(
                     },
                     modifier = Modifier.testTag("confirm_delete_contact_button")
                 ) {
-                    Text("Hapus")
+                    Text(strings.delete)
                 }
             },
             dismissButton = {
                 OutlinedButton(onClick = { contactToDelete = null }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -659,6 +660,7 @@ fun RosterContactListItem(
     themePrefs: ThemePreferences = com.ndregil.inchat.ui.theme.LocalThemePreferences.current
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
 
     val presenceColor = if (themePrefs.isCustomThemeEnabled) {
         try {
@@ -803,8 +805,16 @@ fun RosterContactListItem(
                                         .background(presenceColor)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
+                                val localizedPresenceLabel = when (contact.presence) {
+                                    UserPresence.ONLINE -> strings.presenceOnline
+                                    UserPresence.CHAT -> strings.presenceChat
+                                    UserPresence.AWAY -> strings.presenceAway
+                                    UserPresence.XA -> strings.presenceXa
+                                    UserPresence.DND -> strings.presenceDnd
+                                    UserPresence.OFFLINE -> strings.presenceOffline
+                                }
                                 Text(
-                                    text = contact.statusCategoryLabel,
+                                    text = localizedPresenceLabel,
                                     color = presenceColor,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
@@ -919,7 +929,7 @@ fun RosterContactListItem(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Kirim Pesan",
+                            contentDescription = strings.sendMessage,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
@@ -934,7 +944,7 @@ fun RosterContactListItem(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Opsi kontak",
+                                contentDescription = strings.contactOptions,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -944,7 +954,7 @@ fun RosterContactListItem(
                             onDismissRequest = { menuExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Kirim Pesan (1-on-1)") },
+                                text = { Text(strings.sendMessage1on1) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.AutoMirrored.Filled.Send,
@@ -958,7 +968,7 @@ fun RosterContactListItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Panggil Suara") },
+                                text = { Text(strings.voiceCallAction) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Call,
@@ -972,7 +982,7 @@ fun RosterContactListItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Panggil Video") },
+                                text = { Text(strings.videoCallAction) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Videocam,
@@ -986,7 +996,7 @@ fun RosterContactListItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Kirim File") },
+                                text = { Text(strings.sendFileAction) },
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Add,
@@ -1001,7 +1011,7 @@ fun RosterContactListItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Lihat Caps & Klien (XEP-0115)") },
+                                text = { Text(strings.viewClientCaps) },
                                 leadingIcon = {
                                     ClientCapsIcon(
                                         platform = contact.clientCaps.platform,
@@ -1015,7 +1025,7 @@ fun RosterContactListItem(
                             )
                             if (onResendSubscribeClick != null && (contact.subscriptionType == "none" || contact.subscriptionType == "from")) {
                                 DropdownMenuItem(
-                                    text = { Text("Kirim Ulang Permintaan") },
+                                    text = { Text(strings.resendSubscription) },
                                     leadingIcon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
                                     onClick = {
                                         menuExpanded = false
@@ -1024,7 +1034,7 @@ fun RosterContactListItem(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("Ubah Nama") },
+                                text = { Text(strings.renameContact) },
                                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
@@ -1032,7 +1042,7 @@ fun RosterContactListItem(
                                 }
                             )
                             DropdownMenuItem(
-                                text = { Text("Hapus Kontak") },
+                                text = { Text(strings.deleteContact) },
                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
@@ -1062,6 +1072,7 @@ fun AddContactDialog(
     onDismiss: () -> Unit,
     onConfirm: (jid: String, name: String, group: String?) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var jidInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
     var groupInput by remember { mutableStateOf("") }
@@ -1070,11 +1081,11 @@ fun AddContactDialog(
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
-        title = { Text("Tambah Kontak XMPP Baru") },
+        title = { Text(strings.addContactDialogTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "Masukkan bare JID kontak (misal: user@conversations.im) untuk menambahkan ke Roster dan mengirim permintaan pertemanan.",
+                    text = strings.addContactDialogDesc,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1086,8 +1097,8 @@ fun AddContactDialog(
                         localError = null
                         if (externalError != null) onClearExternalError()
                     },
-                    label = { Text("Bare JID *") },
-                    placeholder = { Text(if (myDomain.isNotBlank()) "teman@$myDomain" else "teman@xmpp.org") },
+                    label = { Text(strings.bareJidLabel) },
+                    placeholder = { Text(if (myDomain.isNotBlank()) "user@$myDomain" else "user@xmpp.org") },
                     singleLine = true,
                     enabled = !isLoading,
                     isError = displayError != null,
@@ -1106,7 +1117,7 @@ fun AddContactDialog(
                             if (externalError != null) onClearExternalError()
                         },
                         enabled = !isLoading,
-                        label = { Text("Lengkapi: $trimmedJid@$myDomain", fontSize = 12.sp) }
+                        label = { Text("${strings.completeJidChip}: $trimmedJid@$myDomain", fontSize = 12.sp) }
                     )
                 }
 
@@ -1121,8 +1132,8 @@ fun AddContactDialog(
                 OutlinedTextField(
                     value = nameInput,
                     onValueChange = { nameInput = it },
-                    label = { Text("Nama Kontak (Opsional)") },
-                    placeholder = { Text("Nama panggilan") },
+                    label = { Text(strings.contactNameOptional) },
+                    placeholder = { Text(strings.nicknamePlaceholder) },
                     singleLine = true,
                     enabled = !isLoading,
                     modifier = Modifier
@@ -1133,8 +1144,8 @@ fun AddContactDialog(
                 OutlinedTextField(
                     value = groupInput,
                     onValueChange = { groupInput = it },
-                    label = { Text("Grup (Opsional)") },
-                    placeholder = { Text("misal: Teman, Kerja") },
+                    label = { Text(strings.groupOptional) },
+                    placeholder = { Text(strings.groupPlaceholder) },
                     singleLine = true,
                     enabled = !isLoading,
                     modifier = Modifier
@@ -1152,9 +1163,9 @@ fun AddContactDialog(
                         .substringBefore("/")
                         .trim()
                     if (normalized.isBlank()) {
-                        localError = "JID kontak tidak boleh kosong."
+                        localError = strings.jidEmptyError
                     } else if (!normalized.contains("@") || normalized.substringBefore("@").isBlank() || normalized.substringAfter("@").isBlank()) {
-                        localError = "Format JID tidak valid. Gunakan format user@domain."
+                        localError = strings.jidInvalidError
                     } else {
                         onConfirm(normalized, nameInput.trim(), groupInput.trim().ifBlank { null })
                     }
@@ -1169,15 +1180,15 @@ fun AddContactDialog(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Menambah...")
+                    Text(strings.addingContact)
                 } else {
-                    Text("Tambah Kontak")
+                    Text(strings.addContact)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isLoading) {
-                Text("Batal")
+                Text(strings.cancel)
             }
         }
     )
@@ -1189,11 +1200,12 @@ fun RenameContactDialog(
     onDismiss: () -> Unit,
     onConfirm: (newName: String) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var newNameInput by remember { mutableStateOf(currentContact.name) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Ubah Nama Kontak") },
+        title = { Text(strings.renameContactTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -1204,7 +1216,7 @@ fun RenameContactDialog(
                 OutlinedTextField(
                     value = newNameInput,
                     onValueChange = { newNameInput = it },
-                    label = { Text("Nama Tampilan Baru") },
+                    label = { Text(strings.newDisplayName) },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1221,12 +1233,12 @@ fun RenameContactDialog(
                 },
                 modifier = Modifier.testTag("confirm_rename_contact_button")
             ) {
-                Text("Simpan")
+                Text(strings.save)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Batal")
+                Text(strings.cancel)
             }
         }
     )
@@ -1245,6 +1257,7 @@ fun UserPresenceControlCard(
     onPresenceChange: (UserPresence, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var isExpanded by remember { mutableStateOf(false) }
     var customMessageInput by remember(statusMessage) { mutableStateOf(statusMessage) }
     var updateFeedback by remember { mutableStateOf<String?>(null) }
@@ -1259,21 +1272,21 @@ fun UserPresenceControlCard(
     }
 
     val presenceTitle = when (currentPresence) {
-        UserPresence.ONLINE -> "Online"
-        UserPresence.CHAT -> "Chat"
-        UserPresence.AWAY -> "Away"
-        UserPresence.XA -> "Extended Away"
-        UserPresence.DND -> "Do Not Disturb"
-        UserPresence.OFFLINE -> "Offline"
+        UserPresence.ONLINE -> strings.presenceOnline
+        UserPresence.CHAT -> strings.presenceChat
+        UserPresence.AWAY -> strings.presenceAway
+        UserPresence.XA -> strings.presenceXa
+        UserPresence.DND -> strings.presenceDnd
+        UserPresence.OFFLINE -> strings.presenceOffline
     }
 
     val presenceOptions = listOf(
-        Triple(UserPresence.ONLINE, "Online", OnlineGreen),
-        Triple(UserPresence.CHAT, "Chat", Color(0xFF0D9488)),
-        Triple(UserPresence.AWAY, "Away", AwayAmber),
-        Triple(UserPresence.XA, "Ext Away", Color(0xFFD97706)),
-        Triple(UserPresence.DND, "DND", DndRed),
-        Triple(UserPresence.OFFLINE, "Offline", OfflineGray)
+        Triple(UserPresence.ONLINE, strings.presenceOnline, OnlineGreen),
+        Triple(UserPresence.CHAT, strings.presenceChat, Color(0xFF0D9488)),
+        Triple(UserPresence.AWAY, strings.presenceAway, AwayAmber),
+        Triple(UserPresence.XA, strings.presenceXa, Color(0xFFD97706)),
+        Triple(UserPresence.DND, strings.presenceDnd, DndRed),
+        Triple(UserPresence.OFFLINE, strings.presenceOffline, OfflineGray)
     )
 
     Card(
@@ -1325,7 +1338,7 @@ fun UserPresenceControlCard(
                         if (decodedBitmap != null) {
                             Image(
                                 bitmap = decodedBitmap.asImageBitmap(),
-                                contentDescription = "Foto Profil Saya",
+                            contentDescription = strings.profilePhotoDesc,
                                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                                 contentScale = ContentScale.Crop
                             )
@@ -1349,7 +1362,7 @@ fun UserPresenceControlCard(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.PhotoCamera,
-                                contentDescription = "Ganti Foto Profil",
+                                contentDescription = strings.changePhoto,
                                 modifier = Modifier.size(8.dp),
                                 tint = MaterialTheme.colorScheme.onPrimary
                             )
@@ -1387,7 +1400,7 @@ fun UserPresenceControlCard(
                     }
 
                     Text(
-                        text = if (statusMessage.isNotBlank()) statusMessage else "Tanpa status",
+                        text = if (statusMessage.isNotBlank()) statusMessage else strings.noStatusMessage,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1401,7 +1414,7 @@ fun UserPresenceControlCard(
                 ) {
                     Icon(
                         imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Buka pengaturan status",
+                        contentDescription = strings.openStatusSettings,
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1422,7 +1435,7 @@ fun UserPresenceControlCard(
                         selected = isSelected,
                         onClick = {
                             onPresenceChange(presence, customMessageInput)
-                            updateFeedback = "Status disiarkan: $label"
+                            updateFeedback = "${strings.statusBroadcasted}: $label"
                         },
                         leadingIcon = {
                             Box(
@@ -1439,7 +1452,7 @@ fun UserPresenceControlCard(
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
-                        modifier = Modifier.testTag("presence_select_${label.lowercase(Locale.getDefault())}")
+                        modifier = Modifier.testTag("presence_select_${presence.name.lowercase(Locale.getDefault())}")
                     )
                 }
             }
@@ -1470,7 +1483,7 @@ fun UserPresenceControlCard(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Ganti Foto Profil XMPP",
+                            text = strings.changeProfilePhotoXmpp,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.5.sp,
                             color = MaterialTheme.colorScheme.primary
@@ -1478,7 +1491,7 @@ fun UserPresenceControlCard(
                     }
 
                     Text(
-                        text = "Pesan Status Pribadi XMPP:",
+                        text = strings.personalStatusLabel,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -1488,7 +1501,7 @@ fun UserPresenceControlCard(
                     OutlinedTextField(
                         value = customMessageInput,
                         onValueChange = { customMessageInput = it },
-                        placeholder = { Text("Tulis pesan status Anda...", fontSize = 12.sp) },
+                        placeholder = { Text(strings.writeStatusPlaceholder, fontSize = 12.sp) },
                         leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Edit,
@@ -1500,13 +1513,13 @@ fun UserPresenceControlCard(
                             IconButton(
                                 onClick = {
                                     onPresenceChange(currentPresence, customMessageInput)
-                                    updateFeedback = "Status pesan berhasil diperbarui & disiarkan!"
+                                    updateFeedback = strings.statusUpdatedFeedback
                                 },
                                 modifier = Modifier.testTag("apply_presence_status_btn")
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Terapkan status",
+                                    contentDescription = strings.applyStatus,
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1521,21 +1534,14 @@ fun UserPresenceControlCard(
 
                     // Preset Chips
                     Text(
-                        text = "Pilih Preset Cepat:",
+                        text = strings.chooseQuickPreset,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    val presets = listOf(
-                        "Tersedia untuk obrolan 👋",
-                        "Sedang fokus coding 💻",
-                        "Sedang meeting 📞",
-                        "Makan siang 🥪",
-                        "AFK sebentar ⏳",
-                        "Jangan diganggu ⛔"
-                    )
+                    val presets = strings.statusPresets
 
                     LazyRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -1547,7 +1553,7 @@ fun UserPresenceControlCard(
                                 onClick = {
                                     customMessageInput = preset
                                     onPresenceChange(currentPresence, preset)
-                                    updateFeedback = "Status disiarkan: \"$preset\""
+                                    updateFeedback = "${strings.statusBroadcasted}: \"$preset\""
                                 },
                                 label = { Text(preset, fontSize = 10.sp) },
                                 modifier = Modifier.testTag("preset_${preset.take(8).trim()}")
@@ -1598,6 +1604,7 @@ fun SavedRoomsInternalContent(
     themePrefs: ThemePreferences = ThemePreferences(),
     paddingValues: PaddingValues = PaddingValues(0.dp)
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var searchQuery by remember { mutableStateOf("") }
     var roomToColorPick by remember { mutableStateOf<XmppRoom?>(null) }
     var roomToDelete by remember { mutableStateOf<XmppRoom?>(null) }
@@ -1621,7 +1628,7 @@ fun SavedRoomsInternalContent(
             },
             title = {
                 Text(
-                    text = "Pilih Warna Tema Room",
+                    text = strings.pickRoomColorTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -1629,7 +1636,7 @@ fun SavedRoomsInternalContent(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Atur warna aksen untuk ruangan \"${targetRoom.name.substringBefore("@")}\" agar mudah dikenali di daftar chat.",
+                        text = "${targetRoom.name.substringBefore("@")}: ${strings.pickRoomColorDesc}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1672,7 +1679,7 @@ fun SavedRoomsInternalContent(
             },
             confirmButton = {
                 TextButton(onClick = { roomToColorPick = null }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             }
         )
@@ -1686,9 +1693,9 @@ fun SavedRoomsInternalContent(
             icon = {
                 Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
             },
-            title = { Text("Hapus dari Favorit?") },
+            title = { Text(strings.removeBookmarkTitle) },
             text = {
-                Text("Ruangan \"${delRoom.name}\" (${delRoom.jid}) akan dihapus dari daftar favorit.")
+                Text("${delRoom.name} (${delRoom.jid})\n\n${strings.removeBookmarkConfirm}")
             },
             confirmButton = {
                 Button(
@@ -1698,12 +1705,12 @@ fun SavedRoomsInternalContent(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Hapus")
+                    Text(strings.delete)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { roomToDelete = null }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -1718,12 +1725,12 @@ fun SavedRoomsInternalContent(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .testTag("search_saved_rooms_roster"),
-            placeholder = { Text("Cari favorit...") },
+            placeholder = { Text(strings.searchFavorites) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             trailingIcon = if (searchQuery.isNotEmpty()) {
                 {
                     IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Bersihkan")
+                        Icon(Icons.Default.Clear, contentDescription = strings.clearSearch)
                     }
                 }
             } else null,
@@ -1747,7 +1754,7 @@ fun SavedRoomsInternalContent(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (searchQuery.isEmpty()) "Belum ada bookmark" else "Tidak ditemukan",
+                        text = if (searchQuery.isEmpty()) strings.noBookmarksYet else strings.notFound,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1755,8 +1762,8 @@ fun SavedRoomsInternalContent(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = if (searchQuery.isEmpty())
-                            "Simpan ruangan dari Discovery atau Multi-Room untuk akses cepat di sini."
-                        else "Tidak ada ruangan yang cocok dengan kata kunci '$searchQuery'.",
+                            strings.noBookmarksDesc
+                        else strings.noMatchingRoomDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1800,6 +1807,7 @@ fun SavedRoomItem(
     onToggleAutoJoin: (() -> Unit)? = null,
     themePrefs: ThemePreferences = com.ndregil.inchat.ui.theme.LocalThemePreferences.current
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val roomColor = try {
         Color(android.graphics.Color.parseColor(room.colorHex))
     } catch (e: Exception) {
@@ -1940,7 +1948,7 @@ fun SavedRoomItem(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Hapus Bookmark",
+                        contentDescription = strings.removeBookmark,
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(18.dp)
                     )
@@ -1978,7 +1986,7 @@ fun SavedRoomItem(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (room.isAutoJoin) "Auto-Join Aktif" else "Auto-Join Nonaktif",
+                            text = if (room.isAutoJoin) strings.autoJoinActive else strings.autoJoinInactive,
                             fontSize = 12.sp,
                             fontWeight = if (room.isAutoJoin) FontWeight.Bold else FontWeight.Medium,
                             color = if (room.isAutoJoin) roomColor else MaterialTheme.colorScheme.onSurfaceVariant
@@ -2002,7 +2010,7 @@ fun SavedRoomItem(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Warna Room",
+                        text = strings.roomColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface

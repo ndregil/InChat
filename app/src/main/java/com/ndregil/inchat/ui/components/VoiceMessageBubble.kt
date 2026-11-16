@@ -32,6 +32,7 @@ fun VoiceMessageBubbleContent(
     isMine: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val audioSource = message.fileUrl ?: ""
 
@@ -79,7 +80,7 @@ fun VoiceMessageBubbleContent(
         ) {
             Icon(
                 imageVector = if (isThisPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isThisPlaying) "Jeda Pesan Suara" else "Putar Pesan Suara",
+                contentDescription = if (isThisPlaying) strings.pauseVoiceDesc else strings.playVoiceDesc,
                 tint = Color.White,
                 modifier = Modifier.size(22.dp)
             )
@@ -150,7 +151,7 @@ fun VoiceMessageBubbleContent(
                         modifier = Modifier.size(12.dp)
                     )
                     Text(
-                        text = "Suara",
+                        text = strings.voiceLabelShort,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
                         color = buttonColor

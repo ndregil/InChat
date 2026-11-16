@@ -109,6 +109,7 @@ fun StoriesTabContent(
     isPublishing: Boolean = false,
     paddingValues: PaddingValues = PaddingValues(0.dp)
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showCreateTextDialog by remember { mutableStateOf(false) }
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
     var showCreateMediaDialog by remember { mutableStateOf(false) }
@@ -189,7 +190,7 @@ fun StoriesTabContent(
                                     if (myStories.isNotEmpty()) {
                                         viewingStoryGroup = ContactStoryGroup(
                                             jid = myJid,
-                                            name = "Status Saya",
+                                            name = strings.myStatus,
                                             avatar = myAvatar,
                                             stories = myStories
                                         )
@@ -243,7 +244,7 @@ fun StoriesTabContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
-                                    contentDescription = "Tambah Status",
+                                    contentDescription = strings.addStatusDesc,
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(14.dp)
                                 )
@@ -259,7 +260,7 @@ fun StoriesTabContent(
                                     if (myStories.isNotEmpty()) {
                                         viewingStoryGroup = ContactStoryGroup(
                                             jid = myJid,
-                                            name = "Status Saya",
+                                            name = strings.myStatus,
                                             avatar = myAvatar,
                                             stories = myStories
                                         )
@@ -269,7 +270,7 @@ fun StoriesTabContent(
                                 }
                         ) {
                             Text(
-                                text = "Status Saya",
+                                text = strings.myStatus,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -278,9 +279,9 @@ fun StoriesTabContent(
                                 text = if (myStories.isNotEmpty()) {
                                     val count = myStories.size
                                     val timeStr = formatStoryTime(myStories.first().timestamp)
-                                    "$count status aktif • $timeStr"
+                                    "$count • $timeStr"
                                 } else {
-                                    "Ketuk untuk menambahkan pembaruan status"
+                                    strings.tapToAddStatus
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -299,7 +300,7 @@ fun StoriesTabContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
-                                    contentDescription = "Tulis Status",
+                                    contentDescription = strings.writeStatusAction,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -315,7 +316,7 @@ fun StoriesTabContent(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = "Kirim Foto Status",
+                                    contentDescription = strings.sendPhotoStatusAction,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -329,7 +330,7 @@ fun StoriesTabContent(
             if (recentUpdates.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Pembaruan Terkini",
+                        text = strings.recentUpdates,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold,
@@ -349,7 +350,7 @@ fun StoriesTabContent(
             if (viewedUpdates.isNotEmpty()) {
                 item {
                     Text(
-                        text = "Pembaruan yang Dilihat",
+                        text = strings.viewedUpdates,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold,
@@ -393,12 +394,12 @@ fun StoriesTabContent(
                                 )
                             }
                             Text(
-                                text = "Belum Ada Status",
+                                text = strings.noStoriesYet,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Bagikan momen harian atau pembaruan teks dengan kontak Anda. Status otomatis aktif selama 24 jam.",
+                                text = strings.noStoriesDesc,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -411,7 +412,7 @@ fun StoriesTabContent(
                             ) {
                                 Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Buat Status Pertama")
+                                Text(strings.createFirstStory)
                             }
                         }
                     }
@@ -603,6 +604,7 @@ fun CreateTextStoryDialog(
     onPublish: (text: String, bgColor: String) -> Unit,
     isPublishing: Boolean
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val presetColors = listOf(
         "#0284C7", "#059669", "#7C3AED", "#DB2777",
         "#D97706", "#DC2626", "#1E293B", "#0D9488"
@@ -638,7 +640,7 @@ fun CreateTextStoryDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Batal", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
                     }
 
                     // Cycle color button
@@ -647,7 +649,7 @@ fun CreateTextStoryDialog(
                             selectedColorIndex = (selectedColorIndex + 1) % presetColors.size
                         }
                     ) {
-                        Icon(Icons.Default.Palette, contentDescription = "Ganti Warna", tint = Color.White)
+                        Icon(Icons.Default.Palette, contentDescription = strings.changeColor, tint = Color.White)
                     }
                 }
 
@@ -663,7 +665,7 @@ fun CreateTextStoryDialog(
                         onValueChange = { if (it.length <= 300) textContent = it },
                         placeholder = {
                             Text(
-                                "Ketik status...",
+                                strings.typeStatusPlaceholder,
                                 color = Color.White.copy(alpha = 0.6f),
                                 fontSize = 24.sp,
                                 textAlign = TextAlign.Center,
@@ -717,7 +719,7 @@ fun CreateTextStoryDialog(
                         if (isPublishing) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = currentColor)
                         } else {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Kirim Status")
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.sendStatus)
                         }
                     }
                 }
@@ -736,6 +738,7 @@ fun CreateMediaStoryDialog(
     onPublish: (caption: String) -> Unit,
     isPublishing: Boolean
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var caption by remember { mutableStateOf("") }
 
     Dialog(
@@ -770,7 +773,7 @@ fun CreateMediaStoryDialog(
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.5f))
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Batal", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
                     }
                 }
 
@@ -791,7 +794,7 @@ fun CreateMediaStoryDialog(
                     OutlinedTextField(
                         value = caption,
                         onValueChange = { caption = it },
-                        placeholder = { Text("Tambahkan keterangan...", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp) },
+                        placeholder = { Text(strings.addCaptionPlaceholder, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp) },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("input_story_caption"),
@@ -816,7 +819,7 @@ fun CreateMediaStoryDialog(
                         if (isPublishing) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color.White)
                         } else {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Kirim Status")
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.sendStatus)
                         }
                     }
                 }
@@ -837,6 +840,7 @@ fun StoryViewerDialog(
     onDeleteStory: (storyId: String) -> Unit,
     onReplyClick: ((jid: String, name: String) -> Unit)? = null
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var currentIndex by remember { mutableIntStateOf(0) }
     val stories = storyGroup.stories
     val currentStory = stories.getOrNull(currentIndex) ?: stories.firstOrNull()
@@ -1019,7 +1023,7 @@ fun StoryViewerDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tutup", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.close, tint = Color.White)
                         }
 
                         // Avatar
@@ -1081,7 +1085,7 @@ fun StoryViewerDialog(
                                     }
                                 }
                             ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Hapus Status", tint = Color.White)
+                                Icon(Icons.Default.Delete, contentDescription = strings.deleteStatus, tint = Color.White)
                             }
                         }
                     }
@@ -1104,7 +1108,7 @@ fun StoryViewerDialog(
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "Dilihat oleh ${currentStory.viewers.size} orang",
+                                    text = "${strings.viewedByLabel} ${currentStory.viewers.size} ${strings.viewersUnit}",
                                     color = Color.White,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
@@ -1146,7 +1150,7 @@ fun StoryViewerDialog(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Balas Status ke ${storyGroup.name}", fontSize = 13.sp)
+                            Text("${strings.replyStatusTo} ${storyGroup.name}", fontSize = 13.sp)
                         }
                     }
                 }
@@ -1155,16 +1159,18 @@ fun StoryViewerDialog(
     }
 }
 
+@Composable
 private fun formatStoryTime(timestamp: Long): String {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val now = System.currentTimeMillis()
     val diff = now - timestamp
     val minutes = diff / (60 * 1000)
     val hours = diff / (60 * 60 * 1000)
 
     return when {
-        minutes < 1 -> "Baru saja"
-        minutes < 60 -> "$minutes menit yang lalu"
-        hours < 24 -> "$hours jam yang lalu"
+        minutes < 1 -> strings.justNow
+        minutes < 60 -> "$minutes ${strings.minutesAgoSuffix}"
+        hours < 24 -> "$hours ${strings.hoursAgoSuffix}"
         else -> SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(timestamp))
     }
 }

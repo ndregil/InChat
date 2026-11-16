@@ -108,6 +108,7 @@ fun RoomDirectoryScreen(
     avatarRevision: Int = 0,
     getRoomAvatar: ((String) -> ByteArray?)? = null
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var searchQuery by remember { mutableStateOf("") }
     var discoInput by remember { mutableStateOf(serverDiscoResult.targetJid) }
     var discoFilterQuery by remember { mutableStateOf("") }
@@ -183,12 +184,12 @@ fun RoomDirectoryScreen(
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
                                 text = when {
-                                    service.jid.contains("conference") -> "Tipe: Layanan Multi-User Chat (MUC)"
-                                    service.jid.contains("upload") -> "Tipe: Layanan HTTP File Upload (XEP-0363)"
-                                    service.jid.contains("proxy") -> "Tipe: Layanan SOCKS5 Proxy (XEP-0065)"
-                                    service.jid.contains("pubsub") -> "Tipe: Layanan Publish-Subscribe (XEP-0060)"
-                                    service.jid.contains("search") -> "Tipe: Layanan Pencarian Direktori Server"
-                                    else -> "Tipe: Layanan Komponen Server XMPP"
+                                    service.jid.contains("conference") -> strings.serviceTypeMuc
+                                    service.jid.contains("upload") -> strings.serviceTypeUpload
+                                    service.jid.contains("proxy") -> strings.serviceTypeProxy
+                                    service.jid.contains("pubsub") -> strings.serviceTypePubsub
+                                    service.jid.contains("search") -> strings.serviceTypeSearch
+                                    else -> strings.serviceTypeOther
                                 },
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -197,11 +198,11 @@ fun RoomDirectoryScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = when {
-                                    service.jid.contains("conference") -> "Server MUC ini dapat digunakan untuk bergabung atau membuat ruang percakapan grup baru."
-                                    service.jid.contains("upload") -> "Layanan ini memungkinkan pengiriman foto, rekaman suara, dan berkas ke penerima."
-                                    service.jid.contains("proxy") -> "Digunakan sebagai perantara transfer berkas langsung antar klien XMPP."
-                                    service.jid.contains("pubsub") -> "Mendukung saluran transmisi data, feed berita, dan notifikasi."
-                                    else -> "Komponen layanan aktif di server $serverDomain (XEP-0030 Service Discovery)."
+                                    service.jid.contains("conference") -> strings.serviceDescMuc
+                                    service.jid.contains("upload") -> strings.serviceDescUpload
+                                    service.jid.contains("proxy") -> strings.serviceDescProxy
+                                    service.jid.contains("pubsub") -> strings.serviceDescPubsub
+                                    else -> strings.serviceDescOther
                                 },
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -233,7 +234,7 @@ fun RoomDirectoryScreen(
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Disco Layanan Ini", fontSize = 12.sp)
+                        Text(strings.discoThisService, fontSize = 12.sp)
                     }
 
                     if (isMuc && onOpenCreateRoom != null) {
@@ -247,7 +248,7 @@ fun RoomDirectoryScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Buat Room Baru di Server Ini", fontSize = 12.sp)
+                            Text(strings.createRoomOnServer, fontSize = 12.sp)
                         }
                     }
                 }
@@ -256,19 +257,19 @@ fun RoomDirectoryScreen(
                 Button(
                     onClick = {
                         clipboardManager.setText(AnnotatedString(service.jid))
-                        Toast.makeText(context, "JID ${service.jid} disalin ke papan klip", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "${service.jid}: ${strings.jidCopiedToast}", Toast.LENGTH_SHORT).show()
                         selectedService = null
                     },
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Salin JID Service")
+                    Text(strings.copyServiceJid)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { selectedService = null }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             }
         )
@@ -296,7 +297,7 @@ fun RoomDirectoryScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                "Discovery",
+                                strings.discoverTitle,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 17.sp
@@ -334,7 +335,7 @@ fun RoomDirectoryScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Muat Ulang",
+                            contentDescription = strings.refreshAction,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -369,13 +370,13 @@ fun RoomDirectoryScreen(
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 0,
                     onClick = { discoveryMode = 0 },
-                    text = { Text("Global Search", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text(strings.globalSearchTab, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 1,
                     onClick = { discoveryMode = 1 },
                     modifier = Modifier.testTag("tab_discover_server"),
-                    text = { Text("Disco Server", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text(strings.discoServerTab, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 )
                 androidx.compose.material3.Tab(
                     selected = discoveryMode == 2,
@@ -383,12 +384,12 @@ fun RoomDirectoryScreen(
                         discoveryMode = 2
                         onDiscoverLocal()
                     },
-                    text = { Text("Local Services", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    text = { Text(strings.localServicesTab, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 )
             }
 
             val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-            val quickKeywords = listOf("Semua", "Indonesia", "Linux", "Conversations", "XSF", "Gajim", "Android")
+            val quickKeywords = listOf(strings.allRooms, "Indonesia", "Linux", "Conversations", "XSF", "Gajim", "Android")
 
             if (discoveryMode == 0) {
                 // Compact Search Bar (kolom pencarian kecil)
@@ -417,7 +418,7 @@ fun RoomDirectoryScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             if (searchQuery.isEmpty()) {
                                 Text(
-                                    text = "Cari room (indonesia, linux, game)...",
+                                    text = strings.searchRoomDirPlaceholder,
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                     maxLines = 1,
@@ -457,7 +458,7 @@ fun RoomDirectoryScreen(
                             ) {
                                 Icon(
                                     Icons.Default.Close,
-                                    contentDescription = "Hapus",
+                                    contentDescription = strings.clearSearch,
                                     modifier = Modifier.size(15.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -473,7 +474,7 @@ fun RoomDirectoryScreen(
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowForward,
-                                contentDescription = "Cari",
+                                contentDescription = strings.searchHint,
                                 modifier = Modifier.size(15.dp),
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -489,11 +490,11 @@ fun RoomDirectoryScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     items(quickKeywords) { kw ->
-                        val isSelected = (kw == "Semua" && searchQuery.isBlank()) || (searchQuery.equals(kw, ignoreCase = true))
+                        val isSelected = (kw == strings.allRooms && searchQuery.isBlank()) || (searchQuery.equals(kw, ignoreCase = true))
                         androidx.compose.material3.FilterChip(
                             selected = isSelected,
                             onClick = {
-                                val target = if (kw == "Semua") "" else kw
+                                val target = if (kw == strings.allRooms) "" else kw
                                 searchQuery = target
                                 onRefresh(target)
                             },
@@ -511,13 +512,13 @@ fun RoomDirectoryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (searchQuery.isBlank()) "Room populer global XMPP:" else "Hasil untuk '$searchQuery':",
+                        text = if (searchQuery.isBlank()) strings.popularGlobalRooms else "${strings.searchResultsFor} '$searchQuery':",
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "${directoryRooms.size} room",
+                        text = "${directoryRooms.size} ${strings.roomsUnit}",
                         style = MaterialTheme.typography.labelSmall,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -559,7 +560,7 @@ fun RoomDirectoryScreen(
                             Box(modifier = Modifier.weight(1f)) {
                                 if (discoInput.isEmpty()) {
                                     Text(
-                                        text = "Domain server (cth: jabber.ru, conference.jabber.ru)",
+                                        text = strings.discoDomainPlaceholder,
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                         maxLines = 1,
@@ -595,7 +596,7 @@ fun RoomDirectoryScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "Hapus",
+                                        contentDescription = strings.clearSearch,
                                         modifier = Modifier.size(16.dp),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -622,7 +623,7 @@ fun RoomDirectoryScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Disco", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.discoBtn, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -645,12 +646,12 @@ fun RoomDirectoryScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Kembali",
+                                contentDescription = strings.back,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Kembali ke ${parentTarget.first}",
+                                text = "${strings.backTo} ${parentTarget.first}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -672,12 +673,12 @@ fun RoomDirectoryScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Layanan Server $serverDomain",
+                                text = "${strings.serverServicesTitle} $serverDomain",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Komponen protokol XEP-0030 (MUC, Upload, Proxy)",
+                                text = strings.serverServicesSubtitle,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp
@@ -687,7 +688,7 @@ fun RoomDirectoryScreen(
                             onClick = onDiscoverLocal,
                             modifier = Modifier.size(32.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Pindai Ulang", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.Refresh, contentDescription = strings.rescanAction, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -710,9 +711,9 @@ fun RoomDirectoryScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = when (discoveryMode) {
-                                0 -> "Memuat daftar room global..."
-                                1 -> "Melakukan disco ke ${discoInput.trim().ifBlank { "server" }}..."
-                                else -> "Memindai komponen server $serverDomain..."
+                                0 -> strings.loadingGlobalRooms
+                                1 -> "${strings.discoveringServer} ${discoInput.trim().ifBlank { "server" }}..."
+                                else -> "${strings.scanningLocalServer} $serverDomain..."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -739,13 +740,13 @@ fun RoomDirectoryScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = if (searchQuery.isBlank()) "Belum ada room ditemukan" else "Tidak ada room ditemukan untuk '$searchQuery'",
+                                text = if (searchQuery.isBlank()) strings.noRoomsFound else "${strings.noRoomsFoundFor} '$searchQuery'",
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Coba kata kunci lain atau muat ulang daftar room populer search.jabber.network",
+                                text = strings.tryOtherKeywordsDiscover,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -757,7 +758,7 @@ fun RoomDirectoryScreen(
                                     onRefresh("")
                                 }
                             ) {
-                                Text("Tampilkan Room Populer")
+                                Text(strings.showPopularRooms)
                             }
                         }
                     }
@@ -813,7 +814,7 @@ fun RoomDirectoryScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Gagal Disco Server",
+                                    text = strings.discoServerFailed,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium
                                 )
@@ -833,7 +834,7 @@ fun RoomDirectoryScreen(
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Coba Lagi")
+                                    Text(strings.retry)
                                 }
                             }
                         }
@@ -855,13 +856,13 @@ fun RoomDirectoryScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Disco Server XMPP",
+                                    text = strings.discoEmptyTitle,
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Masukkan domain server atau layanan MUC di atas lalu tekan Disco, misalnya jabber.ru atau conference.jabber.ru.",
+                                    text = strings.discoEmptyDesc,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -886,7 +887,7 @@ fun RoomDirectoryScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "Tidak ada item pada ${serverDiscoResult.targetJid}",
+                                    text = "${strings.noItemsOnServer} ${serverDiscoResult.targetJid}",
                                     fontWeight = FontWeight.Bold,
                                     style = MaterialTheme.typography.titleMedium,
                                     textAlign = TextAlign.Center
@@ -894,7 +895,7 @@ fun RoomDirectoryScreen(
                                 if (serverDiscoResult.serverIdentity.isNotBlank() || serverDiscoResult.features.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "${serverDiscoResult.serverIdentity.ifBlank { "Server" }} • ${serverDiscoResult.features.size} fitur terdeteksi",
+                                        text = "${serverDiscoResult.serverIdentity.ifBlank { "Server" }} • ${serverDiscoResult.features.size} ${strings.featuresDetected}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         textAlign = TextAlign.Center
@@ -930,8 +931,8 @@ fun RoomDirectoryScreen(
                                         modifier = Modifier.weight(1f)
                                     )
                                     val countParts = buildList {
-                                        if (serverDiscoResult.services.isNotEmpty()) add("${serverDiscoResult.services.size} layanan")
-                                        if (serverDiscoResult.rooms.isNotEmpty()) add("${serverDiscoResult.rooms.size} room")
+                                        if (serverDiscoResult.services.isNotEmpty()) add("${serverDiscoResult.services.size} ${strings.servicesUnit}")
+                                        if (serverDiscoResult.rooms.isNotEmpty()) add("${serverDiscoResult.rooms.size} ${strings.roomsUnit}")
                                     }.joinToString(" • ")
                                     Text(
                                         text = countParts,
@@ -967,7 +968,7 @@ fun RoomDirectoryScreen(
                                             Box(modifier = Modifier.weight(1f)) {
                                                 if (discoFilterQuery.isEmpty()) {
                                                     Text(
-                                                        text = "Filter hasil (${serverDiscoResult.rooms.size} room)...",
+                                                        text = "${strings.filterResultsPlaceholder} (${serverDiscoResult.rooms.size} ${strings.roomsUnit})...",
                                                         fontSize = 12.sp,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                     )
@@ -988,7 +989,7 @@ fun RoomDirectoryScreen(
                                                     onClick = { discoFilterQuery = "" },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
-                                                    Icon(Icons.Default.Close, contentDescription = "Reset filter", modifier = Modifier.size(14.dp))
+                                                    Icon(Icons.Default.Close, contentDescription = strings.resetFilter, modifier = Modifier.size(14.dp))
                                                 }
                                             }
                                         }
@@ -1070,13 +1071,13 @@ fun RoomDirectoryScreen(
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Belum Ada Layanan Terdeteksi",
+                                text = strings.noLocalServicesTitle,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Tekan tombol di bawah untuk memindai komponen MUC, HTTP File Upload, dan Proxy di server $serverDomain",
+                                text = "${strings.noLocalServicesDesc} $serverDomain",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -1087,7 +1088,7 @@ fun RoomDirectoryScreen(
                             ) {
                                 Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Pindai Layanan Server")
+                                Text(strings.scanServerServicesBtn)
                             }
                         }
                     }
@@ -1120,6 +1121,7 @@ fun DirectoryRoomCard(
     avatarBytes: ByteArray? = null,
     isBookmarked: Boolean = false
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val contactFontSizeSp = LocalThemePreferences.current.contactFontSizeSp
     Card(
         modifier = Modifier
@@ -1173,7 +1175,7 @@ fun DirectoryRoomCard(
                     if (roomItem.isPasswordProtected) {
                         Icon(
                             imageVector = Icons.Default.Lock,
-                            contentDescription = "Sandi",
+                            contentDescription = strings.passwordProtectedLabel,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.error
                         )
@@ -1181,7 +1183,7 @@ fun DirectoryRoomCard(
                     if (roomItem.isMembersOnly) {
                         Icon(
                             imageVector = Icons.Default.Security,
-                            contentDescription = "Member Only",
+                            contentDescription = strings.membersOnlyLabel,
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.secondary
                         )
@@ -1214,7 +1216,7 @@ fun DirectoryRoomCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = roomItem.description.ifBlank { "Tidak ada deskripsi tersedia." },
+                text = roomItem.description.ifBlank { strings.noDescriptionAvailable },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 3,
@@ -1223,7 +1225,7 @@ fun DirectoryRoomCard(
 
             if (roomItem.category != "General") {
                 Text(
-                    text = "Info: ${roomItem.category}",
+                    text = "${strings.infoPrefix} ${roomItem.category}",
                     fontSize = 10.sp,
                     fontStyle = FontStyle.Italic,
                     color = MaterialTheme.colorScheme.primary,
@@ -1249,7 +1251,7 @@ fun DirectoryRoomCard(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (isBookmarked) "Tersimpan" else "Simpan Room", fontSize = 12.sp)
+                        Text(if (isBookmarked) strings.savedBadge else strings.saveRoomBtn, fontSize = 12.sp)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
@@ -1266,7 +1268,7 @@ fun DirectoryRoomCard(
                     ) {
                         Icon(imageVector = Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Buka Obrolan", fontSize = 12.sp)
+                        Text(strings.openChatBtn, fontSize = 12.sp)
                     }
                 } else {
                     Button(
@@ -1275,7 +1277,7 @@ fun DirectoryRoomCard(
                     ) {
                         Icon(imageVector = Icons.Default.Login, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Gabung Room", fontSize = 12.sp)
+                        Text(strings.joinRoomBtn, fontSize = 12.sp)
                     }
                 }
             }
@@ -1288,6 +1290,7 @@ fun ServiceItemCard(
     item: com.ndregil.inchat.data.model.DiscoveredItem,
     onClick: () -> Unit = {}
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Card(
         onClick = onClick,
         modifier = Modifier
@@ -1369,7 +1372,7 @@ fun ServiceItemCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = "Detail",
+                        contentDescription = strings.detailDesc,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(12.dp)
                     )

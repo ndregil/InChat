@@ -91,6 +91,7 @@ fun AccountConnectionScreen(
     initialTab: Int = -1,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var activeTabMode by remember(initialTab) {
         mutableIntStateOf(
             if (initialTab >= 0) initialTab 
@@ -194,14 +195,14 @@ fun AccountConnectionScreen(
                         if (decodedBitmap != null) {
                             Image(
                                 bitmap = decodedBitmap.asImageBitmap(),
-                                contentDescription = "Foto Profil",
+                                contentDescription = strings.profilePhotoDesc,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
                             )
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Person,
-                                contentDescription = "Foto Profil",
+                                contentDescription = strings.profilePhotoDesc,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -213,7 +214,7 @@ fun AccountConnectionScreen(
                             color = MaterialTheme.colorScheme.primary,
                             border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.surface)
                         ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Ubah Foto", tint = Color.White, modifier = Modifier.padding(2.5.dp))
+                            Icon(Icons.Default.Edit, contentDescription = strings.changePhoto, tint = Color.White, modifier = Modifier.padding(2.5.dp))
                         }
                     }
 
@@ -244,7 +245,7 @@ fun AccountConnectionScreen(
                                 ) {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = OnlineGreen, modifier = Modifier.size(12.dp))
                                     Text(
-                                        text = "Terhubung",
+                                        text = strings.statusConnected,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = OnlineGreen
@@ -267,7 +268,7 @@ fun AccountConnectionScreen(
                                 modifier = Modifier.weight(1f, fill = false)
                             )
                             Text(
-                                text = "• Ubah Foto",
+                                text = "• ${strings.changePhoto}",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.primary,
@@ -328,10 +329,10 @@ fun AccountConnectionScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = when (connectionStatus) {
-                                ConnectionStatus.CONNECTING -> "Menghubungkan..."
-                                ConnectionStatus.AUTHENTICATING -> "Autentikasi..."
-                                ConnectionStatus.ERROR -> "Koneksi Error"
-                                else -> "Status: Terputus"
+                                ConnectionStatus.CONNECTING -> strings.statusConnecting
+                                ConnectionStatus.AUTHENTICATING -> strings.authenticating
+                                ConnectionStatus.ERROR -> strings.statusError
+                                else -> strings.statusDisconnected
                             },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
@@ -341,7 +342,7 @@ fun AccountConnectionScreen(
                             text = if (connectionStatus == ConnectionStatus.ERROR && !lastErrorMessage.isNullOrBlank()) {
                                 lastErrorMessage
                             } else {
-                                "Siap untuk menyambungkan ke server"
+                                strings.readyToConnect
                             },
                             style = MaterialTheme.typography.bodySmall,
                             fontSize = 12.sp,
@@ -380,7 +381,7 @@ fun AccountConnectionScreen(
                             Icon(Icons.Default.Home, null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = "Welcome",
+                                text = strings.tabWelcome,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 softWrap = false,
@@ -399,7 +400,7 @@ fun AccountConnectionScreen(
                             Icon(Icons.Default.Login, null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = "Masuk",
+                                text = strings.login,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 softWrap = false,
@@ -418,7 +419,7 @@ fun AccountConnectionScreen(
                             Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
-                                text = "Daftar Baru",
+                                text = strings.register,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 softWrap = false,
@@ -443,7 +444,7 @@ fun AccountConnectionScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SettingsCategoryHeader("Kredensial Akun", Icons.Default.Security)
+                SettingsCategoryHeader(strings.accountCredentials, Icons.Default.Security)
                 if (jidInput.isNotBlank() || hostInput.isNotBlank() || connectionStatus == ConnectionStatus.CONNECTED) {
                     TextButton(
                         onClick = {
@@ -461,7 +462,7 @@ fun AccountConnectionScreen(
                     ) {
                         Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Ganti Akun Baru", fontSize = 12.sp)
+                        Text(strings.switchToNewAccount, fontSize = 12.sp)
                     }
                 }
             }
@@ -471,8 +472,8 @@ fun AccountConnectionScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = jidInput, onValueChange = { jidInput = it }, label = { Text("Jabber ID (JID)") }, leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
-                    OutlinedTextField(value = passwordInput, onValueChange = { passwordInput = it }, label = { Text("Kata Sandi") }, leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
+                    OutlinedTextField(value = jidInput, onValueChange = { jidInput = it }, label = { Text(strings.jabberIdLabel) }, leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
+                    OutlinedTextField(value = passwordInput, onValueChange = { passwordInput = it }, label = { Text(strings.password) }, leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
                 }
             }
 
@@ -501,13 +502,13 @@ fun AccountConnectionScreen(
                             Icon(Icons.Default.Lan, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(17.dp))
                             Column {
                                 Text(
-                                    text = "Konfigurasi Lanjutan",
+                                    text = strings.advancedConfig,
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (!showLoginAdvancedOptions) {
                                     Text(
-                                        text = "${hostInput.ifBlank { "Auto" }} • Port ${portInput.ifBlank { "5222" }} • ${if (useTls) "TLS Aktif" else "Tanpa TLS"}",
+                                        text = "${hostInput.ifBlank { strings.autoLabel }} • ${strings.portLabel} ${portInput.ifBlank { "5222" }} • ${if (useTls) strings.tlsActive else strings.noTls}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -518,7 +519,7 @@ fun AccountConnectionScreen(
                         }
                         Icon(
                             imageVector = if (showLoginAdvancedOptions) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = if (showLoginAdvancedOptions) "Tutup Konfigurasi Lanjutan" else "Buka Konfigurasi Lanjutan",
+                            contentDescription = if (showLoginAdvancedOptions) strings.closeAdvancedConfig else strings.openAdvancedConfig,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -529,14 +530,14 @@ fun AccountConnectionScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(value = hostInput, onValueChange = { hostInput = it }, label = { Text("Host") }, placeholder = { Text("Auto") }, leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.weight(2f), singleLine = true, shape = RoundedCornerShape(10.dp))
-                                OutlinedTextField(value = portInput, onValueChange = { portInput = it }, label = { Text("Port") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp))
+                                OutlinedTextField(value = hostInput, onValueChange = { hostInput = it }, label = { Text(strings.hostLabel) }, placeholder = { Text(strings.autoLabel) }, leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) }, modifier = Modifier.weight(2f), singleLine = true, shape = RoundedCornerShape(10.dp))
+                                OutlinedTextField(value = portInput, onValueChange = { portInput = it }, label = { Text(strings.portLabel) }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp))
                             }
                             Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.05f)) {
                                 Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Enkripsi TLS/SSL", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                        Text("Amankan transmisi data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.tlsEncryptionTitle, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                        Text(strings.tlsEncryptionDesc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Switch(checked = useTls, onCheckedChange = { useTls = it })
                                 }
@@ -566,7 +567,7 @@ fun AccountConnectionScreen(
                     ) {
                         Icon(Icons.Default.SwitchAccount, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Ganti Akun")
+                        Text(strings.switchAccountBtn)
                     }
                 }
                 Button(onClick = {
@@ -581,12 +582,12 @@ fun AccountConnectionScreen(
                 }, modifier = Modifier.weight(1f).height(46.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Default.Link, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (connectionStatus == ConnectionStatus.CONNECTED) "Simpan" else "Masuk")
+                    Text(if (connectionStatus == ConnectionStatus.CONNECTED) strings.save else strings.login)
                 }
             }
         } else if (activeTabMode == 2) {
             // Direct In-App XMPP Account Registration (XEP-0077)
-            SettingsCategoryHeader("Pendaftaran Akun Baru XMPP", Icons.Default.PersonAdd)
+            SettingsCategoryHeader(strings.xmppNewAccountReg, Icons.Default.PersonAdd)
 
             Card(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -608,11 +609,11 @@ fun AccountConnectionScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         OutlinedTextField(
-                            value = if (isCustomServerMode) "Server Kustom (Manual)" else regDomain,
+                            value = if (isCustomServerMode) strings.customServerManual else regDomain,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Pilihan Server Pendaftaran") },
-                            placeholder = { Text("Pilih server atau server kustom...") },
+                            label = { Text(strings.regServerChoice) },
+                            placeholder = { Text(strings.regServerPlaceholder) },
                             leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isServerDropdownExpanded) },
                             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
@@ -643,9 +644,9 @@ fun AccountConnectionScreen(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(8.dp))
-                                            Text("Server Kustom (Input Manual)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                                            Text(strings.customServerManualLong, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                                         }
-                                        Text("Manual", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                        Text(strings.manualLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                                     }
                                 },
                                 onClick = {
@@ -669,7 +670,7 @@ fun AccountConnectionScreen(
                                             Text(item.domain, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                             Spacer(Modifier.width(24.dp))
                                             Text(
-                                                text = item.description,
+                                                text = if (item.requiresCaptcha) strings.captchaNativeBadge else strings.captchaFreeBadge,
                                                 fontSize = 12.sp,
                                                 color = if (item.requiresCaptcha) MaterialTheme.colorScheme.onSurfaceVariant else OnlineGreen
                                             )
@@ -701,15 +702,15 @@ fun AccountConnectionScreen(
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                         ) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Pengaturan Server Kustom", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(strings.customServerSettings, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 OutlinedTextField(
                                     value = regDomain,
                                     onValueChange = {
                                         regDomain = it
                                         regValidationError = null
                                     },
-                                    label = { Text("Domain Server XMPP") },
-                                    placeholder = { Text("contoh: xmpp.domain.com") },
+                                    label = { Text(strings.xmppDomainLabel) },
+                                    placeholder = { Text(strings.domainPlaceholder) },
                                     leadingIcon = { Icon(Icons.Default.Dns, null, tint = MaterialTheme.colorScheme.primary) },
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
@@ -718,7 +719,7 @@ fun AccountConnectionScreen(
                                 if (suggestedDomain != null && !suggestedDomain.equals(regDomain.trim(), ignoreCase = true)) {
                                     AssistChip(
                                         onClick = { regDomain = suggestedDomain },
-                                        label = { Text("Mungkin maksud Anda: $suggestedDomain?") },
+                                        label = { Text("${strings.didYouMean} $suggestedDomain?") },
                                         leadingIcon = {
                                             Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
                                         }
@@ -731,8 +732,8 @@ fun AccountConnectionScreen(
                     OutlinedTextField(
                         value = regUsername,
                         onValueChange = { regUsername = it; regValidationError = null },
-                        label = { Text("Username Baru") },
-                        placeholder = { Text("contoh: pengguna_baru") },
+                        label = { Text(strings.newUsernameLabel) },
+                        placeholder = { Text(strings.newUsernamePlaceholder) },
                         leadingIcon = { Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary) },
                         trailingIcon = {
                             Text(
@@ -751,7 +752,7 @@ fun AccountConnectionScreen(
                     OutlinedTextField(
                         value = regPassword,
                         onValueChange = { regPassword = it; regValidationError = null },
-                        label = { Text("Kata Sandi") },
+                        label = { Text(strings.password) },
                         leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -762,7 +763,7 @@ fun AccountConnectionScreen(
                     OutlinedTextField(
                         value = regConfirmPassword,
                         onValueChange = { regConfirmPassword = it; regValidationError = null },
-                        label = { Text("Konfirmasi Kata Sandi") },
+                        label = { Text(strings.confirmPasswordLabel) },
                         leadingIcon = { Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.primary) },
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -773,7 +774,7 @@ fun AccountConnectionScreen(
                     OutlinedTextField(
                         value = regNickname,
                         onValueChange = { regNickname = it },
-                        label = { Text("Nama Panggilan (Nickname Opsional)") },
+                        label = { Text(strings.nicknameOptionalLabel) },
                         leadingIcon = { Icon(Icons.Default.Badge, null, tint = MaterialTheme.colorScheme.primary) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -783,7 +784,7 @@ fun AccountConnectionScreen(
                     OutlinedTextField(
                         value = regEmail,
                         onValueChange = { regEmail = it; regValidationError = null },
-                        label = { Text("Email (Opsional / Diminta Sebagian Server)") },
+                        label = { Text(strings.emailOptionalLabel) },
                         leadingIcon = { Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -804,7 +805,7 @@ fun AccountConnectionScreen(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            text = if (showRegAdvancedOptions) "Sembunyikan Koneksi Lanjutan" else "Koneksi Lanjutan (Host SRV, Port, TLS)",
+                            text = if (showRegAdvancedOptions) strings.hideAdvancedConn else strings.showAdvancedConn,
                             fontSize = 12.sp
                         )
                     }
@@ -821,8 +822,8 @@ fun AccountConnectionScreen(
                                     OutlinedTextField(
                                         value = regHost,
                                         onValueChange = { regHost = it },
-                                        label = { Text("Host Manual (Kosongkan = Auto SRV)") },
-                                        placeholder = { Text("Auto (DNS SRV)") },
+                                        label = { Text(strings.manualHostSrvLabel) },
+                                        placeholder = { Text(strings.autoDnsSrvPlaceholder) },
                                         modifier = Modifier.weight(2f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(10.dp)
@@ -830,7 +831,7 @@ fun AccountConnectionScreen(
                                     OutlinedTextField(
                                         value = regPort,
                                         onValueChange = { regPort = it },
-                                        label = { Text("Port") },
+                                        label = { Text(strings.portLabel) },
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(10.dp)
@@ -842,8 +843,8 @@ fun AccountConnectionScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text("Enkripsi TLS/SSL Wajib", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                                        Text("Matikan hanya jika server memakai sertifikat tidak terverifikasi", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(strings.mandatoryTlsTitle, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                        Text(strings.mandatoryTlsDesc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     Switch(
                                         checked = regUseTls,
@@ -873,28 +874,28 @@ fun AccountConnectionScreen(
                     Button(
                         onClick = {
                             if (regUsername.isBlank()) {
-                                regValidationError = "Username tidak boleh kosong"
+                                regValidationError = strings.errUsernameEmpty
                                 return@Button
                             }
                             if (regPassword.length < 4) {
-                                regValidationError = "Kata sandi minimal 4 karakter"
+                                regValidationError = strings.errPasswordMin4
                                 return@Button
                             }
                             if (regPassword != regConfirmPassword) {
-                                regValidationError = "Konfirmasi kata sandi tidak cocok"
+                                regValidationError = strings.errPasswordMismatch
                                 return@Button
                             }
                             if (regDomain.isBlank()) {
-                                regValidationError = "Domain server tidak boleh kosong"
+                                regValidationError = strings.errDomainEmpty
                                 return@Button
                             }
                             val sanitizedDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(regDomain)
                             if (!Regex("""^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$""").matches(sanitizedDom)) {
-                                regValidationError = "Format domain tidak valid"
+                                regValidationError = strings.errDomainInvalid
                                 return@Button
                             }
                             if (regEmail.isNotBlank() && !android.util.Patterns.EMAIL_ADDRESS.matcher(regEmail.trim()).matches()) {
-                                regValidationError = "Format email tidak valid"
+                                regValidationError = strings.errEmailInvalid
                                 return@Button
                             }
 
@@ -921,11 +922,11 @@ fun AccountConnectionScreen(
                                 strokeWidth = 2.dp
                             )
                             Spacer(Modifier.width(8.dp))
-                            Text("Mendaftarkan Akun Ke Server...", fontWeight = FontWeight.Bold)
+                            Text(strings.registeringToServer, fontWeight = FontWeight.Bold)
                         } else {
                             Icon(Icons.Default.PersonAdd, null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Daftar Akun Baru & Langsung Masuk", fontWeight = FontWeight.Bold)
+                            Text(strings.registerAndSignIn, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -945,12 +946,12 @@ fun AccountConnectionScreen(
                                     Spacer(Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            "Pendaftaran Akun Berhasil!",
+                                            strings.registrationSuccessTitle,
                                             fontWeight = FontWeight.Bold,
                                             color = OnlineGreen
                                         )
                                         Text(
-                                            "JID: ${registrationState.jid}\nMenghubungkan otomatis ke server...",
+                                            "JID: ${registrationState.jid}\n${strings.autoConnectingServer}",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
@@ -973,7 +974,7 @@ fun AccountConnectionScreen(
                                         Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                         Spacer(Modifier.width(8.dp))
                                         Text(
-                                            text = "Pendaftaran Lewat Web (${registrationState.domain})",
+                                            text = "${strings.webRegistrationTitle} (${registrationState.domain})",
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
                                         )
@@ -981,7 +982,7 @@ fun AccountConnectionScreen(
                                     Spacer(Modifier.height(6.dp))
                                     Text(
                                         text = registrationState.instructions?.takeIf { it.isNotBlank() }
-                                            ?: "Server ini meminta pendaftaran dilakukan melalui halaman web berikut:",
+                                            ?: strings.webRegistrationDefaultInstr,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
@@ -1009,7 +1010,7 @@ fun AccountConnectionScreen(
                                         ) {
                                             Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(Modifier.width(6.dp))
-                                            Text("Buka Halaman Daftar", fontSize = 12.sp)
+                                            Text(strings.openRegisterPage, fontSize = 12.sp)
                                         }
                                         OutlinedButton(
                                             onClick = {
@@ -1020,13 +1021,13 @@ fun AccountConnectionScreen(
                                         ) {
                                             Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("Salin URL", fontSize = 12.sp)
+                                            Text(strings.copyUrl, fontSize = 12.sp)
                                         }
                                         TextButton(
                                             onClick = onResetRegistrationState,
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                         ) {
-                                            Text("Tutup", fontSize = 12.sp)
+                                            Text(strings.close, fontSize = 12.sp)
                                         }
                                     }
                                 }
@@ -1044,7 +1045,7 @@ fun AccountConnectionScreen(
                                         Icon(Icons.Default.Error, null, tint = DndRed)
                                         Spacer(Modifier.width(10.dp))
                                         Text(
-                                            "Pendaftaran Gagal",
+                                            strings.registrationFailed,
                                             fontWeight = FontWeight.Bold,
                                             color = DndRed
                                         )
@@ -1082,7 +1083,7 @@ fun AccountConnectionScreen(
                                             ) {
                                                 Icon(Icons.Default.NoEncryption, contentDescription = null, modifier = Modifier.size(14.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text("Coba Tanpa TLS Wajib", fontSize = 11.sp)
+                                                Text(strings.retryWithoutTls, fontSize = 11.sp)
                                             }
                                         }
                                         if (!regDomain.equals("xmpp.jp", ignoreCase = true)) {
@@ -1097,7 +1098,7 @@ fun AccountConnectionScreen(
                                             ) {
                                                 Icon(Icons.Default.FlashOn, null, modifier = Modifier.size(14.dp))
                                                 Spacer(Modifier.width(4.dp))
-                                                Text("Coba xmpp.jp", fontSize = 11.sp)
+                                                Text("${strings.tryLabel} xmpp.jp", fontSize = 11.sp)
                                             }
                                         }
 
@@ -1105,7 +1106,7 @@ fun AccountConnectionScreen(
                                             onClick = onResetRegistrationState,
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                         ) {
-                                            Text("Coba Lagi", fontSize = 11.sp)
+                                            Text(strings.retry, fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -1120,22 +1121,22 @@ fun AccountConnectionScreen(
         Spacer(Modifier.height(8.dp))
 
         // FCM
-        SettingsCategoryHeader("Push Service", Icons.Default.NotificationsActive)
+        SettingsCategoryHeader(strings.pushServiceHeader, Icons.Default.NotificationsActive)
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("FCM Push", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text("Terima pesan saat offline", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                Column(Modifier.weight(1f)) { Text(strings.fcmPushTitle, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(strings.fcmPushDesc, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 Switch(checked = isPushEnabled, onCheckedChange = { FcmPushManager.setPushEnabled(context, it) })
             }
         }
 
         // Backup
-        SettingsCategoryHeader("Cadangan", Icons.Default.Backup)
+        SettingsCategoryHeader(strings.backupHeader, Icons.Default.Backup)
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))) {
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = backupPassphrase, onValueChange = { backupPassphrase = it }, label = { Text("Kunci AES-256") }, leadingIcon = { Icon(Icons.Default.Key, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
+                OutlinedTextField(value = backupPassphrase, onValueChange = { backupPassphrase = it }, label = { Text(strings.aesKeyLabel) }, leadingIcon = { Icon(Icons.Default.Key, null) }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
                 Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { exportLauncher.launch("inchat_backup_${System.currentTimeMillis()}.enc") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.SystemUpdateAlt, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Ekspor", fontSize = 13.sp) }
-                    OutlinedButton(onClick = { importLauncher.launch("*/*") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.Sync, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Impor", fontSize = 13.sp) }
+                    Button(onClick = { exportLauncher.launch("inchat_backup_${System.currentTimeMillis()}.enc") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.SystemUpdateAlt, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(strings.exportBtn, fontSize = 13.sp) }
+                    OutlinedButton(onClick = { importLauncher.launch("*/*") }, modifier = Modifier.weight(1f).height(42.dp), enabled = !isBackupLoading, shape = RoundedCornerShape(10.dp)) { Icon(Icons.Default.Sync, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(strings.importBtn, fontSize = 13.sp) }
                 }
             }
         }
@@ -1162,17 +1163,18 @@ fun AccountConnectionScreen(
 
 @Composable
 fun WelcomeSplashScreen(onGoToLogin: () -> Unit, onGoToRegister: () -> Unit, onInstantGuestLogin: () -> Unit) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Surface(modifier = Modifier.size(72.dp), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f), border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))) {
                 Image(painterResource(R.drawable.splash_logo), "Logo", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
             }
             Spacer(modifier = Modifier.height(10.dp))
-            Text("Selamat Datang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Text("Aplikasi chat XMPP modern dan aman.", style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
-            Button(onClick = onGoToLogin, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Masuk Ke Akun") }
+            Text(strings.welcomeTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            Text(strings.welcomeTagline, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
+            Button(onClick = onGoToLogin, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Login, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(strings.loginToAccount) }
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = onGoToRegister, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Language, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Daftar Akun Baru") }
+            OutlinedButton(onClick = onGoToRegister, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(12.dp)) { Icon(Icons.Default.Language, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(strings.registerNewAccount) }
         }
     }
 }

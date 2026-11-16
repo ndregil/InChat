@@ -63,6 +63,7 @@ fun RoomItemCard(
     themePrefs: ThemePreferences = LocalThemePreferences.current,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val roomColor = try {
         Color(android.graphics.Color.parseColor(room.colorHex))
     } catch (e: Exception) {
@@ -156,7 +157,7 @@ fun RoomItemCard(
                     if (room.isBookmarked) {
                         Icon(
                             imageVector = Icons.Default.Star,
-                            contentDescription = "Favorit",
+                            contentDescription = strings.favoriteDesc,
                             modifier = Modifier.size(13.dp),
                             tint = Color(0xFFFFD700)
                         )
@@ -191,7 +192,7 @@ fun RoomItemCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Group,
-                                contentDescription = "Anggota",
+                                contentDescription = strings.membersDesc,
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -207,7 +208,7 @@ fun RoomItemCard(
                     } else {
                         Icon(
                             imageVector = Icons.Default.Person,
-                            contentDescription = "Pesan Pribadi",
+                            contentDescription = strings.privateMessageDesc,
                             modifier = Modifier.size(12.dp),
                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                         )
@@ -229,7 +230,7 @@ fun RoomItemCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = room.lastMessageText.ifBlank { room.topic.ifBlank { "Ruang obrolan XMPP MUC" } },
+                        text = room.lastMessageText.ifBlank { room.topic.ifBlank { strings.defaultMucTopic } },
                         style = MaterialTheme.typography.bodySmall,
                         fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                         lineHeight = ((themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f) * 1.25f).sp,

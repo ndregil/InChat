@@ -53,6 +53,7 @@ fun RoomTopicBanner(
     onBookmarkToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var isExpanded by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(topic) { mutableStateOf(topic) }
@@ -81,7 +82,7 @@ fun RoomTopicBanner(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
-                    text = topic.ifBlank { "Topik: Belum ada topik diatur untuk room ini" },
+                    text = topic.ifBlank { strings.emptyRoomTopic },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = if (isExpanded) 4 else 1,
@@ -94,7 +95,7 @@ fun RoomTopicBanner(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
-                        contentDescription = "Ubah Topik",
+                        contentDescription = strings.editTopicDesc,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -106,7 +107,7 @@ fun RoomTopicBanner(
                 ) {
                     Icon(
                         imageVector = if (isBookmarked) Icons.Default.Star else Icons.Default.StarBorder,
-                        contentDescription = if (isBookmarked) "Hapus Favorit" else "Tambah Favorit",
+                        contentDescription = if (isBookmarked) strings.removeFavoriteDesc else strings.addFavoriteDesc,
                         tint = if (isBookmarked) Color(0xFFFFD700) else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
@@ -127,12 +128,12 @@ fun RoomTopicBanner(
             ) {
                 Column(modifier = Modifier.padding(top = 6.dp, start = 24.dp)) {
                     Text(
-                        text = "JID Ruangan: $roomJid",
+                        text = "${strings.roomJidPrefix} $roomJid",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
                     Text(
-                        text = "Ketik @nama_user untuk menyebut anggota atau klik ikon kunci di daftar anggota untuk bisikan pribadi.",
+                        text = strings.roomTopicTip,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                         modifier = Modifier.padding(top = 2.dp)
@@ -145,11 +146,11 @@ fun RoomTopicBanner(
     if (showEditDialog) {
         AlertDialog(
             onDismissRequest = { showEditDialog = false },
-            title = { Text("Ubah Topik Ruangan") },
+            title = { Text(strings.editRoomTopicTitle) },
             text = {
                 Column {
                     Text(
-                        text = "Topik akan disiarkan ke seluruh partisipan MUC sesuai standar XEP-0045.",
+                        text = strings.editRoomTopicBroadcastDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
@@ -157,7 +158,7 @@ fun RoomTopicBanner(
                     OutlinedTextField(
                         value = editTopicText,
                         onValueChange = { editTopicText = it },
-                        label = { Text("Topik Baru") },
+                        label = { Text(strings.newTopicLabel) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -169,12 +170,12 @@ fun RoomTopicBanner(
                         showEditDialog = false
                     }
                 ) {
-                    Text("Simpan")
+                    Text(strings.save)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showEditDialog = false }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )

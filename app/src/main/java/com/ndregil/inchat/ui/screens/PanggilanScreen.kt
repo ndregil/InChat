@@ -132,6 +132,7 @@ fun PanggilanScreen(
     onDismissEnded: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val isVideoCall = call.callType.equals("Video", ignoreCase = true)
 
     BackHandler {
@@ -338,7 +339,7 @@ fun PanggilanScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = if (isVideoCall) "Panggilan Video XMPP" else "Panggilan Suara XMPP",
+                            text = if (isVideoCall) strings.callVideo else strings.callVoice,
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -397,12 +398,12 @@ fun PanggilanScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 val statusText = when (call.state) {
-                    CallState.OUTGOING_RINGING -> call.statusDetail.ifBlank { "Menghubungi..." }
+                    CallState.OUTGOING_RINGING -> call.statusDetail.ifBlank { strings.calling }
                     CallState.INCOMING_RINGING -> call.statusDetail.ifBlank {
-                        "Panggilan Masuk (${if (isVideoCall) "Video" else "Suara"})"
+                        "${strings.incomingCall} (${if (isVideoCall) strings.callVideo else strings.callVoice})"
                     }
                     CallState.CONNECTED -> formatDuration(call.durationSeconds)
-                    CallState.ENDED -> call.statusDetail.ifBlank { "Panggilan Berakhir" }
+                    CallState.ENDED -> call.statusDetail.ifBlank { strings.callEnded }
                     CallState.IDLE -> ""
                 }
 
@@ -437,9 +438,9 @@ fun PanggilanScreen(
                         if (missingCam) add(Manifest.permission.CAMERA)
                     }
                     val permLabel = when {
-                        missingMic && missingCam -> "Izin mikrofon & kamera diperlukan agar panggilan berjalan."
-                        missingCam -> "Izin kamera diperlukan untuk menampilkan video."
-                        else -> "Izin mikrofon diperlukan untuk mengirim suara."
+                        missingMic && missingCam -> "${strings.permissionMicRequired} ${strings.permissionCamRequired}"
+                        missingCam -> strings.permissionCamRequired
+                        else -> strings.permissionMicRequired
                     }
                     Surface(
                         shape = RoundedCornerShape(16.dp),
@@ -467,7 +468,7 @@ fun PanggilanScreen(
                                 onClick = { permissionLauncher.launch(missingList.toTypedArray()) },
                                 modifier = Modifier.testTag("grant_call_permission_button")
                             ) {
-                                Text("Izinkan", color = OnlineGreen, fontWeight = FontWeight.Bold)
+                                Text(strings.grantPermission, color = OnlineGreen, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -492,9 +493,9 @@ fun PanggilanScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = if (cameraUnavailable) {
-                                    "Kamera tidak tersedia pada perangkat ini"
+                                    strings.cameraUnavailable
                                 } else {
-                                    "Kamera dimatikan"
+                                    strings.cameraOff
                                 },
                                 color = Color.White.copy(alpha = 0.75f),
                                 fontSize = 14.sp,
@@ -527,7 +528,7 @@ fun PanggilanScreen(
                                     .height(50.dp)
                                     .testTag("call_dismiss_button")
                             ) {
-                                Text("Tutup", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text(strings.close, color = Color.White, fontWeight = FontWeight.SemiBold)
                             }
                         }
 
@@ -541,7 +542,7 @@ fun PanggilanScreen(
                                     icon = Icons.Default.Close,
                                     color = DndRed,
                                     onClick = onReject,
-                                    label = "Tolak",
+                                    label = strings.rejectCall,
                                     buttonSize = 64.dp,
                                     testTag = "call_reject_button"
                                 )
@@ -549,7 +550,7 @@ fun PanggilanScreen(
                                     icon = if (isVideoCall) Icons.Default.VideoCall else Icons.Default.Call,
                                     color = OnlineGreen,
                                     onClick = onAccept,
-                                    label = "Terima",
+                                    label = strings.acceptCall,
                                     buttonSize = 64.dp,
                                     testTag = "call_accept_button"
                                 )
@@ -567,7 +568,7 @@ fun PanggilanScreen(
                                         icon = if (call.isAudioMuted) Icons.Default.MicOff else Icons.Default.Mic,
                                         color = if (call.isAudioMuted) Color(0xFF475569) else Color.White.copy(alpha = 0.18f),
                                         onClick = onToggleMute,
-                                        label = if (call.isAudioMuted) "Unmute" else "Mute",
+                                        label = if (call.isAudioMuted) strings.unmute else strings.mute,
                                         buttonSize = 52.dp,
                                         testTag = "call_mute_button"
                                     )
@@ -575,7 +576,7 @@ fun PanggilanScreen(
                                         icon = if (call.isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
                                         color = if (call.isSpeakerOn) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.18f),
                                         onClick = onToggleSpeaker,
-                                        label = "Speaker",
+                                        label = strings.speaker,
                                         buttonSize = 52.dp,
                                         testTag = "call_speaker_button"
                                     )
@@ -591,7 +592,7 @@ fun PanggilanScreen(
                                         icon = Icons.Default.Cameraswitch,
                                         color = Color.White.copy(alpha = 0.18f),
                                         onClick = onSwitchCamera,
-                                        label = "Kamera",
+                                        label = strings.switchCamera,
                                         buttonSize = 52.dp,
                                         testTag = "call_switch_camera_button"
                                     )
@@ -608,12 +609,12 @@ fun PanggilanScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.CallEnd,
-                                        contentDescription = "Akhiri Panggilan",
+                                        contentDescription = strings.endCall,
                                         tint = Color.White
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Akhiri",
+                                        text = strings.endCall,
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -628,7 +629,7 @@ fun PanggilanScreen(
                                         icon = if (call.isAudioMuted) Icons.Default.MicOff else Icons.Default.Mic,
                                         color = if (call.isAudioMuted) Color(0xFF475569) else Color.White.copy(alpha = 0.18f),
                                         onClick = onToggleMute,
-                                        label = if (call.isAudioMuted) "Unmute" else "Mute",
+                                        label = if (call.isAudioMuted) strings.unmute else strings.mute,
                                         buttonSize = 56.dp,
                                         testTag = "call_mute_button"
                                     )
@@ -636,7 +637,7 @@ fun PanggilanScreen(
                                         icon = Icons.Default.CallEnd,
                                         color = DndRed,
                                         onClick = onEnd,
-                                        label = "Akhiri",
+                                        label = strings.endCall,
                                         buttonSize = 64.dp,
                                         testTag = "call_end_button"
                                     )
@@ -644,7 +645,7 @@ fun PanggilanScreen(
                                         icon = if (call.isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown,
                                         color = if (call.isSpeakerOn) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.18f),
                                         onClick = onToggleSpeaker,
-                                        label = "Speaker",
+                                        label = strings.speaker,
                                         buttonSize = 56.dp,
                                         testTag = "call_speaker_button"
                                     )

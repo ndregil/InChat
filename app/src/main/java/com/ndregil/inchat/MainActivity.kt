@@ -79,7 +79,9 @@ class MainActivity : ComponentActivity() {
                     if (currentAccount.jid.isBlank() && onboardingTarget == null) {
                         WelcomeScreen(
                             onLoginClick = { onboardingTarget = Pair(4, 1) },
-                            onRegisterClick = { onboardingTarget = Pair(4, 2) }
+                            onRegisterClick = { onboardingTarget = Pair(4, 2) },
+                            themePreferences = themePrefs,
+                            onUpdateThemePreferences = { viewModel.updateThemePreferences(it) }
                         )
                     } else {
                         val initialNav = onboardingTarget?.first ?: 0

@@ -213,6 +213,7 @@ private fun AirBubbleChatHead(
     onClick: () -> Unit,
     onClose: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val infiniteTransition = rememberInfiniteTransition(label = "air_bubble_float")
     val floatOffsetDp by infiniteTransition.animateFloat(
         initialValue = -3f,
@@ -317,12 +318,12 @@ private fun AirBubbleChatHead(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lock,
-                        contentDescription = "Bisikan",
+                        contentDescription = strings.whisper,
                         tint = Color.White.copy(alpha = 0.92f),
                         modifier = Modifier.size(9.dp)
                     )
                     Text(
-                        text = "Bisik",
+                        text = strings.whisper,
                         color = Color.White.copy(alpha = 0.92f),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.SemiBold
@@ -346,7 +347,7 @@ private fun AirBubbleChatHead(
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Tutup gelembung bisikan",
+                    contentDescription = strings.closeWhisperBubbleDesc,
                     tint = Color.White,
                     modifier = Modifier.size(12.dp)
                 )
@@ -387,6 +388,7 @@ private fun WhisperExpandedCard(
     onClose: () -> Unit,
     onSendWhisper: (String) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var draft by remember(activePartner.nickname) { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -485,7 +487,7 @@ private fun WhisperExpandedCard(
                             )
                         }
                         Text(
-                            text = "Gelembung Bisikan Pribadi",
+                            text = strings.whisperCardTitle,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -505,7 +507,7 @@ private fun WhisperExpandedCard(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Remove,
-                            contentDescription = "Perkecil ke Gelembung Udara",
+                            contentDescription = strings.minimizeToAirBubbleDesc,
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -527,12 +529,12 @@ private fun WhisperExpandedCard(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Akhiri Percakapan Bisikan",
+                                contentDescription = strings.endWhisper,
                                 tint = Color(0xFFF87171),
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "Akhiri",
+                                text = strings.endWhisper,
                                 color = Color(0xFFF87171),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
@@ -598,13 +600,13 @@ private fun WhisperExpandedCard(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Kirim bisikan pribadi ke @${activePartner.nickname}",
+                            text = "${strings.whisperHint} @${activePartner.nickname}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "Hanya Anda dan @${activePartner.nickname} yang bisa membaca.",
+                            text = strings.whisperOnlyTwoOfYou,
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
@@ -652,7 +654,7 @@ private fun WhisperExpandedCard(
                 ) {
                     if (draft.isEmpty()) {
                         Text(
-                            text = "Bisikkan ke @${activePartner.nickname}...",
+                            text = "${strings.whisperTargetTo} @${activePartner.nickname}...",
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             fontSize = 13.sp,
                             maxLines = 1,
@@ -712,7 +714,7 @@ private fun WhisperExpandedCard(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Kirim Bisikan",
+                        contentDescription = strings.sendWhisperDesc,
                         tint = if (draft.isNotBlank()) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )

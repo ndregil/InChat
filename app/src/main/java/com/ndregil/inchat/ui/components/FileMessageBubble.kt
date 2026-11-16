@@ -29,6 +29,7 @@ fun FileMessageBubbleContent(
     message: XmppMessage,
     textColor: Color
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val isImageUrl = message.fileUrl?.let { url ->
         url.contains(".jpg", ignoreCase = true) || 
@@ -45,7 +46,7 @@ fun FileMessageBubbleContent(
         if (isImage && message.fileUrl != null) {
             AsyncImage(
                 model = message.fileUrl,
-                contentDescription = "Image preview",
+                contentDescription = strings.imagePreviewDesc,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp)
@@ -81,7 +82,7 @@ fun FileMessageBubbleContent(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = message.fileName ?: "File",
+                    text = message.fileName ?: strings.defaultFileLabel,
                     color = textColor,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
@@ -101,7 +102,7 @@ fun FileMessageBubbleContent(
             }) {
                 Icon(
                     imageVector = Icons.Default.Download,
-                    contentDescription = "Download",
+                    contentDescription = strings.downloadDesc,
                     tint = textColor
                 )
             }

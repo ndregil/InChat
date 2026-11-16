@@ -1,6 +1,7 @@
 package com.ndregil.inchat.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.ndregil.inchat.data.model.ThemePreferences
+import com.ndregil.inchat.ui.i18n.LocalAppStrings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +38,8 @@ fun CustomThemeScreen(
     onPrefsChange: (ThemePreferences) -> Unit,
     onBack: () -> Unit
 ) {
+    BackHandler { onBack() }
+    val strings = LocalAppStrings.current
     var showColorPickerFor by remember { mutableStateOf<String?>(null) }
 
     val wallpaperLauncher = rememberLauncherForActivityResult(
@@ -66,13 +70,13 @@ fun CustomThemeScreen(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Kembali",
+                            contentDescription = strings.back,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Kustomisasi Tampilan",
+                        text = strings.customThemeTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -90,7 +94,7 @@ fun CustomThemeScreen(
         ) {
             item {
                 Text(
-                    text = "Aktifkan Tema Kustom",
+                    text = strings.enableCustomThemeSection,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -103,8 +107,8 @@ fun CustomThemeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Gunakan Warna Kustom", style = MaterialTheme.typography.bodyLarge)
-                        Text("Abaikan tema sistem dan gunakan pengaturan di bawah", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.useCustomColorsTitle, style = MaterialTheme.typography.bodyLarge)
+                        Text(strings.useCustomColorsDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = currentPrefs.isCustomThemeEnabled,
@@ -117,7 +121,7 @@ fun CustomThemeScreen(
             if (currentPrefs.isCustomThemeEnabled) {
                 item {
                     Text(
-                        text = "Pengaturan Warna",
+                        text = strings.colorSettingsHeader,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -127,8 +131,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Aksen Utama (Accent)",
-                        description = "Warna tombol, tab, dan elemen penting",
+                        label = strings.colorAccentLabel,
+                        description = strings.colorAccentDesc,
                         colorHex = currentPrefs.accentColorHex,
                         onClick = { showColorPickerFor = "accent" }
                     )
@@ -136,8 +140,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Nickname",
-                        description = "Warna tampilan nama di dalam chat",
+                        label = strings.colorNicknameLabel,
+                        description = strings.colorNicknameDesc,
                         colorHex = currentPrefs.nicknameColorHex,
                         onClick = { showColorPickerFor = "nickname" }
                     )
@@ -145,8 +149,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Kontak",
-                        description = "Warna dasar teks kontak di daftar roster",
+                        label = strings.colorContactLabel,
+                        description = strings.colorContactDesc,
                         colorHex = currentPrefs.contactColorHex,
                         onClick = { showColorPickerFor = "contact" }
                     )
@@ -154,8 +158,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Status Online",
-                        description = "Warna dot kehadiran saat tersedia (Online)",
+                        label = strings.colorPresenceOnlineLabel,
+                        description = strings.colorPresenceOnlineDesc,
                         colorHex = currentPrefs.presenceOnlineColorHex,
                         onClick = { showColorPickerFor = "presence" }
                     )
@@ -163,8 +167,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Status Chat",
-                        description = "Warna dot kehadiran saat siap ngobrol (Chat)",
+                        label = strings.colorPresenceChatLabel,
+                        description = strings.colorPresenceChatDesc,
                         colorHex = currentPrefs.presenceChatColorHex,
                         onClick = { showColorPickerFor = "presence_chat" }
                     )
@@ -172,8 +176,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Status Away",
-                        description = "Warna dot kehadiran saat sedang pergi (Away)",
+                        label = strings.colorPresenceAwayLabel,
+                        description = strings.colorPresenceAwayDesc,
                         colorHex = currentPrefs.presenceAwayColorHex,
                         onClick = { showColorPickerFor = "presence_away" }
                     )
@@ -181,8 +185,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Status XA",
-                        description = "Warna dot kehadiran saat pergi lama (Extended Away)",
+                        label = strings.colorPresenceXaLabel,
+                        description = strings.colorPresenceXaDesc,
                         colorHex = currentPrefs.presenceXaColorHex,
                         onClick = { showColorPickerFor = "presence_xa" }
                     )
@@ -190,8 +194,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Status DND",
-                        description = "Warna dot kehadiran sibuk (Do Not Disturb)",
+                        label = strings.colorPresenceDndLabel,
+                        description = strings.colorPresenceDndDesc,
                         colorHex = currentPrefs.presenceDndColorHex,
                         onClick = { showColorPickerFor = "presence_dnd" }
                     )
@@ -199,8 +203,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Bubble Masuk (Incoming)",
-                        description = "Warna latar bubble untuk pesan dari orang lain",
+                        label = strings.colorIncomingBubbleLabel,
+                        description = strings.colorIncomingBubbleDesc,
                         colorHex = currentPrefs.incomingBubbleColorHex,
                         onClick = { showColorPickerFor = "incoming" }
                     )
@@ -208,8 +212,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Bubble Keluar (Outgoing)",
-                        description = "Warna latar bubble untuk pesan dari Anda",
+                        label = strings.colorOutgoingBubbleLabel,
+                        description = strings.colorOutgoingBubbleDesc,
                         colorHex = currentPrefs.outgoingBubbleColorHex,
                         onClick = { showColorPickerFor = "outgoing" }
                     )
@@ -217,8 +221,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Teks Pesan Masuk",
-                        description = "Warna teks untuk pesan masuk",
+                        label = strings.colorIncomingTextLabel,
+                        description = strings.colorIncomingTextDesc,
                         colorHex = currentPrefs.incomingTextColorHex,
                         onClick = { showColorPickerFor = "incoming_text" }
                     )
@@ -226,8 +230,8 @@ fun CustomThemeScreen(
 
                 item {
                     ColorPreferenceItem(
-                        label = "Warna Teks Pesan Keluar",
-                        description = "Warna teks untuk pesan keluar",
+                        label = strings.colorOutgoingTextLabel,
+                        description = strings.colorOutgoingTextDesc,
                         colorHex = currentPrefs.outgoingTextColorHex,
                         onClick = { showColorPickerFor = "outgoing_text" }
                     )
@@ -237,7 +241,7 @@ fun CustomThemeScreen(
             item {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Latar Belakang (Wallpaper)",
+                    text = strings.wallpaperBgHeader,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -255,7 +259,7 @@ fun CustomThemeScreen(
                         if (currentPrefs.customWallpaperUri != null) {
                             AsyncImage(
                                 model = currentPrefs.customWallpaperUri,
-                                contentDescription = "Wallpaper Kustom",
+                                contentDescription = strings.customWallpaperDesc,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,
                                 alpha = currentPrefs.wallpaperOpacity
@@ -267,7 +271,7 @@ fun CustomThemeScreen(
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Belum ada wallpaper kustom", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(strings.noCustomWallpaperYet, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
 
@@ -289,7 +293,7 @@ fun CustomThemeScreen(
                                 ) {
                                     Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Pilih Gambar")
+                                    Text(strings.chooseImageBtn)
                                 }
                                 
                                 if (currentPrefs.customWallpaperUri != null) {
@@ -299,7 +303,7 @@ fun CustomThemeScreen(
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                                         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White)
                                     ) {
-                                        Text("Hapus")
+                                        Text(strings.delete)
                                     }
                                 }
                             }
@@ -309,7 +313,7 @@ fun CustomThemeScreen(
                 
                 if (currentPrefs.customWallpaperUri != null) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Opasitas Wallpaper", style = MaterialTheme.typography.labelLarge)
+                    Text(strings.wallpaperOpacityLabel, style = MaterialTheme.typography.labelLarge)
                     Slider(
                         value = currentPrefs.wallpaperOpacity,
                         onValueChange = { onPrefsChange(currentPrefs.copy(wallpaperOpacity = it)) },
@@ -406,6 +410,7 @@ fun SimpleColorPickerDialog(
     onDismiss: () -> Unit,
     onColorSelected: (String) -> Unit
 ) {
+    val strings = LocalAppStrings.current
     val presets = listOf(
         "#0284C7", "#0D9488", "#10B981", "#84CC16", 
         "#EAB308", "#F97316", "#EF4444", "#EC4899", 
@@ -417,10 +422,10 @@ fun SimpleColorPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Pilih Warna", fontWeight = FontWeight.Bold) },
+        title = { Text(strings.pickColorDialogTitle, fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("Pilih dari warna standar berikut:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.pickColorDialogSubtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 
                 // Using a FlowRow-like layout manually or just two LazyRows
@@ -450,7 +455,7 @@ fun SimpleColorPickerDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Tutup")
+                Text(strings.close)
             }
         }
     )

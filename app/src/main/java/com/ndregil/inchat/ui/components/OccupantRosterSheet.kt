@@ -111,6 +111,7 @@ fun OccupantRosterSheet(
     onKickUser: ((targetNickname: String, reason: String?) -> Unit)? = null,
     onBanUser: ((targetJid: String, reason: String?) -> Unit)? = null
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var selectedCapsOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
     var selectedActionOccupant by remember { mutableStateOf<RoomOccupant?>(null) }
 
@@ -173,7 +174,7 @@ fun OccupantRosterSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Anggota Ruangan ($roomName)",
+                        text = "${strings.roomOccupantsPrefix} ($roomName)",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
@@ -185,15 +186,15 @@ fun OccupantRosterSheet(
                             onDismiss()
                             onOpenAdminPanel()
                         }) {
-                            Icon(imageVector = Icons.Default.AdminPanelSettings, contentDescription = "Admin Panel", tint = MaterialTheme.colorScheme.primary)
+                            Icon(imageVector = Icons.Default.AdminPanelSettings, contentDescription = strings.adminPanelDesc, tint = MaterialTheme.colorScheme.primary)
                         }
                     }
                     
                     IconButton(onClick = onRefresh) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.primary)
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = strings.refreshAction, tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Tutup")
+                        Icon(imageVector = Icons.Default.Close, contentDescription = strings.close)
                     }
                 }
             }
@@ -206,12 +207,12 @@ fun OccupantRosterSheet(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PresenceCounterBadge(color = OnlineGreen, count = onlineCount, label = "Online")
-                PresenceCounterBadge(color = AwayAmber, count = awayCount, label = "Away")
-                PresenceCounterBadge(color = DndRed, count = dndCount, label = "DND")
+                PresenceCounterBadge(color = OnlineGreen, count = onlineCount, label = strings.presenceOnlineBadge)
+                PresenceCounterBadge(color = AwayAmber, count = awayCount, label = strings.presenceAwayBadge)
+                PresenceCounterBadge(color = DndRed, count = dndCount, label = strings.presenceDndBadge)
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = "Total: ${occupants.size}",
+                    text = "${strings.totalLabel}: ${occupants.size}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -221,7 +222,7 @@ fun OccupantRosterSheet(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari nickname atau status...") },
+                placeholder = { Text(strings.searchNickOrStatusPlaceholder) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
@@ -242,28 +243,28 @@ fun OccupantRosterSheet(
                     FilterChip(
                         selected = selectedRoleFilter == null,
                         onClick = { selectedRoleFilter = null },
-                        label = { Text("Semua (${occupants.size})") }
+                        label = { Text("${strings.filterAllCountPrefix} (${occupants.size})") }
                     )
                 }
                 item {
                     FilterChip(
                         selected = selectedRoleFilter == "admin",
                         onClick = { selectedRoleFilter = "admin" },
-                        label = { Text("Admin & Owner") }
+                        label = { Text(strings.filterAdminOwner) }
                     )
                 }
                 item {
                     FilterChip(
                         selected = selectedRoleFilter == "member",
                         onClick = { selectedRoleFilter = "member" },
-                        label = { Text("Partisipan") }
+                        label = { Text(strings.filterParticipant) }
                     )
                 }
                 item {
                     FilterChip(
                         selected = selectedRoleFilter == "visitor",
                         onClick = { selectedRoleFilter = "visitor" },
-                        label = { Text("Visitor") }
+                        label = { Text(strings.filterVisitor) }
                     )
                 }
             }
@@ -294,7 +295,7 @@ fun OccupantRosterSheet(
     selectedCapsOccupant?.let { occupant ->
         ClientCapsDialog(
             clientCaps = occupant.clientCaps,
-            userName = "${occupant.nickname} (${occupant.jid.ifBlank { "MUC Occupant" }})",
+            userName = "${occupant.nickname} (${occupant.jid.ifBlank { strings.mucOccupantLabel }})",
             targetJid = occupant.fullJid.ifBlank { occupant.jid },
             onQuerySoftwareVersion = onQuerySoftwareVersion,
             onDismiss = { selectedCapsOccupant = null }
@@ -360,6 +361,7 @@ fun OccupantItemRow(
     onViewCaps: () -> Unit = {},
     onOccupantClick: () -> Unit = {}
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val presenceColor = when (occupant.presence) {
         UserPresence.ONLINE -> OnlineGreen
         UserPresence.CHAT -> Color(0xFF0D9488)
@@ -446,7 +448,7 @@ fun OccupantItemRow(
                 if (occupant.isMe) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "(Kamu)",
+                        text = strings.youBadgeParens,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -466,7 +468,7 @@ fun OccupantItemRow(
                         ) {
                             Icon(imageVector = Icons.Default.Star, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(10.dp))
                             Spacer(modifier = Modifier.width(2.dp))
-                            Text(text = "Owner", fontSize = 10.sp, color = Color(0xFF92400E), fontWeight = FontWeight.Bold)
+                            Text(text = strings.roleOwner, fontSize = 10.sp, color = Color(0xFF92400E), fontWeight = FontWeight.Bold)
                         }
                     }
                     OccupantRole.ADMIN -> {
@@ -479,7 +481,7 @@ fun OccupantItemRow(
                         ) {
                             Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = Color(0xFF4F46E5), modifier = Modifier.size(10.dp))
                             Spacer(modifier = Modifier.width(2.dp))
-                            Text(text = "Admin", fontSize = 10.sp, color = Color(0xFF3730A3), fontWeight = FontWeight.Bold)
+                            Text(text = strings.roleAdmin, fontSize = 10.sp, color = Color(0xFF3730A3), fontWeight = FontWeight.Bold)
                         }
                     }
                     else -> {}
@@ -514,27 +516,27 @@ fun OccupantItemRow(
                     )
                 }
 
-                val displayStatus = remember(occupant.statusText, occupant.nickname, occupant.presence) {
+                val displayStatus = remember(occupant.statusText, occupant.nickname, occupant.presence, strings) {
                     val raw = occupant.statusText.ifBlank {
                         when (occupant.presence) {
-                            UserPresence.ONLINE -> "Online"
-                            UserPresence.CHAT -> "Chat"
-                            UserPresence.AWAY -> "Away"
-                            UserPresence.XA -> "Extended Away"
-                            UserPresence.DND -> "DND"
-                            UserPresence.OFFLINE -> "Offline"
+                            UserPresence.ONLINE -> strings.presenceOnlineBadge
+                            UserPresence.CHAT -> strings.presenceChat
+                            UserPresence.AWAY -> strings.presenceAwayBadge
+                            UserPresence.XA -> strings.presenceXa
+                            UserPresence.DND -> strings.presenceDndBadge
+                            UserPresence.OFFLINE -> strings.presenceOffline
                         }
                     }
                     // Remove prepended nickname if present (common in MUC statuses)
                     if (raw.startsWith(occupant.nickname, ignoreCase = true)) {
                         raw.substring(occupant.nickname.length).trim().removePrefix("is ").removePrefix(": ").ifBlank { 
                             when (occupant.presence) {
-                                UserPresence.ONLINE -> "Online"
-                                UserPresence.CHAT -> "Chat"
-                                UserPresence.AWAY -> "Away"
-                                UserPresence.XA -> "Extended Away"
-                                UserPresence.DND -> "DND"
-                                UserPresence.OFFLINE -> "Offline"
+                                UserPresence.ONLINE -> strings.presenceOnlineBadge
+                                UserPresence.CHAT -> strings.presenceChat
+                                UserPresence.AWAY -> strings.presenceAwayBadge
+                                UserPresence.XA -> strings.presenceXa
+                                UserPresence.DND -> strings.presenceDndBadge
+                                UserPresence.OFFLINE -> strings.presenceOffline
                             }
                         }
                     } else {
@@ -560,7 +562,7 @@ fun OccupantItemRow(
             ) {
                 Icon(
                     imageVector = Icons.Default.AlternateEmail,
-                    contentDescription = "Mention @${occupant.nickname}",
+                    contentDescription = "${strings.mentionPrefix} @${occupant.nickname}",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -573,7 +575,7 @@ fun OccupantItemRow(
             ) {
                 Icon(
                     imageVector = Icons.Default.Lock,
-                    contentDescription = "Bisikan ke ${occupant.nickname}",
+                    contentDescription = "${strings.whisperToPrefix} ${occupant.nickname}",
                     tint = Color(0xFFC084FC),
                     modifier = Modifier.size(18.dp)
                 )
@@ -586,7 +588,7 @@ fun OccupantItemRow(
         ) {
             Icon(
                 imageVector = Icons.Default.MoreVert,
-                contentDescription = "Opsi Moderasi",
+                contentDescription = strings.moderationOptionsDesc,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp)
             )
@@ -611,6 +613,7 @@ fun OccupantActionDialog(
     onKickUser: (String, String?) -> Unit,
     onBanUser: (String, String?) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
@@ -626,12 +629,12 @@ fun OccupantActionDialog(
     if (showKickReasonDialog) {
         AlertDialog(
             onDismissRequest = { showKickReasonDialog = false },
-            title = { Text("Kick ${occupant.nickname}") },
+            title = { Text("${strings.kickUserTitlePrefix} ${occupant.nickname}") },
             text = {
                 OutlinedTextField(
                     value = reasonInput,
                     onValueChange = { reasonInput = it },
-                    label = { Text("Alasan Kick (Opsional)") },
+                    label = { Text(strings.kickReasonLabel) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -639,15 +642,15 @@ fun OccupantActionDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        onKickUser(occupant.nickname, reasonInput.ifBlank { "Di-kick oleh moderator" })
+                        onKickUser(occupant.nickname, reasonInput.ifBlank { strings.kickDefaultReason })
                         showKickReasonDialog = false
                     }
                 ) {
-                    Text("Kick")
+                    Text(strings.kickAction)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showKickReasonDialog = false }) { Text("Batal") }
+                TextButton(onClick = { showKickReasonDialog = false }) { Text(strings.cancel) }
             }
         )
     }
@@ -655,12 +658,12 @@ fun OccupantActionDialog(
     if (showBanReasonDialog) {
         AlertDialog(
             onDismissRequest = { showBanReasonDialog = false },
-            title = { Text("Ban (Outcast) ${occupant.nickname}") },
+            title = { Text("${strings.banOutcastTitlePrefix} ${occupant.nickname}") },
             text = {
                 OutlinedTextField(
                     value = reasonInput,
                     onValueChange = { reasonInput = it },
-                    label = { Text("Alasan Ban (Opsional)") },
+                    label = { Text(strings.banReasonLabel) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -668,16 +671,16 @@ fun OccupantActionDialog(
             confirmButton = {
                 Button(
                     onClick = {
-                        onBanUser(occupant.jid.ifBlank { occupant.nickname }, reasonInput.ifBlank { "Di-ban oleh moderator" })
+                        onBanUser(occupant.jid.ifBlank { occupant.nickname }, reasonInput.ifBlank { strings.banDefaultReason })
                         showBanReasonDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Ban User")
+                    Text(strings.banUserBtn)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showBanReasonDialog = false }) { Text("Batal") }
+                TextButton(onClick = { showBanReasonDialog = false }) { Text(strings.cancel) }
             }
         )
     }
@@ -702,7 +705,7 @@ fun OccupantActionDialog(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(occupant.nickname, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Role: ${occupant.role} | Afiliasi: ${occupant.affiliation}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${strings.roleLabel}: ${occupant.role} | ${strings.affiliationLabel}: ${occupant.affiliation}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         },
@@ -721,9 +724,9 @@ fun OccupantActionDialog(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Real JID", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                Text(strings.realJidLabel, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text = occupant.jid.ifBlank { "Anonim (Resource JID)" },
+                                    text = occupant.jid.ifBlank { strings.anonymousResourceJid },
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -733,11 +736,11 @@ fun OccupantActionDialog(
                                 IconButton(
                                     onClick = {
                                         clipboardManager.setText(AnnotatedString(occupant.jid))
-                                        Toast.makeText(context, "Real JID disalin!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, strings.realJidCopiedToast, Toast.LENGTH_SHORT).show()
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(Icons.Default.ContentCopy, contentDescription = "Salin JID", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.ContentCopy, contentDescription = strings.copyJidDesc, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -754,7 +757,7 @@ fun OccupantActionDialog(
                         ) {
                             Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("fitur ini hanya untuk Owner room.", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                            Text(strings.ownerOnlyFeatureNotice, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -773,7 +776,7 @@ fun OccupantActionDialog(
                         ) {
                             Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFC084FC))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Bisikan", fontSize = 12.sp)
+                            Text(strings.whisper, fontSize = 12.sp)
                         }
 
                         OutlinedButton(
@@ -782,7 +785,7 @@ fun OccupantActionDialog(
                         ) {
                             Icon(Icons.Default.AlternateEmail, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Mention", fontSize = 12.sp)
+                            Text(strings.mentionPrefix, fontSize = 12.sp)
                         }
                     }
                 }
@@ -793,7 +796,7 @@ fun OccupantActionDialog(
                     HorizontalDivider()
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Aksi Moderasi (Owner/Admin)",
+                        text = strings.moderationActionsHeader,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -808,34 +811,34 @@ fun OccupantActionDialog(
                         // Grant Roles / Affiliations
                         AssistChip(
                             onClick = { onGrantOwnership(occupant.jid.ifBlank { occupant.nickname }) },
-                            label = { Text("Owner") },
+                            label = { Text(strings.roleOwner) },
                             leadingIcon = { Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(14.dp)) }
                         )
                         AssistChip(
                             onClick = { onGrantAdmin(occupant.jid.ifBlank { occupant.nickname }) },
-                            label = { Text("Admin") },
+                            label = { Text(strings.roleAdmin) },
                             leadingIcon = { Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF4F46E5), modifier = Modifier.size(14.dp)) }
                         )
                         AssistChip(
                             onClick = { onGrantModerator(occupant.nickname) },
-                            label = { Text("Moderator") },
+                            label = { Text(strings.roleModerator) },
                             leadingIcon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         )
                         AssistChip(
                             onClick = { onGrantMembership(occupant.jid.ifBlank { occupant.nickname }) },
-                            label = { Text("Member") },
+                            label = { Text(strings.roleMember) },
                             leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         )
                         if (occupant.role == OccupantRole.VISITOR) {
                             AssistChip(
                                 onClick = { onGrantVoice(occupant.nickname) },
-                                label = { Text("Participant (+Voice)") },
+                                label = { Text(strings.grantVoiceChip) },
                                 leadingIcon = { Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                         } else {
                             AssistChip(
                                 onClick = { onRevokeVoice(occupant.nickname) },
-                                label = { Text("Visitor (-Voice)") },
+                                label = { Text(strings.revokeVoiceChip) },
                                 leadingIcon = { Icon(Icons.Default.MicOff, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                         }
@@ -843,12 +846,12 @@ fun OccupantActionDialog(
                         // Kick / Ban
                         AssistChip(
                             onClick = { showKickReasonDialog = true },
-                            label = { Text("Kick") },
+                            label = { Text(strings.kickAction) },
                             leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         )
                         AssistChip(
                             onClick = { showBanReasonDialog = true },
-                            label = { Text("Ban (Outcast)") },
+                            label = { Text(strings.banOutcastChip) },
                             leadingIcon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp)) },
                             colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
                         )
@@ -857,7 +860,7 @@ fun OccupantActionDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Tutup") }
+            TextButton(onClick = onDismiss) { Text(strings.close) }
         }
     )
 }

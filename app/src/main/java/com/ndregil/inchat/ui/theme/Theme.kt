@@ -103,7 +103,35 @@ fun MyApplicationTheme(
         )
     }
 
-    CompositionLocalProvider(LocalThemePreferences provides themePreferences) {
+    val activeLangCode = remember(themePreferences.appLanguage) {
+        if (themePreferences.appLanguage == "system") {
+            val sysLocale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                android.content.res.Resources.getSystem().configuration.locales[0]
+            } else {
+                @Suppress("DEPRECATION")
+                android.content.res.Resources.getSystem().configuration.locale
+            }
+            (sysLocale?.language ?: java.util.Locale.getDefault().language).lowercase()
+        } else {
+            themePreferences.appLanguage.lowercase()
+        }
+    }
+    val appStrings = remember(activeLangCode) {
+        com.ndregil.inchat.ui.i18n.getAppStrings(activeLangCode)
+    }
+    val layoutDirection = remember(activeLangCode) {
+        if (activeLangCode.startsWith("ar")) {
+            androidx.compose.ui.unit.LayoutDirection.Rtl
+        } else {
+            androidx.compose.ui.unit.LayoutDirection.Ltr
+        }
+    }
+
+    CompositionLocalProvider(
+        LocalThemePreferences provides themePreferences,
+        com.ndregil.inchat.ui.i18n.LocalAppStrings provides appStrings,
+        androidx.compose.ui.platform.LocalLayoutDirection provides layoutDirection
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = typography,

@@ -79,12 +79,45 @@ private fun Context.findActivity(): Activity? {
 enum class SubSettingCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     ACCOUNT("Pengaturan Akun", "Profil avatar, nama pengguna, status & akun XMPP", Icons.Default.AccountCircle),
     DISPLAY("Pengaturan Tampilan", "Mode gelap, tema chat bubble, wallpaper & favorit", Icons.Default.Palette),
+    LANGUAGE("Bahasa Aplikasi", "Pilih bahasa tampilan aplikasi (App Language)", Icons.Default.Language),
     TRANSLATION("Penerjemah Pesan", "Terjemahkan otomatis pesan masuk di kontak & room", Icons.Default.Translate),
     FONT("Pengaturan Font", "Ukuran font pesan, aplikasi & kontak", Icons.Default.TextFields),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
     MISC("Pengaturan Lainnya", "Konfigurasi tingkat lanjut, stanza stream debug", Icons.Default.Build),
-    ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info)
+    ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info);
+
+    @Composable
+    fun localizedTitle(): String {
+        val s = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+        return when (this) {
+            ACCOUNT -> s.settingsAccountTitle
+            DISPLAY -> s.settingsDisplayTitle
+            LANGUAGE -> s.settingsLanguageTitle
+            TRANSLATION -> s.settingsTranslationTitle
+            FONT -> s.settingsFontTitle
+            CONNECTION -> s.settingsConnectionTitle
+            NOTIFICATION -> s.settingsNotificationTitle
+            MISC -> s.settingsMiscTitle
+            ABOUT -> s.settingsAboutTitle
+        }
+    }
+
+    @Composable
+    fun localizedSubtitle(): String {
+        val s = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+        return when (this) {
+            ACCOUNT -> s.settingsAccountSubtitle
+            DISPLAY -> s.settingsDisplaySubtitle
+            LANGUAGE -> s.settingsLanguageSubtitle
+            TRANSLATION -> s.settingsTranslationSubtitle
+            FONT -> s.settingsFontSubtitle
+            CONNECTION -> s.settingsConnectionSubtitle
+            NOTIFICATION -> s.settingsNotificationSubtitle
+            MISC -> s.settingsMiscSubtitle
+            ABOUT -> s.settingsAboutSubtitle
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,6 +223,7 @@ fun MainSubSettingsMenu(
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showSignOutDialog by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
 
@@ -215,7 +249,7 @@ fun MainSubSettingsMenu(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Pengaturan",
+                        text = strings.settingsTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -243,7 +277,7 @@ fun MainSubSettingsMenu(
 
             item {
                 Text(
-                    text = "Sub Pengaturan",
+                    text = strings.subSettingsSection,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -263,7 +297,7 @@ fun MainSubSettingsMenu(
             // Session & Application Management
             item {
                 Text(
-                    text = "Sesi & Aplikasi",
+                    text = strings.sessionAndAppSection,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -304,7 +338,7 @@ fun MainSubSettingsMenu(
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.Logout,
-                                            contentDescription = "Sign Out",
+                                            contentDescription = strings.logout,
                                             tint = AwayAmber,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -313,12 +347,12 @@ fun MainSubSettingsMenu(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Keluar Akun (Sign Out)",
+                                        text = strings.signOutTitle,
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Hapus sesi login di perangkat dan hentikan koneksi.",
+                                        text = strings.signOutSubtitle,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -351,7 +385,7 @@ fun MainSubSettingsMenu(
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Default.PowerSettingsNew,
-                                            contentDescription = "Exit App",
+                                            contentDescription = strings.exitAppTitle,
                                             tint = DndRed,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -360,13 +394,13 @@ fun MainSubSettingsMenu(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Keluar Aplikasi (Exit)",
+                                        text = strings.exitAppTitle,
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = DndRed
                                     )
                                     Text(
-                                        text = "Tutup aplikasi dan hentikan semua proses latar belakang.",
+                                        text = strings.exitAppSubtitle,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -386,10 +420,10 @@ fun MainSubSettingsMenu(
         AlertDialog(
             onDismissRequest = { showSignOutDialog = false },
             icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = AwayAmber, modifier = Modifier.size(32.dp)) },
-            title = { Text("Konfirmasi Keluar Akun", fontWeight = FontWeight.Bold) },
+            title = { Text(strings.confirmSignOutTitle, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial pada perangkat akan dihapus, koneksi ditutup, dan aplikasi akan berhenti berjalan.",
+                    "${strings.signOutSubtitle} (${currentAccount.jid.ifBlank { strings.appName }})",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -403,7 +437,7 @@ fun MainSubSettingsMenu(
                     colors = ButtonDefaults.buttonColors(containerColor = AwayAmber, contentColor = Color.White),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Keluar Akun", fontWeight = FontWeight.Bold)
+                    Text(strings.logout, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -411,7 +445,7 @@ fun MainSubSettingsMenu(
                     onClick = { showSignOutDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -421,10 +455,10 @@ fun MainSubSettingsMenu(
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
             icon = { Icon(Icons.Default.PowerSettingsNew, null, tint = DndRed, modifier = Modifier.size(32.dp)) },
-            title = { Text("Hentikan & Keluar Aplikasi?", fontWeight = FontWeight.Bold) },
+            title = { Text(strings.confirmExitTitle, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Aplikasi akan ditutup dan seluruh proses latar belakang (termasuk foreground service anti-kill, koneksi XMPP, dan penjadwalan) akan dihentikan sepenuhnya.\n\nAkun Anda tetap tersimpan untuk login otomatis saat aplikasi dibuka kembali.",
+                    strings.exitAppSubtitle,
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -440,7 +474,7 @@ fun MainSubSettingsMenu(
                     colors = ButtonDefaults.buttonColors(containerColor = DndRed),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Hentikan & Keluar", fontWeight = FontWeight.Bold)
+                    Text(strings.confirmExitBtn, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -448,7 +482,7 @@ fun MainSubSettingsMenu(
                     onClick = { showExitDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -494,12 +528,12 @@ fun SubSettingTileCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = category.title,
+                    text = category.localizedTitle(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = category.subtitle,
+                    text = category.localizedSubtitle(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -558,19 +592,20 @@ fun SubSettingDetailScreen(
                             .padding(horizontal = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
                     IconButton(
                         onClick = onBack,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Kembali ke Pengaturan",
+                            contentDescription = strings.backToSettings,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(2.dp))
                     Text(
-                        text = category.title,
+                        text = category.localizedTitle(),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -601,6 +636,10 @@ fun SubSettingDetailScreen(
                     onNavigateToBookmarks = onNavigateToBookmarks,
                     onNavigateToCustomTheme = onNavigateToCustomTheme
                 )
+                SubSettingCategory.LANGUAGE -> LanguageSubSettings(
+                    themePreferences = themePreferences,
+                    onUpdateThemePreferences = onUpdateThemePreferences
+                )
                 SubSettingCategory.TRANSLATION -> TranslationSubSettings(
                     translationPreferences = translationPreferences,
                     onUpdateTranslationPreferences = onUpdateTranslationPreferences
@@ -627,6 +666,7 @@ fun SubSettingDetailScreen(
 
 @Composable
 fun MiscSubSettings() {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val viewModel: com.ndregil.inchat.ui.XmppViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     Column(modifier = Modifier.padding(16.dp)) {
         Surface(
@@ -639,8 +679,8 @@ fun MiscSubSettings() {
                 Icon(Icons.Default.Code, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
-                    Text("Stanza XML Stream (Debug)", fontWeight = FontWeight.Bold)
-                    Text("Lihat lalu lintas data mentah XMPP.", style = MaterialTheme.typography.bodySmall)
+                    Text(strings.stanzaDebugTitle, fontWeight = FontWeight.Bold)
+                    Text(strings.stanzaDebugSubtitle, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -663,6 +703,7 @@ fun AccountSubSettings(
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {}
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     var showSignOutDialog by remember { mutableStateOf(false) }
@@ -696,22 +737,22 @@ fun AccountSubSettings(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Informasi Detail Akun", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(strings.accountDetailInfo, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Bare JID", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.bareJidLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (currentAccount.jid.isNotBlank()) currentAccount.jid else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Nickname", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.nicknameLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (currentAccount.nickname.isNotBlank()) currentAccount.nickname else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Domain Server", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.serverDomainLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (currentAccount.domain.isNotBlank()) currentAccount.domain else "-", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
@@ -727,7 +768,7 @@ fun AccountSubSettings(
                         ) {
                             Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Konfigurasi Server")
+                            Text(strings.serverConfigBtn)
                         }
 
                         if (connectionStatus == ConnectionStatus.CONNECTED) {
@@ -738,7 +779,7 @@ fun AccountSubSettings(
                             ) {
                                 Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Putuskan")
+                                Text(strings.disconnectBtn)
                             }
                         } else {
                             Button(
@@ -747,7 +788,7 @@ fun AccountSubSettings(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Hubungkan")
+                                Text(strings.connectBtn)
                             }
                         }
                     }
@@ -764,7 +805,7 @@ fun AccountSubSettings(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Tindakan Sesi & Aplikasi", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(strings.sessionActionsHeader, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -778,7 +819,7 @@ fun AccountSubSettings(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Logout, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Keluar Akun", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(strings.logout, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
                         Button(
@@ -789,7 +830,7 @@ fun AccountSubSettings(
                         ) {
                             Icon(Icons.Default.PowerSettingsNew, null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Keluar Aplikasi", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(strings.exitAppTitle, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                 }
@@ -801,10 +842,10 @@ fun AccountSubSettings(
         AlertDialog(
             onDismissRequest = { showSignOutDialog = false },
             icon = { Icon(Icons.AutoMirrored.Filled.Logout, null, tint = AwayAmber, modifier = Modifier.size(32.dp)) },
-            title = { Text("Konfirmasi Keluar Akun", fontWeight = FontWeight.Bold) },
+            title = { Text(strings.confirmSignOutTitle, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Apakah Anda yakin ingin keluar dari akun (${currentAccount.jid.ifBlank { "Akun Aktif" }})?\n\nSesi kredensial dan data room akun ini akan dibersihkan, koneksi diputus, dan Anda dapat masuk dengan akun lain.",
+                    "${currentAccount.jid.ifBlank { strings.noActiveAccount }}\n\n${strings.signOutConfirmDesc}",
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -817,7 +858,7 @@ fun AccountSubSettings(
                     colors = ButtonDefaults.buttonColors(containerColor = AwayAmber, contentColor = Color.White),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Keluar Akun", fontWeight = FontWeight.Bold)
+                    Text(strings.logout, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -825,7 +866,7 @@ fun AccountSubSettings(
                     onClick = { showSignOutDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -835,10 +876,10 @@ fun AccountSubSettings(
         AlertDialog(
             onDismissRequest = { showExitDialog = false },
             icon = { Icon(Icons.Default.PowerSettingsNew, null, tint = DndRed, modifier = Modifier.size(32.dp)) },
-            title = { Text("Hentikan & Keluar Aplikasi?", fontWeight = FontWeight.Bold) },
+            title = { Text(strings.confirmExitTitle, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Aplikasi akan ditutup dan seluruh proses latar belakang (termasuk foreground service anti-kill, koneksi XMPP, dan penjadwalan) akan dihentikan sepenuhnya.\n\nAkun Anda tetap tersimpan untuk login otomatis saat aplikasi dibuka kembali.",
+                    strings.exitAppConfirmDesc,
                     style = MaterialTheme.typography.bodyMedium
                 )
             },
@@ -854,7 +895,7 @@ fun AccountSubSettings(
                     colors = ButtonDefaults.buttonColors(containerColor = DndRed),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Hentikan & Keluar", fontWeight = FontWeight.Bold)
+                    Text(strings.confirmExitBtn, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -862,7 +903,7 @@ fun AccountSubSettings(
                     onClick = { showExitDialog = false },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -879,6 +920,7 @@ fun DisplaySubSettings(
     onNavigateToBookmarks: () -> Unit,
     onNavigateToCustomTheme: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(top = 0.dp, bottom = 8.dp),
@@ -904,9 +946,9 @@ fun DisplaySubSettings(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Mode Gelap (Dark Mode)", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(strings.darkModeTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Text(
-                                    if (isDarkMode) "Tema gelap aktif untuk kenyamanan mata" else "Tema terang aktif",
+                                    if (isDarkMode) strings.darkModeOnDesc else strings.darkModeOffDesc,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -930,8 +972,8 @@ fun DisplaySubSettings(
                             Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Kelola Ruangan Favorit & Bookmarks", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Atur auto-join dan daftar favorit", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(strings.manageBookmarksTitleItem, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(strings.manageBookmarksDescItem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -948,8 +990,8 @@ fun DisplaySubSettings(
                             Icon(Icons.Default.ColorLens, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Tema Kustom & Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                Text("Ganti warna aksen, chat, dan latar belakang", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(strings.customThemeTitleItem, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(strings.customThemeDescItem, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -972,6 +1014,7 @@ fun ConnectionSubSettings(
     onConnect: (XmppAccount, String) -> Unit,
     onDisconnect: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showXepInfoDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -986,32 +1029,43 @@ fun ConnectionSubSettings(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Konfigurasi Server & TLS", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(strings.serverTlsConfigHeader, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Host Server", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.hostServerLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (currentAccount.host.isNotBlank()) currentAccount.host else currentAccount.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Port XMPP", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.xmppPortLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${currentAccount.port}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Enkripsi TLS", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (currentAccount.useTls) "STARTTLS Direct" else "Disabled", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = if (currentAccount.useTls) OnlineGreen else AwayAmber)
+                        Text(strings.tlsEncryptionLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (currentAccount.useTls) strings.startTlsDirect else strings.disabledLabel, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = if (currentAccount.useTls) OnlineGreen else AwayAmber)
                     }
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Status Koneksi", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(connectionStatus.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = when(connectionStatus) {
-                            ConnectionStatus.CONNECTED -> OnlineGreen
-                            ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber
-                            else -> DndRed
-                        })
+                        Text(strings.connectionStatusLabel, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = when (connectionStatus) {
+                                ConnectionStatus.CONNECTED -> strings.statusConnected
+                                ConnectionStatus.CONNECTING -> strings.statusConnecting
+                                ConnectionStatus.AUTHENTICATING -> strings.authenticating
+                                ConnectionStatus.ERROR -> strings.statusError
+                                ConnectionStatus.DISCONNECTED -> strings.statusDisconnected
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = when(connectionStatus) {
+                                ConnectionStatus.CONNECTED -> OnlineGreen
+                                ConnectionStatus.CONNECTING, ConnectionStatus.AUTHENTICATING -> AwayAmber
+                                else -> DndRed
+                            }
+                        )
                     }
                 }
             }
@@ -1029,8 +1083,8 @@ fun ConnectionSubSettings(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Approve Subscription Requests", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        Text("Otomatis menyetujui permintaan kontak masuk (privacy control)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(strings.autoApproveSubTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(strings.autoApproveSubDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = autoApproveSubscription,
@@ -1056,7 +1110,7 @@ fun ConnectionSubSettings(
                     Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Informasi Standar & Protokol XEP", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(strings.xepStandardsInfoTitle, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Text("XEP-0048, XEP-0402, XEP-0166, XEP-0077, XEP-0153, XEP-0084, XEP-0184", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1068,20 +1122,20 @@ fun ConnectionSubSettings(
     if (showXepInfoDialog) {
         AlertDialog(
             onDismissRequest = { showXepInfoDialog = false },
-            title = { Text("Spesifikasi & Standar XEP") },
+            title = { Text(strings.xepSpecsDialogTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("• XEP-0048 & XEP-0402: Bookmarks MUC & PEP Native Bookmarks.")
-                    Text("• XEP-0184: Message Delivery Receipts (tanda terima pesan).")
-                    Text("• XEP-0166 & XEP-0167: Jingle Audio & Video Calling.")
-                    Text("• XEP-0077: In-Band Registration (pendaftaran akun).")
-                    Text("• XEP-0153 & XEP-0084: vCard & PEP User Avatar sync.")
-                    Text("• XEP-0045: Multi-User Chat moderasi dan hak akses.")
+                    Text(strings.xepItemBookmarks)
+                    Text(strings.xepItemReceipts)
+                    Text(strings.xepItemJingle)
+                    Text(strings.xepItemIbr)
+                    Text(strings.xepItemAvatar)
+                    Text(strings.xepItemMuc)
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showXepInfoDialog = false }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             }
         )
@@ -1093,6 +1147,7 @@ fun ConnectionSubSettings(
 // ==========================================
 @Composable
 fun AboutSubSettings() {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1110,7 +1165,7 @@ fun AboutSubSettings() {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_client_inchat),
-                    contentDescription = "InChat Logo",
+                    contentDescription = strings.appLogoDesc,
                     modifier = Modifier.size(54.dp)
                 )
             }
@@ -1119,14 +1174,14 @@ fun AboutSubSettings() {
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "InChat",
+            text = strings.appName,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
         )
 
         Text(
-            text = "XMPP Client for Android",
+            text = strings.aboutTagline,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1138,7 +1193,7 @@ fun AboutSubSettings() {
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
             Text(
-                text = "Version: ${BuildConfig.VERSION_NAME}",
+                text = "${strings.versionPrefix} ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
                 fontWeight = FontWeight.SemiBold
@@ -1160,6 +1215,7 @@ fun AboutSubSettings() {
 // ==========================================
 @Composable
 fun NotificationSubSettings() {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as PowerManager }
     var isIgnoringBatteryOptimizations by remember {
@@ -1186,13 +1242,25 @@ fun NotificationSubSettings() {
     }
 
     // Notification Sound & Vibration States
-    var privateSound by remember { mutableStateOf("Default (Chime)") }
-    var mucSound by remember { mutableStateOf("Default (Group Beep)") }
+    var privateSound by remember { mutableStateOf("Default") }
+    var mucSound by remember { mutableStateOf("Default") }
     var vibrationEnabled by remember { mutableStateOf(true) }
     var soundPreviewToast by remember { mutableStateOf<String?>(null) }
 
     val soundOptions = listOf("Default", "Whistle", "Pop", "Ping", "Chime", "Silent")
     val mucSoundOptions = listOf("Default", "Group Beep", "Chime", "Bubble", "Silent")
+
+    fun localizedSoundName(key: String): String = when (key) {
+        "Default" -> strings.soundDefault
+        "Whistle" -> strings.soundWhistle
+        "Pop" -> strings.soundPop
+        "Ping" -> strings.soundPing
+        "Chime" -> strings.soundChime
+        "Silent" -> strings.soundSilent
+        "Group Beep" -> strings.soundGroupBeep
+        "Bubble" -> strings.soundBubble
+        else -> key
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1231,12 +1299,12 @@ fun NotificationSubSettings() {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    "Notifikasi Semua Pesan",
+                                    strings.notifAllMessagesTitle,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    if (isAllMessagesPushEnabled) "Aktif untuk seluruh pesan masuk" else "Notifikasi dinonaktifkan",
+                                    if (isAllMessagesPushEnabled) strings.notifAllMessagesOn else strings.notifAllMessagesOff,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (isAllMessagesPushEnabled) OnlineGreen else MaterialTheme.colorScheme.error
                                 )
@@ -1250,7 +1318,7 @@ fun NotificationSubSettings() {
                     }
 
                     Text(
-                        "Tampilkan notifikasi bilah status & heads-up untuk seluruh pesan masuk: Room MUC, Obrolan Langsung (1-on-1), dan Bisikan Rahasia.",
+                        strings.notifAllMessagesDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 10.dp)
@@ -1266,8 +1334,8 @@ fun NotificationSubSettings() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Notifikasi Grup MUC", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text(if (isMucMentionOnly) "Hanya saat disebut (mention)" else "Semua pesan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            Text(strings.notifMucGroupTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(if (isMucMentionOnly) strings.notifMucMentionOnly else strings.notifMucAllMessages, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                         }
                         Switch(
                             checked = isMucMentionOnly,
@@ -1298,13 +1366,13 @@ fun NotificationSubSettings() {
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        "Izin Notifikasi Belum Diberikan",
+                                        strings.notifPermMissingTitle,
                                         fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.error
                                     )
                                     Text(
-                                        "Android 13+ memerlukan izin sistem agar pesan dapat muncul di bilah notifikasi.",
+                                        strings.notifPermMissingDesc,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1319,7 +1387,7 @@ fun NotificationSubSettings() {
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                                 ) {
-                                    Text("Izinkan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text(strings.allowAction, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1331,7 +1399,7 @@ fun NotificationSubSettings() {
 
                     // Test Notification Quick Actions
                     Text(
-                        "Uji Coba Notifikasi Sistem Langsung",
+                        strings.testNotifHeader,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -1346,19 +1414,19 @@ fun NotificationSubSettings() {
                                 val testPayload = PushMessagePayload(
                                     roomJid = "general@conference.xmpp.today",
                                     senderNickname = "Budi (MUC)",
-                                    body = "Halo rekan-rekan! Selamat datang di room diskusi.",
+                                    body = strings.testNotifMucSampleBody,
                                     isWhisper = false,
                                     isDirect = false,
-                                    roomTitle = "Ruang Umum MUC"
+                                    roomTitle = strings.testNotifMucSampleTitle
                                 )
                                 FcmPushManager.showSystemNotification(context, testPayload)
-                                soundPreviewToast = "Notifikasi MUC dikirim ke bilah status"
+                                soundPreviewToast = strings.testNotifMucToast
                             },
                             modifier = Modifier.weight(1f).testTag("btn_test_notification_muc"),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Room MUC", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(strings.testNotifMucBtn, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
 
                         OutlinedButton(
@@ -1366,19 +1434,19 @@ fun NotificationSubSettings() {
                                 val testPayload = PushMessagePayload(
                                     roomJid = "alice@xmpp.today",
                                     senderNickname = "Alice W.",
-                                    body = "Hai! Ini uji notifikasi pesan obrolan pribadi 1-on-1.",
+                                    body = strings.testNotifDirectSampleBody,
                                     isWhisper = false,
                                     isDirect = true,
                                     roomTitle = "Alice Wonderland"
                                 )
                                 FcmPushManager.showSystemNotification(context, testPayload)
-                                soundPreviewToast = "Notifikasi 1-on-1 dikirim ke bilah status"
+                                soundPreviewToast = strings.testNotifDirectToast
                             },
                             modifier = Modifier.weight(1f).testTag("btn_test_notification_direct"),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("1-on-1 Direct", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(strings.testNotifDirectBtn, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
 
                         OutlinedButton(
@@ -1386,19 +1454,19 @@ fun NotificationSubSettings() {
                                 val testPayload = PushMessagePayload(
                                     roomJid = "general@conference.xmpp.today",
                                     senderNickname = "Charlie",
-                                    body = "Psst.. ini notifikasi bisikan rahasia khusus kamu.",
+                                    body = strings.testNotifWhisperSampleBody,
                                     isWhisper = true,
                                     isDirect = false,
-                                    roomTitle = "Ruang Umum MUC"
+                                    roomTitle = strings.testNotifMucSampleTitle
                                 )
                                 FcmPushManager.showSystemNotification(context, testPayload)
-                                soundPreviewToast = "Notifikasi bisikan dikirim ke bilah status"
+                                soundPreviewToast = strings.testNotifWhisperToast
                             },
                             modifier = Modifier.weight(1f).testTag("btn_test_notification_whisper"),
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Bisikan", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(strings.testNotifWhisperBtn, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -1423,14 +1491,14 @@ fun NotificationSubSettings() {
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            "Suara & Getar Notifikasi Pesan",
+                            strings.notifSoundVibrationHeader,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Text(
-                        "Pilih nada dering dan suara khusus untuk pesan pribadi (1-on-1) dan pesan grup MUC.",
+                        strings.notifSoundVibrationDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
@@ -1443,8 +1511,8 @@ fun NotificationSubSettings() {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Getar Saat Pesan Masuk", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text("Getar perangkat ketika notifikasi diterima", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.vibrateOnIncomingTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(strings.vibrateOnIncomingDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = vibrationEnabled,
@@ -1458,7 +1526,7 @@ fun NotificationSubSettings() {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Private Message Sound Selector
-                    Text("Suara Pesan Pribadi (1-on-1)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(strings.privateSoundLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(6.dp))
 
                     androidx.compose.foundation.lazy.LazyRow(
@@ -1467,14 +1535,15 @@ fun NotificationSubSettings() {
                     ) {
                         items(soundOptions.size) { idx ->
                             val sound = soundOptions[idx]
+                            val soundLabel = localizedSoundName(sound)
                             val isSelected = privateSound == sound
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
                                     privateSound = sound
-                                    soundPreviewToast = "Suara pesan pribadi diatur ke: $sound"
+                                    soundPreviewToast = "${strings.privateSoundSetToastPrefix} $soundLabel"
                                 },
-                                label = { Text(sound, fontSize = 11.sp) },
+                                label = { Text(soundLabel, fontSize = 11.sp) },
                                 leadingIcon = if (isSelected) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                                 } else null,
@@ -1486,7 +1555,7 @@ fun NotificationSubSettings() {
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // MUC Message Sound Selector
-                    Text("Suara Pesan Grup MUC", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(strings.mucSoundLabel, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(6.dp))
 
                     androidx.compose.foundation.lazy.LazyRow(
@@ -1495,14 +1564,15 @@ fun NotificationSubSettings() {
                     ) {
                         items(mucSoundOptions.size) { idx ->
                             val sound = mucSoundOptions[idx]
+                            val soundLabel = localizedSoundName(sound)
                             val isSelected = mucSound == sound
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
                                     mucSound = sound
-                                    soundPreviewToast = "Suara pesan MUC diatur ke: $sound"
+                                    soundPreviewToast = "${strings.mucSoundSetToastPrefix} $soundLabel"
                                 },
-                                label = { Text(sound, fontSize = 11.sp) },
+                                label = { Text(soundLabel, fontSize = 11.sp) },
                                 leadingIcon = if (isSelected) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                                 } else null,
@@ -1549,14 +1619,14 @@ fun NotificationSubSettings() {
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            "Stabilitas Latar Belakang & Anti-Kill",
+                            strings.batteryAntiKillHeader,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Text(
-                        "Menjamin aplikasi tidak dimatikan oleh sistem saat layar mati agar pesan tetap masuk.",
+                        strings.batteryAntiKillDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
@@ -1587,13 +1657,13 @@ fun NotificationSubSettings() {
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    if (isIgnoringBatteryOptimizations) "Optimasi Baterai: Aman" else "Optimasi Baterai: Terbatas",
+                                    if (isIgnoringBatteryOptimizations) strings.batteryOptSafeTitle else strings.batteryOptRestrictedTitle,
                                     style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = if (isIgnoringBatteryOptimizations) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error
                                 )
                                 Text(
-                                    if (isIgnoringBatteryOptimizations) "Aplikasi diizinkan berjalan tanpa batas." else "Sistem mungkin menghentikan aplikasi secara paksa.",
+                                    if (isIgnoringBatteryOptimizations) strings.batteryOptSafeDesc else strings.batteryOptRestrictedDesc,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1621,7 +1691,7 @@ fun NotificationSubSettings() {
                                         contentColor = MaterialTheme.colorScheme.onError
                                     )
                                 ) {
-                                    Text("Perbaiki", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(strings.fixAction, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -1631,12 +1701,12 @@ fun NotificationSubSettings() {
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text("Metode Anti-Kill (Manual)", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                    Text(strings.antiKillManualHeader, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(12.dp))
 
                     AntiKillMethodRow(
-                        title = "Foreground Service",
-                        description = "Ikon aktif di notifikasi (XEP-Standard)",
+                        title = strings.foregroundServiceTitle,
+                        description = strings.foregroundServiceDesc,
                         onStart = { XmppForegroundService.startService(context) },
                         onStop = { XmppForegroundService.stopService(context) }
                     )
@@ -1644,8 +1714,8 @@ fun NotificationSubSettings() {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     AntiKillMethodRow(
-                        title = "WorkManager (Pesan)",
-                        description = "Penjadwalan sistem modern (Background)",
+                        title = strings.workManagerTitle,
+                        description = strings.workManagerDesc,
                         onStart = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(context) },
                         onStop = { com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.stop(context) },
                         primaryColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -1671,6 +1741,7 @@ fun AntiKillMethodRow(
     primaryColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primaryContainer,
     onPrimaryColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onPrimaryContainer
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -1682,13 +1753,13 @@ fun AntiKillMethodRow(
                     onClick = onStart,
                     modifier = Modifier.size(36.dp).background(primaryColor, CircleShape)
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = "Start", tint = onPrimaryColor, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.PlayArrow, contentDescription = strings.startAction, tint = onPrimaryColor, modifier = Modifier.size(20.dp))
                 }
                 IconButton(
                     onClick = onStop,
                     modifier = Modifier.size(36.dp).border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), CircleShape)
                 ) {
-                    Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Default.Stop, contentDescription = strings.stopAction, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -1703,6 +1774,7 @@ fun AccountConnectionCard(
     onManageAccountClick: () -> Unit,
     onUpdateAvatarClick: () -> Unit = {}
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1743,7 +1815,7 @@ fun AccountConnectionCard(
                     if (decodedBitmap != null) {
                         Image(
                             bitmap = decodedBitmap.asImageBitmap(),
-                            contentDescription = "Foto Profil",
+                            contentDescription = strings.profilePhotoDesc,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
@@ -1768,7 +1840,7 @@ fun AccountConnectionCard(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Edit,
-                            contentDescription = "Ganti Foto",
+                            contentDescription = strings.changePhoto,
                             modifier = Modifier.size(10.dp),
                             tint = MaterialTheme.colorScheme.onPrimary
                         )
@@ -1780,7 +1852,7 @@ fun AccountConnectionCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (currentAccount.jid.isNotBlank()) currentAccount.jid else "Belum ada akun aktif",
+                    text = if (currentAccount.jid.isNotBlank()) currentAccount.jid else strings.noActiveAccount,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -1801,11 +1873,11 @@ fun AccountConnectionCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = when (connectionStatus) {
-                            ConnectionStatus.CONNECTED -> "Terhubung"
-                            ConnectionStatus.CONNECTING -> "Menghubungkan..."
-                            ConnectionStatus.AUTHENTICATING -> "Autentikasi..."
-                            ConnectionStatus.ERROR -> "Koneksi Error"
-                            ConnectionStatus.DISCONNECTED -> "Terputus"
+                            ConnectionStatus.CONNECTED -> strings.statusConnected
+                            ConnectionStatus.CONNECTING -> strings.statusConnecting
+                            ConnectionStatus.AUTHENTICATING -> strings.authenticating
+                            ConnectionStatus.ERROR -> strings.statusError
+                            ConnectionStatus.DISCONNECTED -> strings.statusDisconnected
                         },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1831,6 +1903,7 @@ fun TranslationSubSettings(
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences,
     onUpdateTranslationPreferences: (com.ndregil.inchat.data.model.TranslationPreferences) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showLanguagePicker by remember { mutableStateOf(false) }
     val supportedLangs = com.ndregil.inchat.data.network.TranslationService.SUPPORTED_LANGUAGES
 
@@ -1860,9 +1933,9 @@ fun TranslationSubSettings(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Otomatis Terjemahkan Pesan", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(strings.autoTranslateTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 Text(
-                                    if (translationPreferences.isAutoTranslateEnabled) "Pesan masuk di kontak & room otomatis diterjemahkan" else "Penerjemah otomatis dinonaktifkan",
+                                    if (translationPreferences.isAutoTranslateEnabled) strings.autoTranslateOnDesc else strings.autoTranslateOffDesc,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1891,10 +1964,10 @@ fun TranslationSubSettings(
                             Icon(Icons.Default.Translate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Bahasa Target", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Text(strings.targetLanguageTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                                 val currentLangName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(translationPreferences.targetLanguageCode)
                                 Text(
-                                    "Terjemahkan ke: $currentLangName (${translationPreferences.targetLanguageCode})",
+                                    "${strings.translateToPrefix} $currentLangName (${translationPreferences.targetLanguageCode})",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1913,7 +1986,7 @@ fun TranslationSubSettings(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Cakupan Penerjemahan", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Text(strings.translationScopeHeader, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                     Divider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
 
@@ -1923,8 +1996,8 @@ fun TranslationSubSettings(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Terjemahkan Pesan Room (MUC)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text("Pesan masuk di group chat / ruangan", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.translateRoomsTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(strings.translateRoomsDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = translationPreferences.translateRooms,
@@ -1940,8 +2013,8 @@ fun TranslationSubSettings(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Terjemahkan Pesan Kontak (1-on-1)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text("Pesan pribadi langsung dari kontak", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.translateContactsTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(strings.translateContactsDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = translationPreferences.translateContacts,
@@ -1957,8 +2030,8 @@ fun TranslationSubSettings(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Terjemahkan Pesan Keluar (Outgoing)", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text("Pesan yang Anda kirim sendiri ke room/kontak", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(strings.translateOutgoingTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(strings.translateOutgoingDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
                             checked = translationPreferences.translateOutgoing,
@@ -1982,7 +2055,7 @@ fun TranslationSubSettings(
                     Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Fitur penerjemahan pesan bekerja secara otomatis untuk pesan masuk. Anda juga dapat mengetuk opsi 'Terjemahkan' pada pesan apa saja di chat untuk menerjemahkan secara manual.",
+                        text = strings.translationInfoNote,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1994,7 +2067,7 @@ fun TranslationSubSettings(
     if (showLanguagePicker) {
         AlertDialog(
             onDismissRequest = { showLanguagePicker = false },
-            title = { Text("Pilih Bahasa Target Penerjemahan", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text(strings.pickTargetLanguageTitle, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(supportedLangs.size) { idx ->
@@ -2030,7 +2103,7 @@ fun TranslationSubSettings(
             },
             confirmButton = {
                 TextButton(onClick = { showLanguagePicker = false }) {
-                    Text("Tutup")
+                    Text(strings.close)
                 }
             }
         )
@@ -2043,6 +2116,7 @@ fun FontSettings(
     themePreferences: com.ndregil.inchat.data.model.ThemePreferences,
     onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
 
     var draftMessageSize by remember(themePreferences) { mutableStateOf(themePreferences.messageFontSizeSp) }
@@ -2074,7 +2148,7 @@ fun FontSettings(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Pengaturan Font",
+                            text = strings.settingsFontTitle,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -2084,7 +2158,7 @@ fun FontSettings(
                                 color = MaterialTheme.colorScheme.tertiaryContainer
                             ) {
                                 Text(
-                                    text = "Belum disimpan",
+                                    text = strings.unsavedBadge,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     fontWeight = FontWeight.SemiBold,
@@ -2094,7 +2168,7 @@ fun FontSettings(
                         }
                     }
                     Text(
-                        text = "Pilih jenis huruf dan ukuran teks, lalu tekan Simpan untuk menerapkan ke seluruh aplikasi.",
+                        text = strings.fontSettingsSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2120,7 +2194,7 @@ fun FontSettings(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Pengaturan font berhasil disimpan dan diterapkan.",
+                                text = strings.fontSettingsSavedBanner,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontWeight = FontWeight.SemiBold
@@ -2145,7 +2219,7 @@ fun FontSettings(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "Pratinjau Langsung",
+                            text = strings.livePreviewHeader,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
@@ -2173,14 +2247,14 @@ fun FontSettings(
                             }
                             Column {
                                 Text(
-                                    text = "Ndregil (Nama Kontak)",
+                                    text = strings.previewContactName,
                                     fontFamily = previewFamily,
                                     fontSize = draftContactSize.sp,
                                     lineHeight = (draftContactSize * 1.3f).sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "Pratinjau teks antarmuka aplikasi",
+                                    text = strings.previewAppText,
                                     fontFamily = previewFamily,
                                     fontSize = draftAppSize.sp,
                                     lineHeight = (draftAppSize * 1.3f).sp,
@@ -2198,7 +2272,7 @@ fun FontSettings(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "Halo! Ini contoh tampilan teks pesan obrolan dengan ukuran ${draftMessageSize.toInt()}sp.",
+                                text = "${strings.previewMessagePrefix} ${draftMessageSize.toInt()}sp.",
                                 fontFamily = previewFamily,
                                 fontSize = draftMessageSize.sp,
                                 lineHeight = (draftMessageSize * 1.4f).sp,
@@ -2223,7 +2297,7 @@ fun FontSettings(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "Jenis Huruf (Font Family)",
+                            text = strings.fontFamilyHeader,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -2266,8 +2340,8 @@ fun FontSettings(
             // Font Size Sliders
             item {
                 FontSizeSlider(
-                    label = "Ukuran Font Pesan",
-                    description = "Mengatur ukuran teks di gelembung chat dan kolom ketik pesan.",
+                    label = strings.messageFontSizeLabel,
+                    description = strings.messageFontSizeDesc,
                     value = draftMessageSize,
                     testTag = "slider_message_font",
                     onValueChange = {
@@ -2278,8 +2352,8 @@ fun FontSettings(
             }
             item {
                 FontSizeSlider(
-                    label = "Ukuran Font Aplikasi",
-                    description = "Mengatur skala huruf menu, label, dan antarmuka aplikasi.",
+                    label = strings.appFontSizeLabel,
+                    description = strings.appFontSizeDesc,
                     value = draftAppSize,
                     testTag = "slider_app_font",
                     onValueChange = {
@@ -2290,8 +2364,8 @@ fun FontSettings(
             }
             item {
                 FontSizeSlider(
-                    label = "Ukuran Font Kontak",
-                    description = "Mengatur ukuran nama kontak, ruang obrolan, dan peserta room.",
+                    label = strings.contactFontSizeLabel,
+                    description = strings.contactFontSizeDesc,
                     value = draftContactSize,
                     testTag = "slider_contact_font",
                     onValueChange = {
@@ -2333,7 +2407,7 @@ fun FontSettings(
                             )
                         )
                         justSaved = true
-                        Toast.makeText(context, "Pengaturan font direset ke default", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.fontResetToast, Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier
                         .weight(1f)
@@ -2346,7 +2420,7 @@ fun FontSettings(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Reset")
+                    Text(strings.resetBtn)
                 }
 
                 Button(
@@ -2360,7 +2434,7 @@ fun FontSettings(
                             )
                         )
                         justSaved = true
-                        Toast.makeText(context, "Pengaturan font berhasil disimpan", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.fontSavedToast, Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier
                         .weight(1.4f)
@@ -2373,7 +2447,7 @@ fun FontSettings(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (hasChanges) "Simpan" else "Simpan Pengaturan")
+                    Text(if (hasChanges) strings.save else strings.saveSettingsBtn)
                 }
             }
         }
@@ -2388,6 +2462,7 @@ fun FontSizeSlider(
     testTag: String = "",
     onValueChange: (Float) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -2435,11 +2510,168 @@ fun FontSizeSlider(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text("10sp", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("14sp (Default)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.fontSizeDefaultLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("24sp", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
 }
+
+@Composable
+fun LanguageSubSettings(
+    themePreferences: com.ndregil.inchat.data.model.ThemePreferences,
+    onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit
+) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+    val currentCode = themePreferences.appLanguage
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.size(46.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = strings.selectLanguage,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = strings.languageActiveHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = strings.settingsLanguageTitle,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp, top = 6.dp)
+            )
+        }
+
+        items(com.ndregil.inchat.ui.i18n.SUPPORTED_APP_LANGUAGES.size) { index ->
+            val lang = com.ndregil.inchat.ui.i18n.SUPPORTED_APP_LANGUAGES[index]
+            val isSelected = currentCode.equals(lang.code, ignoreCase = true)
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onUpdateThemePreferences(themePreferences.copy(appLanguage = lang.code))
+                    }
+                    .testTag("language_option_${lang.code}"),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSelected)
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                    else
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                ),
+                border = BorderStroke(
+                    width = if (isSelected) 1.5.dp else 0.8.dp,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = lang.flagEmoji,
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = lang.nativeName,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                            if (lang.code == "system") {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = strings.followSystemLanguage,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        if (lang.displayName != lang.nativeName) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = lang.displayName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else if (lang.code == "system") {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = strings.followSystemLanguageDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = {
+                            onUpdateThemePreferences(themePreferences.copy(appLanguage = lang.code))
+                        },
+                        colors = RadioButtonDefaults.colors(
+                            selectedColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 

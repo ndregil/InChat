@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.XmppRoom
 import com.ndregil.inchat.ui.components.RoomAvatarBadge
+import com.ndregil.inchat.ui.i18n.LocalAppStrings
 
 val ROOM_PRESET_COLORS = listOf(
     "#6366F1" to "Violet",
@@ -52,6 +53,7 @@ fun ManageBookmarksScreen(
     modifier: Modifier = Modifier
 ) {
     BackHandler { onBack() }
+    val strings = LocalAppStrings.current
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -74,13 +76,13 @@ fun ManageBookmarksScreen(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Kembali",
+                            contentDescription = strings.back,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Kelola Favorit & Warna Room",
+                        text = strings.manageBookmarksTitle,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -93,7 +95,7 @@ fun ManageBookmarksScreen(
                 modifier = Modifier.fillMaxSize().padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Tidak ada ruangan favorit tersimpan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(strings.noSavedBookmarks, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -143,7 +145,7 @@ fun ManageBookmarksScreen(
                                     onClick = { onRemoveBookmark(room.jid) },
                                     modifier = Modifier.testTag("remove_bookmark_${room.jid}")
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error)
+                                    Icon(Icons.Default.Delete, contentDescription = strings.delete, tint = MaterialTheme.colorScheme.error)
                                 }
                             }
 
@@ -156,7 +158,7 @@ fun ManageBookmarksScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Auto-Join Saat Koneksi", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                Text(strings.autoJoinOnConnect, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                                 Switch(
                                     checked = room.isAutoJoin,
                                     onCheckedChange = { onToggleAutoJoin(room.jid, it) }
@@ -164,13 +166,24 @@ fun ManageBookmarksScreen(
                             }
 
                             Spacer(Modifier.height(12.dp))
-                            Text("Warna Tema Kustom Room", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text(strings.customRoomThemeColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(8.dp))
 
                             LazyRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(ROOM_PRESET_COLORS) { (hex, name) ->
+                                items(ROOM_PRESET_COLORS) { (hex, _) ->
+                                    val localizedColorName = when (hex.uppercase()) {
+                                        "#6366F1" -> strings.colorViolet
+                                        "#9333EA" -> strings.colorPurple
+                                        "#10B981" -> strings.colorEmerald
+                                        "#F97316" -> strings.colorOrange
+                                        "#EC4899" -> strings.colorPink
+                                        "#0284C7" -> strings.colorOceanBlue
+                                        "#EF4444" -> strings.colorRed
+                                        "#EAB308" -> strings.colorYellow
+                                        else -> hex
+                                    }
                                     val isSelected = room.colorHex.equals(hex, ignoreCase = true)
                                     val colorObj = try { Color(android.graphics.Color.parseColor(hex)) } catch (e: Exception) { Color.Gray }
 
@@ -190,7 +203,7 @@ fun ManageBookmarksScreen(
                                         if (isSelected) {
                                             Icon(
                                                 imageVector = Icons.Default.Check,
-                                                contentDescription = name,
+                                                contentDescription = localizedColorName,
                                                 tint = Color.White,
                                                 modifier = Modifier.size(18.dp)
                                             )

@@ -92,6 +92,7 @@ fun DiscoveredMucRoomsList(
     bookmarkedRoomJids: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("ALL") } // ALL, PUBLIC, PROTECTED, MEMBERS
 
@@ -143,7 +144,7 @@ fun DiscoveredMucRoomsList(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "Cari Room",
+                        contentDescription = strings.searchMucPlaceholder,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -151,7 +152,7 @@ fun DiscoveredMucRoomsList(
                     Box(modifier = Modifier.weight(1f)) {
                         if (searchQuery.isEmpty()) {
                             Text(
-                                text = "Cari room MUC di server...",
+                                text = strings.searchMucPlaceholder,
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 maxLines = 1,
@@ -178,7 +179,7 @@ fun DiscoveredMucRoomsList(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Clear,
-                                contentDescription = "Hapus Pencarian",
+                                contentDescription = strings.clearSearchBtn,
                                 modifier = Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -197,7 +198,7 @@ fun DiscoveredMucRoomsList(
                         FilterChip(
                             selected = selectedFilter == "ALL",
                             onClick = { selectedFilter = "ALL" },
-                            label = { Text("Semua (${rooms.size})", fontSize = 11.sp) },
+                            label = { Text("${strings.allRooms} (${rooms.size})", fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -208,14 +209,14 @@ fun DiscoveredMucRoomsList(
                         FilterChip(
                             selected = selectedFilter == "PUBLIC",
                             onClick = { selectedFilter = "PUBLIC" },
-                            label = { Text("Publik", fontSize = 11.sp) }
+                            label = { Text(strings.publicFilter, fontSize = 11.sp) }
                         )
                     }
                     item {
                         FilterChip(
                             selected = selectedFilter == "PROTECTED",
                             onClick = { selectedFilter = "PROTECTED" },
-                            label = { Text("Ber-sandi", fontSize = 11.sp) },
+                            label = { Text(strings.protectedFilter, fontSize = 11.sp) },
                             leadingIcon = {
                                 Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(12.dp))
                             }
@@ -225,7 +226,7 @@ fun DiscoveredMucRoomsList(
                         FilterChip(
                             selected = selectedFilter == "MEMBERS",
                             onClick = { selectedFilter = "MEMBERS" },
-                            label = { Text("Members Only", fontSize = 11.sp) },
+                            label = { Text(strings.membersOnlyLabel, fontSize = 11.sp) },
                             leadingIcon = {
                                 Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(12.dp))
                             }
@@ -247,7 +248,7 @@ fun DiscoveredMucRoomsList(
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Memindai daftar room dari server MUC...",
+                        text = strings.scanningMucRooms,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -273,7 +274,7 @@ fun DiscoveredMucRoomsList(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = if (searchQuery.isNotBlank()) "Room tidak ditemukan" else "Belum ada room MUC ditemukan",
+                        text = if (searchQuery.isNotBlank()) strings.mucRoomNotFound else strings.noMucRoomsFound,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium,
                         textAlign = TextAlign.Center
@@ -281,9 +282,9 @@ fun DiscoveredMucRoomsList(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = if (searchQuery.isNotBlank())
-                            "Tidak ada room yang cocok dengan kata kunci '$searchQuery'."
+                            "${strings.noMucRoomsMatch} ('$searchQuery')"
                         else
-                            "Ketik alamat server MUC di kolom Manual di atas lalu tekan Cari di Server untuk melihat daftar grup.",
+                            strings.mucEmptyHint,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -295,7 +296,7 @@ fun DiscoveredMucRoomsList(
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Muat Ulang Daftar Room")
+                        Text(strings.reloadRoomList)
                     }
                 }
             }
@@ -343,6 +344,7 @@ fun DiscoveredRoomCardItem(
     isBookmarked: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val contactFontSizeSp = LocalThemePreferences.current.contactFontSizeSp
     Card(
         modifier = modifier
@@ -403,7 +405,7 @@ fun DiscoveredRoomCardItem(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Group,
-                            contentDescription = "Partisipan",
+                            contentDescription = strings.participantsDesc,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(14.dp)
                         )
@@ -450,12 +452,12 @@ fun DiscoveredRoomCardItem(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
-                                contentDescription = "Ber-sandi",
+                                contentDescription = strings.protectedFilter,
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.error
                             )
                             Spacer(modifier = Modifier.width(3.dp))
-                            Text("Sandi", fontSize = 10.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            Text(strings.passwordProtectedLabel, fontSize = 10.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -471,12 +473,12 @@ fun DiscoveredRoomCardItem(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Security,
-                                contentDescription = "Members Only",
+                                contentDescription = strings.membersOnlyLabel,
                                 modifier = Modifier.size(11.dp),
                                 tint = MaterialTheme.colorScheme.secondary
                             )
                             Spacer(modifier = Modifier.width(3.dp))
-                            Text("Members Only", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
+                            Text(strings.membersOnlyLabel, fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -487,7 +489,7 @@ fun DiscoveredRoomCardItem(
                         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
                     ) {
                         Text(
-                            text = "Persistent",
+                            text = strings.persistentLabel,
                             fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             fontWeight = FontWeight.Medium,
@@ -498,7 +500,7 @@ fun DiscoveredRoomCardItem(
 
                 if (room.serviceJid.isNotBlank()) {
                     Text(
-                        text = "Komponen: ${room.serviceJid}",
+                        text = "${strings.componentPrefix} ${room.serviceJid}",
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         maxLines = 1,
@@ -524,11 +526,11 @@ fun DiscoveredRoomCardItem(
                     ) {
                         Icon(
                             imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                            contentDescription = if (isBookmarked) "Tersimpan" else "Simpan Room",
+                            contentDescription = if (isBookmarked) strings.savedBadge else strings.saveRoomBtn,
                             modifier = Modifier.size(15.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (isBookmarked) "Tersimpan" else "Simpan", fontSize = 12.sp)
+                        Text(if (isBookmarked) strings.savedBadge else strings.saveBtnShort, fontSize = 12.sp)
                     }
                 } else {
                     Spacer(modifier = Modifier.width(1.dp))
@@ -552,7 +554,7 @@ fun DiscoveredRoomCardItem(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Buka Obrolan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.openChatBtn, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     Button(
@@ -567,11 +569,11 @@ fun DiscoveredRoomCardItem(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Login,
-                            contentDescription = "Join Room",
+                            contentDescription = strings.joinRoomBtn,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Join Room", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(strings.joinRoomBtn, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

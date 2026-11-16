@@ -183,6 +183,7 @@ fun ClientCapsDialog(
     onQuerySoftwareVersion: ((targetJid: String, onResult: (Result<ClientCaps>) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var liveVersionResult by remember { mutableStateOf<ClientCaps?>(null) }
     var isQuerying by remember { mutableStateOf(false) }
     var queryStatusMessage by remember { mutableStateOf<String?>(null) }
@@ -228,7 +229,7 @@ fun ClientCapsDialog(
 
                     Column {
                         Text(
-                            text = "Info Klien & Kemampuan",
+                            text = strings.clientInfoTitle,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -241,7 +242,7 @@ fun ClientCapsDialog(
                 }
 
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Tutup", modifier = Modifier.size(18.dp))
+                    Icon(imageVector = Icons.Default.Close, contentDescription = strings.close, modifier = Modifier.size(18.dp))
                 }
             }
         },
@@ -257,7 +258,7 @@ fun ClientCapsDialog(
                     val queryJid = targetJid.ifBlank { userName }
                     if (queryJid.isNotBlank() && onQuerySoftwareVersion != null && !isLiveVerified && !isQuerying) {
                         isQuerying = true
-                        queryStatusMessage = "Memeriksa versi klien..."
+                        queryStatusMessage = strings.checkingClientVersion
                         onQuerySoftwareVersion(queryJid) { result ->
                             isQuerying = false
                             result.onSuccess { liveInfo ->
@@ -267,7 +268,7 @@ fun ClientCapsDialog(
                             }.onFailure {
                                 liveVersionResult = null
                                 isLiveVerified = false
-                                queryStatusMessage = "Gagal mendapatkan versi real (offline/tidak merespons)."
+                                queryStatusMessage = strings.clientVersionFailed
                             }
                         }
                     }
@@ -286,7 +287,7 @@ fun ClientCapsDialog(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Memeriksa versi klien...",
+                            text = strings.checkingClientVersion,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -314,19 +315,19 @@ fun ClientCapsDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Nama software: ${ver.clientName.ifBlank { "Tidak diketahui" }}",
+                                text = "${strings.softwareNameLabel}: ${ver.clientName.ifBlank { strings.unknownLabel }}",
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = platformColor
                             )
                             Text(
-                                text = "Versi software: ${ver.version.ifBlank { "Tidak diketahui" }}",
+                                text = "${strings.softwareVersionLabel}: ${ver.version.ifBlank { strings.unknownLabel }}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF16A34A)
                             )
                             Text(
-                                text = "Operasi sistem: ${ver.os.ifBlank { "Tidak diketahui" }}",
+                                text = "${strings.operatingSystemLabel}: ${ver.os.ifBlank { strings.unknownLabel }}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )
@@ -340,7 +341,7 @@ fun ClientCapsDialog(
                 onClick = onDismiss,
                 modifier = Modifier.testTag("btn_close_caps_dialog")
             ) {
-                Text("Tutup")
+                Text(strings.close)
             }
         }
     )

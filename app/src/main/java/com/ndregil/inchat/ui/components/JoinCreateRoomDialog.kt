@@ -49,6 +49,7 @@ fun JoinCreateRoomDialog(
     onDismiss: () -> Unit,
     onJoinOrCreate: (roomJid: String, roomName: String, nickname: String, topic: String, password: String, saveToBookmarks: Boolean) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Buat Room, 1 = Gabung Room
     var roomName by remember { mutableStateOf("") }
     var roomJid by remember { mutableStateOf("") }
@@ -68,7 +69,7 @@ fun JoinCreateRoomDialog(
                     tint = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(if (selectedTab == 0) "Buat Ruang Obrolan Baru" else "Gabung Ruang MUC")
+                Text(if (selectedTab == 0) strings.createRoomDialogTitle else strings.joinMucDialogTitle)
             }
         },
         text = {
@@ -84,12 +85,12 @@ fun JoinCreateRoomDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Buat Room") }
+                        text = { Text(strings.createRoomTab) }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Gabung Room") }
+                        text = { Text(strings.joinRoomTab) }
                     )
                 }
 
@@ -103,7 +104,7 @@ fun JoinCreateRoomDialog(
                                 roomJid = if (clean.isNotBlank()) "$clean@conference.xmpp.today" else ""
                             }
                         },
-                        label = { Text("Nama Ruangan (Contoh: Mobile Dev)") },
+                        label = { Text(strings.roomNameFieldLabel) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_room_name"),
@@ -115,7 +116,7 @@ fun JoinCreateRoomDialog(
                     OutlinedTextField(
                         value = roomJid,
                         onValueChange = { roomJid = it },
-                        label = { Text("JID Ruangan (MUC Conference)") },
+                        label = { Text(strings.roomJidMucLabel) },
                         placeholder = { Text("room-name@conference.domain.org") },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -128,15 +129,15 @@ fun JoinCreateRoomDialog(
                     OutlinedTextField(
                         value = topic,
                         onValueChange = { topic = it },
-                        label = { Text("Topik Ruangan (Opsional)") },
+                        label = { Text(strings.roomTopicOptionalLabel) },
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
                     OutlinedTextField(
                         value = roomJid,
                         onValueChange = { roomJid = it },
-                        label = { Text("JID Ruang Obrolan") },
-                        placeholder = { Text("contoh: lounge@conference.xmpp.today") },
+                        label = { Text(strings.chatRoomJidLabel) },
+                        placeholder = { Text(strings.chatRoomJidPlaceholder) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("input_room_jid"),
@@ -146,7 +147,7 @@ fun JoinCreateRoomDialog(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Rekomendasi server MUC publik:",
+                        text = strings.recommendedPublicMuc,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -175,7 +176,7 @@ fun JoinCreateRoomDialog(
                 OutlinedTextField(
                     value = nickname,
                     onValueChange = { nickname = it },
-                    label = { Text("Nickname Anda di Room") },
+                    label = { Text(strings.yourRoomNicknameLabel) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -185,7 +186,7 @@ fun JoinCreateRoomDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Kata Sandi Room (Jika Room Privat)") },
+                    label = { Text(strings.roomPasswordOptionalLabel) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -198,7 +199,7 @@ fun JoinCreateRoomDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Simpan ke Favorit (Bookmark)",
+                        text = strings.saveToFavoritesSwitch,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium
                     )
@@ -209,9 +210,12 @@ fun JoinCreateRoomDialog(
                 }
 
                 if (status != null) {
+                    val isErrorStatus = status.contains("Gagal", ignoreCase = true) ||
+                        status.contains("Fail", ignoreCase = true) ||
+                        status.contains("Error", ignoreCase = true)
                     Spacer(modifier = Modifier.height(12.dp))
                     Surface(
-                        color = if (status.contains("Gagal")) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
+                        color = if (isErrorStatus) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer,
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -230,7 +234,7 @@ fun JoinCreateRoomDialog(
                             Text(
                                 text = status,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (status.contains("Gagal")) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (isErrorStatus) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
@@ -256,12 +260,12 @@ fun JoinCreateRoomDialog(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                 }
-                Text(if (selectedTab == 0) "Buat & Masuk" else "Gabung Room")
+                Text(if (selectedTab == 0) strings.createAndJoinBtn else strings.joinRoomBtn)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Batal")
+                Text(strings.cancel)
             }
         }
     )

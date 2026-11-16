@@ -71,6 +71,7 @@ fun InteractiveMapPickerDialog(
     onDismiss: () -> Unit,
     onShareLocation: (latitude: Double, longitude: Double, label: String) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -105,7 +106,7 @@ fun InteractiveMapPickerDialog(
     fun fetchGpsPosition() {
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (lm == null) {
-            Toast.makeText(context, "Layanan lokasi tidak tersedia", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, strings.locationServiceUnavailable, Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -113,7 +114,7 @@ fun InteractiveMapPickerDialog(
         val isNetEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 
         if (!isGpsEnabled && !isNetEnabled) {
-            Toast.makeText(context, "Silakan aktifkan GPS / Lokasi di HP Anda", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, strings.enableGpsPrompt, Toast.LENGTH_LONG).show()
             return
         }
 
@@ -128,9 +129,9 @@ fun InteractiveMapPickerDialog(
                 selectedLat = lat
                 selectedLng = lng
                 webViewRef.value?.evaluateJavascript("setCenter($lat, $lng, 17)", null)
-                Toast.makeText(context, "Lokasi GPS terkini ditemukan", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, strings.gpsFoundToast, Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "Mendapatkan sinyal GPS...", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, strings.acquiringGpsToast, Toast.LENGTH_SHORT).show()
                 val provider = if (isGpsEnabled) LocationManager.GPS_PROVIDER else LocationManager.NETWORK_PROVIDER
                 lm.requestSingleUpdate(provider, object : LocationListener {
                     override fun onLocationChanged(location: Location) {
@@ -147,9 +148,9 @@ fun InteractiveMapPickerDialog(
                 }, null)
             }
         } catch (e: SecurityException) {
-            Toast.makeText(context, "Izin lokasi diperlukan", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, strings.locationPermissionRequired, Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(context, "Gagal membaca GPS: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "${strings.gpsReadFailedPrefix} ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -160,7 +161,7 @@ fun InteractiveMapPickerDialog(
         if (isGranted) {
             fetchGpsPosition()
         } else {
-            Toast.makeText(context, "Izin lokasi ditolak. Anda tetap bisa menggeser peta secara manual.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, strings.locationPermissionDeniedHint, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -200,7 +201,7 @@ fun InteractiveMapPickerDialog(
                     val line = addr.getAddressLine(0)
 
                     val primaryName = listOfNotNull(feature, street, subLoc).firstOrNull { !it.isNullOrBlank() }
-                        ?: admin ?: "Lokasi Terpilih"
+                        ?: admin ?: strings.selectedLocationFallback
 
                     val secondaryAddr = line ?: "$primaryName, $admin"
 
@@ -211,15 +212,15 @@ fun InteractiveMapPickerDialog(
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        locationName = "Lokasi Terpilih"
-                        locationAddress = "Koordinat: %.6f, %.6f".format(Locale.US, selectedLat, selectedLng)
+                        locationName = strings.selectedLocationFallback
+                        locationAddress = "${strings.coordinatesPrefix} %.6f, %.6f".format(Locale.US, selectedLat, selectedLng)
                         isGeocoding = false
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    locationName = "Lokasi Terpilih"
-                    locationAddress = "Koordinat: %.6f, %.6f".format(Locale.US, selectedLat, selectedLng)
+                    locationName = strings.selectedLocationFallback
+                    locationAddress = "${strings.coordinatesPrefix} %.6f, %.6f".format(Locale.US, selectedLat, selectedLng)
                     isGeocoding = false
                 }
             }
@@ -246,13 +247,13 @@ fun InteractiveMapPickerDialog(
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Tempat tidak ditemukan", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, strings.placeNotFoundToast, Toast.LENGTH_SHORT).show()
                         isSearching = false
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Gagal mencari alamat", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, strings.addressSearchFailedToast, Toast.LENGTH_SHORT).show()
                     isSearching = false
                 }
             }
@@ -381,12 +382,12 @@ fun InteractiveMapPickerDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             IconButton(onClick = onDismiss) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = strings.back)
                             }
                             Spacer(modifier = Modifier.width(4.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Kirim Lokasi",
+                                    text = strings.sendLocationTitle,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -404,12 +405,12 @@ fun InteractiveMapPickerDialog(
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = { Text("Cari nama jalan atau kota...", fontSize = 13.sp) },
+                                placeholder = { Text(strings.searchStreetOrCityPlaceholder, fontSize = 13.sp) },
                                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
                                 trailingIcon = {
                                     if (searchQuery.isNotEmpty()) {
                                         IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Bersihkan", modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Default.Close, contentDescription = strings.clearInputDesc, modifier = Modifier.size(16.dp))
                                         }
                                     }
                                 },
@@ -431,7 +432,7 @@ fun InteractiveMapPickerDialog(
                                 if (isSearching) {
                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                                 } else {
-                                    Text("Cari", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                    Text(strings.searchAction, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -454,9 +455,9 @@ fun InteractiveMapPickerDialog(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                                Text("Peta perlu dimuat ulang", style = MaterialTheme.typography.bodyMedium)
+                                Text(strings.mapNeedReloadText, style = MaterialTheme.typography.bodyMedium)
                                 Button(onClick = { isRendererCrashed = false }) {
-                                    Text("Muat Ulang Peta")
+                                    Text(strings.reloadMapBtn)
                                 }
                             }
                         }
@@ -561,7 +562,7 @@ fun InteractiveMapPickerDialog(
                             .padding(16.dp)
                             .testTag("btn_gps_my_location")
                     ) {
-                        Icon(Icons.Default.MyLocation, contentDescription = "Lokasi Saya (GPS)")
+                        Icon(Icons.Default.MyLocation, contentDescription = strings.myLocationGpsDesc)
                     }
                 }
 
@@ -623,7 +624,7 @@ fun InteractiveMapPickerDialog(
                                 )
 
                                 Text(
-                                    text = "Koordinat: %.6f, %.6f".format(Locale.US, selectedLat, selectedLng),
+                                    text = "${strings.coordinatesPrefix} %.6f, %.6f".format(Locale.US, selectedLat, selectedLng),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontSize = 10.5.sp
@@ -646,14 +647,14 @@ fun InteractiveMapPickerDialog(
                         ) {
                             Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Kirim Lokasi Terpilih Ini", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(strings.sendSelectedLocationBtn, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
 
                         // Send Live Current GPS Location Button
                         OutlinedButton(
                             onClick = {
                                 checkAndFetchGps()
-                                onShareLocation(selectedLat, selectedLng, "Lokasi GPS Terkini")
+                                onShareLocation(selectedLat, selectedLng, strings.currentGpsLocationLabel)
                                 onDismiss()
                             },
                             modifier = Modifier
@@ -663,7 +664,7 @@ fun InteractiveMapPickerDialog(
                         ) {
                             Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Kirim Lokasi GPS Terkini", fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(strings.sendCurrentGpsBtn, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }

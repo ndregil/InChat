@@ -210,6 +210,7 @@ fun ChatThemeSettingsDialog(
     onSave: (theme: String, wallpaper: String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var selectedTheme by remember { mutableStateOf(currentTheme) }
     var selectedWallpaper by remember { mutableStateOf(currentWallpaper) }
 
@@ -225,7 +226,7 @@ fun ChatThemeSettingsDialog(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Setelan Ruang, Tema & Wallpaper",
+                    text = strings.roomThemeSettingsTitle,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -241,7 +242,7 @@ fun ChatThemeSettingsDialog(
                 // Section 0: Custom Room Avatar Image
                 if (onSelectRoomAvatar != null) {
                     Text(
-                        text = "Foto Avatar Ruangan MUC",
+                        text = strings.mucRoomAvatarHeader,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -270,7 +271,7 @@ fun ChatThemeSettingsDialog(
                             if (bitmap != null) {
                                 Image(
                                     bitmap = bitmap.asImageBitmap(),
-                                    contentDescription = "Avatar Room",
+                                    contentDescription = strings.roomAvatarDesc,
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .clip(CircleShape),
@@ -289,12 +290,12 @@ fun ChatThemeSettingsDialog(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = roomName ?: "Ruang MUC",
+                                text = roomName ?: strings.mucRoomFallbackName,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.5.sp
                             )
                             Text(
-                                text = "Unggah foto avatar untuk room ini",
+                                text = strings.uploadRoomAvatarHint,
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -307,14 +308,14 @@ fun ChatThemeSettingsDialog(
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier.height(34.dp)
                         ) {
-                            Text("Ubah Foto", fontSize = 11.5.sp)
+                            Text(strings.changePhotoBtn, fontSize = 11.5.sp)
                         }
                     }
                 }
 
                 // Section 1: Chat Bubble Color Theme
                 Text(
-                    text = "Warna Bubble Pesan",
+                    text = strings.messageBubbleColorHeader,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -361,8 +362,17 @@ fun ChatThemeSettingsDialog(
                                             }
                                         }
                                         Spacer(modifier = Modifier.width(8.dp))
+                                        val themeLabel = when (theme.id) {
+                                            "dregil-theme" -> strings.themeDregilViolet
+                                            "purple" -> strings.themePurple
+                                            "green" -> strings.themeEmerald
+                                            "orange" -> strings.themeOrange
+                                            "pink" -> strings.themePinkRose
+                                            "blue" -> strings.themeOceanBlue
+                                            else -> theme.name
+                                        }
                                         Text(
-                                            text = theme.name,
+                                            text = themeLabel,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                         )
@@ -377,7 +387,7 @@ fun ChatThemeSettingsDialog(
 
                 // Section 2: Chat Wallpaper Selection
                 Text(
-                    text = "Wallpaper Latar Belakang",
+                    text = strings.backgroundWallpaperHeader,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -435,8 +445,17 @@ fun ChatThemeSettingsDialog(
                                         .align(Alignment.BottomCenter),
                                     color = Color.Black.copy(alpha = 0.7f)
                                 ) {
+                                    val wpLabel = when (wp.id) {
+                                        "default" -> strings.wpStandard
+                                        "dregil_pattern" -> strings.wpDregilPattern
+                                        "gradient" -> strings.wpAuroraCyber
+                                        "dark_stars" -> strings.wpNightSky
+                                        "warm_wood" -> strings.wpObsidianAmber
+                                        "doodle" -> strings.wpDoodleGrid
+                                        else -> wp.name
+                                    }
                                     Text(
-                                        text = wp.name,
+                                        text = wpLabel,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = Color.White,
                                         fontSize = 10.sp,
@@ -455,12 +474,12 @@ fun ChatThemeSettingsDialog(
                 onClick = { onSave(selectedTheme, selectedWallpaper) },
                 modifier = Modifier.testTag("btn_save_chat_theme")
             ) {
-                Text("Simpan", fontWeight = FontWeight.Bold)
+                Text(strings.save, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("Batal")
+                Text(strings.cancel)
             }
         }
     )

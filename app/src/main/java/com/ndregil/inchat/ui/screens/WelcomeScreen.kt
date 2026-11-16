@@ -1,30 +1,43 @@
 package com.ndregil.inchat.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import com.ndregil.inchat.R
+import com.ndregil.inchat.data.model.ThemePreferences
+import com.ndregil.inchat.ui.i18n.LocalAppStrings
+import com.ndregil.inchat.ui.i18n.SUPPORTED_APP_LANGUAGES
 
 @Composable
 fun WelcomeScreen(
     onLoginClick: () -> Unit,
     onRegisterClick: () -> Unit,
+    themePreferences: ThemePreferences = ThemePreferences(),
+    onUpdateThemePreferences: (ThemePreferences) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val strings = LocalAppStrings.current
+    var showLangMenu by remember { mutableStateOf(false) }
+    val currentLang = remember(themePreferences.appLanguage) {
+        SUPPORTED_APP_LANGUAGES.find { it.code.equals(themePreferences.appLanguage, ignoreCase = true) }
+            ?: SUPPORTED_APP_LANGUAGES.first()
+    }
+
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -41,6 +54,55 @@ fun WelcomeScreen(
                     )
                 )
         ) {
+            // Quick Language Selector on Welcome Screen
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 12.dp, end = 16.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { showLangMenu = true },
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.testTag("welcome_language_picker")
+                ) {
+                    Text(currentLang.flagEmoji, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = currentLang.nativeName,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.Language, contentDescription = strings.settingsLanguageTitle, modifier = Modifier.size(16.dp))
+                }
+
+                DropdownMenu(
+                    expanded = showLangMenu,
+                    onDismissRequest = { showLangMenu = false }
+                ) {
+                    SUPPORTED_APP_LANGUAGES.forEach { lang ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(lang.flagEmoji, fontSize = 16.sp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = lang.nativeName,
+                                        fontWeight = if (lang.code == themePreferences.appLanguage) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            },
+                            onClick = {
+                                showLangMenu = false
+                                onUpdateThemePreferences(themePreferences.copy(appLanguage = lang.code))
+                            }
+                        )
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -67,7 +129,7 @@ fun WelcomeScreen(
                 Spacer(modifier = Modifier.height(40.dp))
 
                 Text(
-                    text = "InChat",
+                    text = strings.appName,
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary,
@@ -77,7 +139,7 @@ fun WelcomeScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Aplikasi Klien XMPP modern yang aman.",
+                    text = strings.welcomeTagline,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -98,7 +160,7 @@ fun WelcomeScreen(
                     Icon(Icons.Default.Login, contentDescription = null)
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Masuk ke Akun",
+                        text = strings.loginToAccount,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -118,7 +180,7 @@ fun WelcomeScreen(
                     Icon(Icons.Default.PersonAdd, contentDescription = null)
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Daftar Akun Baru",
+                        text = strings.registerNewAccount,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -127,7 +189,7 @@ fun WelcomeScreen(
                 Spacer(modifier = Modifier.height(64.dp))
                 
                 Text(
-                    text = "XMPP Community Client • Versi 1.0.0",
+                    text = "XMPP Community Client • v1.0.0",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )

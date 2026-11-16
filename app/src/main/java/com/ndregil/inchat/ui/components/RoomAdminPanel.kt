@@ -77,6 +77,7 @@ fun RoomAdminPanel(
     onUpdateRoomAvatar: (android.net.Uri) -> Unit = {},
     roomAvatar: ByteArray? = null
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Config, 1 = Partisipan, 2 = Daftar Afiliasi, 3 = Moderasi
 
     LaunchedEffect(Unit) {
@@ -100,7 +101,7 @@ fun RoomAdminPanel(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Admin Panel: $roomName", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("${strings.adminPanelTitlePrefix} $roomName", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 ScrollableTabRow(
@@ -109,19 +110,19 @@ fun RoomAdminPanel(
                     edgePadding = 0.dp
                 ) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }) {
-                        Text("Config", modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
+                        Text(strings.tabConfig, modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
                     }
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }) {
-                        Text("Partisipan", modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
+                        Text(strings.tabParticipants, modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
                     }
                     Tab(selected = selectedTab == 2, onClick = { 
                         selectedTab = 2
                         onLoadAffiliations()
                     }) {
-                        Text("Daftar Afiliasi", modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
+                        Text(strings.tabAffiliationsList, modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
                     }
                     Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }) {
-                        Text("Moderasi", modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
+                        Text(strings.tabModeration, modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp), fontSize = 13.sp)
                     }
                 }
             }
@@ -192,7 +193,7 @@ fun RoomAdminPanel(
                             ) {
                                 Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("fitur ini hanya untuk Owner room.", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                                Text(strings.ownerOnlyFeatureNotice, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                             }
                         }
                     }
@@ -201,7 +202,7 @@ fun RoomAdminPanel(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Tutup")
+                Text(strings.close)
             }
         }
     )
@@ -224,6 +225,7 @@ fun ParticipantsTab(
     onBanUser: (String, String?) -> Unit,
     onKickUser: (String, String?) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showReasonDialog by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // targetNickname/jid to isBan
     var reasonInput by remember { mutableStateOf("") }
 
@@ -231,12 +233,12 @@ fun ParticipantsTab(
         val (target, isBan) = showReasonDialog!!
         AlertDialog(
             onDismissRequest = { showReasonDialog = null },
-            title = { Text(if (isBan) "Ban $target" else "Kick $target") },
+            title = { Text(if (isBan) "${strings.banAction} $target" else "${strings.kickAction} $target") },
             text = {
                 OutlinedTextField(
                     value = reasonInput,
                     onValueChange = { reasonInput = it },
-                    label = { Text("Alasan (Opsional)") },
+                    label = { Text(strings.reasonOptionalLabel) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -244,7 +246,7 @@ fun ParticipantsTab(
             confirmButton = {
                 Button(
                     onClick = {
-                        val reason = reasonInput.ifBlank { "Tindakan admin" }
+                        val reason = reasonInput.ifBlank { strings.adminActionDefaultReason }
                         if (isBan) {
                             onBanUser(target, reason)
                         } else {
@@ -255,12 +257,12 @@ fun ParticipantsTab(
                     },
                     colors = if (isBan) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors()
                 ) {
-                    Text(if (isBan) "Ban" else "Kick")
+                    Text(if (isBan) strings.banAction else strings.kickAction)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showReasonDialog = null }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -309,6 +311,7 @@ fun AdminOccupantItem(
     onBanUser: () -> Unit,
     onKickUser: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -330,9 +333,9 @@ fun AdminOccupantItem(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(occupant.nickname, fontWeight = FontWeight.Bold)
                     if (isOwnerOrAdmin && occupant.jid.isNotBlank()) {
-                        Text("Real JID: ${occupant.jid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                        Text("${strings.realJidLabel}: ${occupant.jid}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
                     }
-                    Text("Role: ${occupant.role} | Affiliation: ${occupant.affiliation}", style = MaterialTheme.typography.bodySmall)
+                    Text("${strings.roleLabel}: ${occupant.role} | ${strings.affiliationLabel}: ${occupant.affiliation}", style = MaterialTheme.typography.bodySmall)
                 }
                 IconButton(onClick = { expanded = !expanded }) {
                     Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
@@ -351,12 +354,12 @@ fun AdminOccupantItem(
                             // Kick / Ban
                             AssistChip(
                                 onClick = onKickUser,
-                                label = { Text("Kick") },
+                                label = { Text(strings.kickAction) },
                                 leadingIcon = { Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                             AssistChip(
                                 onClick = onBanUser,
-                                label = { Text("Ban") },
+                                label = { Text(strings.banAction) },
                                 leadingIcon = { Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp)) },
                                 colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
                             )
@@ -365,30 +368,30 @@ fun AdminOccupantItem(
                             if (occupant.role == OccupantRole.VISITOR) {
                                 AssistChip(onClick = onGrantVoice, label = { Text("+Voice") })
                             } else if (occupant.role == OccupantRole.PARTICIPANT) {
-                                AssistChip(onClick = onRevokeVoice, label = { Text("-Voice (Visitor)") })
+                                AssistChip(onClick = onRevokeVoice, label = { Text("-Voice (${strings.filterVisitor})") })
                             }
 
                             // Moderator control
                             if (occupant.role != OccupantRole.ADMIN && occupant.role != OccupantRole.OWNER) {
                                 AssistChip(
                                     onClick = onGrantModerator,
-                                    label = { Text("+Moderator") }
+                                    label = { Text("+${strings.roleModerator}") }
                                 )
                             } else {
                                 AssistChip(
                                     onClick = onRevokeModerator,
-                                    label = { Text("-Moderator") }
+                                    label = { Text("-${strings.roleModerator}") }
                                 )
                             }
 
                             // Affiliations (Member, Admin, Owner)
-                            AssistChip(onClick = onGrantMembership, label = { Text("+Member") })
-                            AssistChip(onClick = onGrantAdmin, label = { Text("+Admin") })
-                            AssistChip(onClick = onGrantOwnership, label = { Text("+Owner") })
+                            AssistChip(onClick = onGrantMembership, label = { Text("+${strings.roleMember}") })
+                            AssistChip(onClick = onGrantAdmin, label = { Text("+${strings.roleAdmin}") })
+                            AssistChip(onClick = onGrantOwnership, label = { Text("+${strings.roleOwner}") })
                         }
                     }
                 } else {
-                    Text("fitur ini hanya untuk Owner room.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                    Text(strings.ownerOnlyFeatureNotice, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -416,6 +419,7 @@ fun AffiliationsManagementTab(
     onBanUser: (String, String?) -> Unit,
     onUnbanUser: (String) -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var affiliationSubTab by remember { mutableIntStateOf(0) } // 0 = Owner, 1 = Admin, 2 = Member, 3 = Outcast
     var showAddDialog by remember { mutableStateOf(false) }
     var inputJid by remember { mutableStateOf("") }
@@ -430,28 +434,28 @@ fun AffiliationsManagementTab(
     }
 
     val tabTitle = when (affiliationSubTab) {
-        0 -> "Owner List"
-        1 -> "Admin List"
-        2 -> "Member List"
-        3 -> "Outcast (Banned) List"
+        0 -> strings.ownerListTitle
+        1 -> strings.adminListTitle
+        2 -> strings.memberListTitle
+        3 -> strings.outcastListTitle
         else -> ""
     }
 
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Tambah Real JID ke Server Manual") },
+            title = { Text(strings.addManualRealJidTitle) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Masukkan Bare JID user (contoh: user@jabber.org) untuk didaftarkan ke server MUC:", fontSize = 13.sp)
+                    Text(strings.addManualRealJidDesc, fontSize = 13.sp)
                     OutlinedTextField(
                         value = inputJid,
                         onValueChange = { inputJid = it },
-                        label = { Text("User Bare JID") },
+                        label = { Text(strings.userBareJidLabel) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-                    Text("Pilih Afiliasi Server:", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(strings.chooseServerAffiliation, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -459,22 +463,22 @@ fun AffiliationsManagementTab(
                         FilterChip(
                             selected = selectedAffiliation == "owner",
                             onClick = { selectedAffiliation = "owner" },
-                            label = { Text("Owner", fontSize = 11.sp) }
+                            label = { Text(strings.roleOwner, fontSize = 11.sp) }
                         )
                         FilterChip(
                             selected = selectedAffiliation == "admin",
                             onClick = { selectedAffiliation = "admin" },
-                            label = { Text("Admin", fontSize = 11.sp) }
+                            label = { Text(strings.roleAdmin, fontSize = 11.sp) }
                         )
                         FilterChip(
                             selected = selectedAffiliation == "member",
                             onClick = { selectedAffiliation = "member" },
-                            label = { Text("Member", fontSize = 11.sp) }
+                            label = { Text(strings.roleMember, fontSize = 11.sp) }
                         )
                         FilterChip(
                             selected = selectedAffiliation == "outcast",
                             onClick = { selectedAffiliation = "outcast" },
-                            label = { Text("Ban", fontSize = 11.sp) }
+                            label = { Text(strings.banAction, fontSize = 11.sp) }
                         )
                     }
                 }
@@ -488,19 +492,19 @@ fun AffiliationsManagementTab(
                                 "owner" -> onGrantOwnership(jidTrim)
                                 "admin" -> onGrantAdmin(jidTrim)
                                 "member" -> onGrantMembership(jidTrim)
-                                "outcast" -> onBanUser(jidTrim, "Ditambahkan manual oleh admin")
+                                "outcast" -> onBanUser(jidTrim, strings.addedByAdminReason)
                             }
                             showAddDialog = false
                             inputJid = ""
                         }
                     }
                 ) {
-                    Text("Kirim ke Server")
+                    Text(strings.sendToServerBtn)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showAddDialog = false }) {
-                    Text("Batal")
+                    Text(strings.cancel)
                 }
             }
         )
@@ -519,20 +523,20 @@ fun AffiliationsManagementTab(
                 ) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("fitur ini hanya untuk Owner room.", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                    Text(strings.ownerOnlyFeatureNotice, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
                 }
             }
         }
 
         TabRow(selectedTabIndex = affiliationSubTab, containerColor = Color.Transparent) {
             Tab(selected = affiliationSubTab == 0, onClick = { affiliationSubTab = 0 }) {
-                Text("Owner (${ownersList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
+                Text("${strings.roleOwner} (${ownersList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
             }
             Tab(selected = affiliationSubTab == 1, onClick = { affiliationSubTab = 1 }) {
-                Text("Admin (${adminsList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
+                Text("${strings.roleAdmin} (${adminsList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
             }
             Tab(selected = affiliationSubTab == 2, onClick = { affiliationSubTab = 2 }) {
-                Text("Member (${membersList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
+                Text("${strings.roleMember} (${membersList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
             }
             Tab(selected = affiliationSubTab == 3, onClick = { affiliationSubTab = 3 }) {
                 Text("Outcast (${outcastsList.size})", modifier = Modifier.padding(vertical = 8.dp), fontSize = 12.sp)
@@ -553,7 +557,7 @@ fun AffiliationsManagementTab(
             )
             Row {
                 IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Afiliasi", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Refresh, contentDescription = strings.refreshAffiliationsDesc, modifier = Modifier.size(18.dp))
                 }
                 if (isOwnerOrAdmin) {
                     Spacer(modifier = Modifier.width(4.dp))
@@ -573,7 +577,7 @@ fun AffiliationsManagementTab(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Tambah Manual", fontSize = 12.sp)
+                        Text(strings.addManualBtn, fontSize = 12.sp)
                     }
                 }
             }
@@ -587,7 +591,7 @@ fun AffiliationsManagementTab(
             }
         } else if (currentList.isEmpty()) {
             Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("Belum ada daftar $tabTitle di server", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${strings.noAffiliationListYetPrefix} $tabTitle", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -602,7 +606,7 @@ fun AffiliationsManagementTab(
                         onGrantAdmin = { onGrantAdmin(item.jid) },
                         onGrantMember = { onGrantMembership(item.jid) },
                         onSetNone = { onGrantNone(item.jid) },
-                        onBan = { onBanUser(item.jid, "Banned by admin") },
+                        onBan = { onBanUser(item.jid, strings.banDefaultReason) },
                         onRemove = {
                             when (affiliationSubTab) {
                                 0 -> onRevokeOwnership(item.jid)
@@ -630,6 +634,7 @@ fun AffiliateListItem(
     onBan: () -> Unit,
     onRemove: () -> Unit
 ) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -644,14 +649,14 @@ fun AffiliateListItem(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = item.jid.ifBlank { item.nickname ?: "Unknown" },
+                        text = item.jid.ifBlank { item.nickname ?: strings.unknownLabel },
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp
                     )
                     if (!item.nickname.isNullOrBlank() && item.jid.isNotBlank()) {
-                        Text("Nick: ${item.nickname} | Role: ${item.role}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${strings.nickPrefix} ${item.nickname} | ${strings.roleLabel}: ${item.role}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        Text("Affiliation: ${item.affiliation}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${strings.affiliationLabel}: ${item.affiliation}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(28.dp)) {
@@ -667,25 +672,25 @@ fun AffiliateListItem(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (affiliationType != 0) {
-                        AssistChip(onClick = onGrantOwner, label = { Text("Jadikan Owner", fontSize = 11.sp) })
+                        AssistChip(onClick = onGrantOwner, label = { Text(strings.makeOwnerBtn, fontSize = 11.sp) })
                     }
                     if (affiliationType != 1) {
-                        AssistChip(onClick = onGrantAdmin, label = { Text("Jadikan Admin", fontSize = 11.sp) })
+                        AssistChip(onClick = onGrantAdmin, label = { Text(strings.makeAdminBtn, fontSize = 11.sp) })
                     }
                     if (affiliationType != 2) {
-                        AssistChip(onClick = onGrantMember, label = { Text("Jadikan Member", fontSize = 11.sp) })
+                        AssistChip(onClick = onGrantMember, label = { Text(strings.makeMemberBtn, fontSize = 11.sp) })
                     }
                     if (affiliationType != 3) {
                         AssistChip(
                             onClick = onBan,
-                            label = { Text("Ban", fontSize = 11.sp) },
+                            label = { Text(strings.banAction, fontSize = 11.sp) },
                             colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
                         )
                     }
-                    AssistChip(onClick = onSetNone, label = { Text("Reset (None)", fontSize = 11.sp) })
+                    AssistChip(onClick = onSetNone, label = { Text(strings.resetNoneBtn, fontSize = 11.sp) })
                     AssistChip(
                         onClick = onRemove,
-                        label = { Text(if (affiliationType == 3) "Unban" else "Hapus", fontSize = 11.sp) },
+                        label = { Text(if (affiliationType == 3) strings.unbanBtn else strings.delete, fontSize = 11.sp) },
                         colors = AssistChipDefaults.assistChipColors(labelColor = MaterialTheme.colorScheme.error)
                     )
                 }

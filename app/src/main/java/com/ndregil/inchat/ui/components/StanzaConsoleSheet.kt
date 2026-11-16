@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ndregil.inchat.data.model.StanzaDirection
 import com.ndregil.inchat.data.model.StanzaLog
+import com.ndregil.inchat.ui.i18n.LocalAppStrings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,8 +70,9 @@ fun StanzaConsoleSheet(
     onDismiss: () -> Unit,
     onSendRawStanza: (String) -> Unit
 ) {
+    val strings = LocalAppStrings.current
     var selectedFilter by remember { mutableStateOf("ALL") }
-    var customStanzaInput by remember { mutableStateOf("<presence><show>chat</show><status>Halo dari Stanza Console</status></presence>") }
+    var customStanzaInput by remember { mutableStateOf("<presence><show>chat</show><status>Online</status></presence>") }
     val clipboardManager = LocalClipboardManager.current
 
     val filteredLogs = remember(logs, selectedFilter) {
@@ -114,7 +116,7 @@ fun StanzaConsoleSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "XMPP XML Stanza Stream",
+                        text = strings.stanzaConsoleTitle,
                         style = MaterialTheme.typography.titleLarge,
                         color = Color(0xFFF1F5F9),
                         fontWeight = FontWeight.Bold
@@ -124,14 +126,14 @@ fun StanzaConsoleSheet(
                 IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Tutup",
+                        contentDescription = strings.close,
                         tint = Color(0xFF94A3B8)
                     )
                 }
             }
 
             Text(
-                text = "Inspeksi paket real-time RFC 6120 / XEP-0045 stanzas XML (Formatted & Pretty Print)",
+                text = strings.stanzaConsoleSubtitle,
                 fontSize = 12.sp,
                 color = Color(0xFF94A3B8),
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -143,10 +145,11 @@ fun StanzaConsoleSheet(
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 listOf("ALL", "MESSAGE", "PRESENCE", "IQ", "STREAM").forEach { filter ->
+                    val label = if (filter == "ALL") strings.filterAll else filter
                     FilterChip(
                         selected = selectedFilter == filter,
                         onClick = { selectedFilter = filter },
-                        label = { Text(filter, fontSize = 11.sp) }
+                        label = { Text(label, fontSize = 11.sp) }
                     )
                 }
             }
@@ -168,7 +171,7 @@ fun StanzaConsoleSheet(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "Belum ada stanza XML untuk filter ini",
+                                text = strings.noStanzasForFilter,
                                 color = Color(0xFF64748B),
                                 fontSize = 13.sp
                             )
@@ -190,7 +193,7 @@ fun StanzaConsoleSheet(
 
             // Injector tool
             Text(
-                text = "Kirim Stanza XML Manual (Injector):",
+                text = strings.injectStanzaLabel,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFFE2E8F0)
@@ -212,7 +215,7 @@ fun StanzaConsoleSheet(
                         color = Color(0xFFF1F5F9)
                     ),
                     maxLines = 3,
-                    placeholder = { Text("Contoh: <presence.../>", fontSize = 11.sp, color = Color(0xFF64748B)) }
+                    placeholder = { Text(strings.injectStanzaPlaceholder, fontSize = 11.sp, color = Color(0xFF64748B)) }
                 )
 
                 Spacer(modifier = Modifier.width(8.dp))
@@ -230,7 +233,7 @@ fun StanzaConsoleSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Send,
-                        contentDescription = "Kirim XML",
+                        contentDescription = strings.sendXmlDesc,
                         tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
@@ -245,10 +248,11 @@ fun StanzaLogCard(
     log: StanzaLog,
     onCopy: () -> Unit
 ) {
+    val strings = LocalAppStrings.current
     val isOut = log.direction == StanzaDirection.OUTGOING
     val dirColor = if (isOut) Color(0xFF38BDF8) else Color(0xFF34D399)
     val dirIcon = if (isOut) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward
-    val dirText = if (isOut) "SENT" else "RCVD"
+    val dirText = if (isOut) strings.stanzaSentTag else strings.stanzaRcvdTag
 
     val formattedXml = remember(log.rawXml) {
         formatXml(log.rawXml)
@@ -300,7 +304,7 @@ fun StanzaLogCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Salin Stanza",
+                        contentDescription = strings.copyStanzaDesc,
                         tint = Color(0xFF94A3B8),
                         modifier = Modifier
                             .size(14.dp)

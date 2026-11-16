@@ -33,6 +33,7 @@ class ThemePreferencesManager(private val context: Context) {
         val APP_FONT_SIZE = floatPreferencesKey("app_font_size")
         val CONTACT_FONT_SIZE = floatPreferencesKey("contact_font_size")
         val FONT_FAMILY = stringPreferencesKey("font_family")
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
     }
 
     val themePreferences: Flow<ThemePreferences> = context.dataStore.data
@@ -63,7 +64,8 @@ class ThemePreferencesManager(private val context: Context) {
                 messageFontSizeSp = preferences[PreferencesKeys.MESSAGE_FONT_SIZE] ?: 14f,
                 appFontSizeSp = preferences[PreferencesKeys.APP_FONT_SIZE] ?: 14f,
                 contactFontSizeSp = preferences[PreferencesKeys.CONTACT_FONT_SIZE] ?: 14f,
-                fontFamily = preferences[PreferencesKeys.FONT_FAMILY] ?: "default"
+                fontFamily = preferences[PreferencesKeys.FONT_FAMILY] ?: "default",
+                appLanguage = preferences[PreferencesKeys.APP_LANGUAGE] ?: "system"
             )
         }
 
@@ -94,6 +96,7 @@ class ThemePreferencesManager(private val context: Context) {
             preferences[PreferencesKeys.APP_FONT_SIZE] = prefs.appFontSizeSp
             preferences[PreferencesKeys.CONTACT_FONT_SIZE] = prefs.contactFontSizeSp
             preferences[PreferencesKeys.FONT_FAMILY] = prefs.fontFamily
+            preferences[PreferencesKeys.APP_LANGUAGE] = prefs.appLanguage
         }
     }
 }

@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">InChat</string>
+    <string name="tab_rooms">ルーム</string>
+    <string name="tab_chat">チャット</string>
+    <string name="tab_contacts">連絡先</string>
+    <string name="tab_discover">見つける</string>
+    <string name="tab_settings">設定</string>
+    <string name="action_send">送信</string>
+    <string name="action_cancel">キャンセル</string>
+    <string name="action_save">保存</string>
+    <string name="call_voice">音声通話</string>
+    <string name="call_video">ビデオ通話</string>
+    <string name="language_settings">アプリの言語</string>
+</resources>
