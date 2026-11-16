@@ -9,6 +9,8 @@ import com.ndregil.inchat.data.model.PublicDirectoryRoom
 import com.ndregil.inchat.data.model.RoomOccupant
 import com.ndregil.inchat.data.model.UserPresence
 import com.ndregil.inchat.data.model.XmppMessage
+import com.ndregil.inchat.ui.i18n.AppStrings
+import com.ndregil.inchat.ui.i18n.getAppStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -66,6 +68,12 @@ class MultiUserChatManager(
     private val avatarManager: XmppAvatarManager,
     private val scope: kotlinx.coroutines.CoroutineScope
 ) {
+    var activeLanguageCode: String = "system"
+
+    private fun getCurrentStrings(): AppStrings {
+        return getAppStrings(activeLanguageCode)
+    }
+
     companion object {
         private const val TAG = "MultiUserChatManager"
         private const val DEFAULT_HISTORY_STANZAS = 100
@@ -1201,27 +1209,29 @@ class MultiUserChatManager(
                 Log.d(TAG, "MUC [$roomJid] Participant joined: $participant")
                 updateOccupantsForRoom(roomJid, muc)
                 
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
                 val occ = muc.getOccupant(participant)
                 val roleName = when (occ?.role) {
-                    MUCRole.moderator -> "Moderator"
-                    MUCRole.participant -> "Partisipan"
-                    MUCRole.visitor -> "Pengunjung"
-                    else -> "Partisipan"
+                    MUCRole.moderator -> strings.roleModerator
+                    MUCRole.participant -> strings.participantsDesc
+                    MUCRole.visitor -> strings.roomMemberFallback
+                    else -> strings.participantsDesc
                 }
                 val affName = when (occ?.affiliation) {
-                    MUCAffiliation.owner -> " (Owner)"
-                    MUCAffiliation.admin -> " (Admin)"
-                    MUCAffiliation.member -> " (Member)"
+                    MUCAffiliation.owner -> " (${strings.roleOwner})"
+                    MUCAffiliation.admin -> " (${strings.roleAdmin})"
+                    MUCAffiliation.member -> " (${strings.roleMember})"
                     else -> ""
                 }
                 val statusMsg = muc.getOccupantPresence(participant)?.status?.takeIf { it.isNotBlank() }?.let { " [\"$it\"]" } ?: ""
+                val body = String.format(strings.sysJoinedRoom, nick, roleName, affName, statusMsg)
                 val systemMsg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "[$nick] bergabung ke ruangan sebagai $roleName$affName$statusMsg",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_JOIN
                 )
@@ -1232,14 +1242,16 @@ class MultiUserChatManager(
                 Log.d(TAG, "MUC [$roomJid] Participant left: $participant")
                 updateOccupantsForRoom(roomJid, muc)
                 
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
                 roomOccupantPresenceCache[roomJid]?.remove(nick)
+                val body = String.format(strings.sysLeftRoom, nick)
                 val systemMsg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "[$nick] telah meninggalkan ruangan.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_LEAVE
                 )
@@ -1248,15 +1260,17 @@ class MultiUserChatManager(
 
             override fun kicked(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
-                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
-                val reasonStr = if (!reason.isNullOrBlank()) " (Alasan: $reason)" else ""
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: strings.adminFallback
+                val reasonStr = if (!reason.isNullOrBlank()) strings.reasonPrefix.format(reason) else ""
+                val body = String.format(strings.sysKicked, nick, actorNick, reasonStr)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "[$nick] dikeluarkan dari ruangan (Kicked) oleh $actorNick$reasonStr",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1265,15 +1279,17 @@ class MultiUserChatManager(
 
             override fun banned(participant: EntityFullJid?, actor: org.jxmpp.jid.Jid?, reason: String?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
-                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: "Admin"
-                val reasonStr = if (!reason.isNullOrBlank()) " (Alasan: $reason)" else ""
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val actorNick = actor?.resourceOrNull?.toString() ?: actor?.toString() ?: strings.adminFallback
+                val reasonStr = if (!reason.isNullOrBlank()) strings.reasonPrefix.format(reason) else ""
+                val body = String.format(strings.sysBanned, nick, actorNick, reasonStr)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] dilarang masuk ke ruangan (Banned) oleh $actorNick$reasonStr",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1282,13 +1298,15 @@ class MultiUserChatManager(
 
             override fun voiceGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysVoiceGranted, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] diberikan hak bicara (Voice).",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1297,13 +1315,15 @@ class MultiUserChatManager(
 
             override fun voiceRevoked(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysVoiceRevoked, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• Hak bicara (Voice) [$nick] dicabut (Muted).",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1312,13 +1332,15 @@ class MultiUserChatManager(
 
             override fun membershipGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysMembershipGranted, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] mendapatkan status Keanggotaan Resmi (Member).",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1327,13 +1349,15 @@ class MultiUserChatManager(
 
             override fun membershipRevoked(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysMembershipRevoked, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• Status Keanggotaan (Member) [$nick] telah dicabut.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1342,13 +1366,15 @@ class MultiUserChatManager(
 
             override fun moderatorGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysModeratorGranted, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] diangkat menjadi Moderator ruangan.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1357,13 +1383,15 @@ class MultiUserChatManager(
 
             override fun moderatorRevoked(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysModeratorRevoked, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• Hak Moderator [$nick] telah dicabut.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1372,13 +1400,15 @@ class MultiUserChatManager(
 
             override fun ownershipGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysOwnershipGranted, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] sekarang adalah Owner ruangan.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1387,13 +1417,15 @@ class MultiUserChatManager(
 
             override fun ownershipRevoked(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysOwnershipRevoked, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• Hak Owner [$nick] telah dicabut.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1402,13 +1434,15 @@ class MultiUserChatManager(
 
             override fun adminGranted(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysAdminGranted, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• [$nick] diangkat menjadi Admin ruangan.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1417,13 +1451,15 @@ class MultiUserChatManager(
 
             override fun adminRevoked(participant: EntityFullJid?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val nick = participant?.resourceOrNull?.toString() ?: "Seseorang"
+                val strings = getCurrentStrings()
+                val nick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val body = String.format(strings.sysAdminRevoked, nick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "• Hak Admin [$nick] telah dicabut.",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.MODERATION
                 )
@@ -1432,14 +1468,16 @@ class MultiUserChatManager(
 
             override fun nicknameChanged(participant: EntityFullJid?, newNickname: Resourcepart?) {
                 updateOccupantsForRoom(roomJid, muc)
-                val oldNick = participant?.resourceOrNull?.toString() ?: "Seseorang"
-                val newNick = newNickname?.toString() ?: "Nama Baru"
+                val strings = getCurrentStrings()
+                val oldNick = participant?.resourceOrNull?.toString() ?: strings.personFallback
+                val newNick = newNickname?.toString() ?: strings.nicknamePlaceholder
+                val body = String.format(strings.sysNicknameChanged, oldNick, newNick)
                 val msg = XmppMessage(
                     id = java.util.UUID.randomUUID().toString(),
                     roomJid = roomJid,
                     senderJid = roomJid,
                     senderNickname = "",
-                    body = "[$oldNick] mengganti nickname menjadi [$newNick].",
+                    body = body,
                     timestamp = System.currentTimeMillis(),
                     messageType = com.ndregil.inchat.data.model.MessageType.SYSTEM_STATUS
                 )
@@ -1509,18 +1547,19 @@ class MultiUserChatManager(
 
                     // Only emit status message if this is a subsequent change (avoid initial spam on join)
                     if (prev != null && nick != myNickname) {
+                        val strings = getCurrentStrings()
                         val modeName = when (presence.mode) {
-                            Presence.Mode.away -> "Away"
-                            Presence.Mode.dnd -> "Jangan Ganggu (DND)"
-                            Presence.Mode.chat -> "Bebas Mengobrol"
-                            Presence.Mode.xa -> "Extended Away"
-                            else -> if (presence.type == Presence.Type.unavailable) "Offline" else "Online"
+                            Presence.Mode.away -> strings.presenceAway
+                            Presence.Mode.dnd -> strings.presenceDnd
+                            Presence.Mode.chat -> strings.presenceChat
+                            Presence.Mode.xa -> strings.presenceXa
+                            else -> if (presence.type == Presence.Type.unavailable) strings.presenceOffline else strings.presenceOnline
                         }
                         val statusSnippet = if (customStatus.isNotBlank()) " (\"$customStatus\")" else ""
                         val presenceText = if (presence.type == Presence.Type.unavailable) {
-                            "[$nick] sekarang Offline$statusSnippet"
+                            String.format(strings.sysPresenceOffline, nick, statusSnippet)
                         } else {
-                            "[$nick] sekarang [$modeName]$statusSnippet"
+                            String.format(strings.sysPresenceMode, nick, modeName, statusSnippet)
                         }
 
                         val systemMsg = XmppMessage(

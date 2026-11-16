@@ -935,6 +935,29 @@ interface AppStrings {
     val viewMemberProfileMenu: String
     val scrollToTopDesc: String
     val scrollToBottomDesc: String
+
+    // Room System & Presence Notifications
+    val sysJoinedRoom: String
+    val sysLeftRoom: String
+    val sysKicked: String
+    val sysBanned: String
+    val sysVoiceGranted: String
+    val sysVoiceRevoked: String
+    val sysMembershipGranted: String
+    val sysMembershipRevoked: String
+    val sysModeratorGranted: String
+    val sysModeratorRevoked: String
+    val sysOwnershipGranted: String
+    val sysOwnershipRevoked: String
+    val sysAdminGranted: String
+    val sysAdminRevoked: String
+    val sysNicknameChanged: String
+    val sysPresenceOffline: String
+    val sysPresenceMode: String
+    val personFallback: String
+    val reasonPrefix: String
+    val adminFallback: String
+    val sysJustJoined: String
 }
 
 fun getAppStrings(languageCode: String): AppStrings {

@@ -28,6 +28,7 @@ import com.ndregil.inchat.data.network.XmppAvatarManager
 import com.ndregil.inchat.data.network.HttpFileUploadManager
 import com.ndregil.inchat.data.network.JingleCallManager
 import com.ndregil.inchat.data.network.MultiUserChatManager
+import com.ndregil.inchat.ui.i18n.getAppStrings
 import com.ndregil.inchat.data.network.RosterManager
 import kotlinx.coroutines.flow.flowOn
 import com.ndregil.inchat.data.network.ServiceDiscoveryManager
@@ -114,6 +115,7 @@ class XmppRepository(
     val translationPreferencesManager = com.ndregil.inchat.data.local.TranslationPreferencesManager(context)
 
     private val mamSyncJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
+    private var currentAppLanguage = "system"
 
     val themePreferences: Flow<com.ndregil.inchat.data.model.ThemePreferences> = themePreferencesManager.themePreferences
     suspend fun updateThemePreferences(prefs: com.ndregil.inchat.data.model.ThemePreferences) {
@@ -179,6 +181,17 @@ class XmppRepository(
 
     init {
         connectionService.start()
+        // Collect theme preferences to sync current language
+        scope.launch {
+            try {
+                themePreferencesManager.themePreferences.collect { prefs ->
+                    currentAppLanguage = prefs.appLanguage
+                    smackMucManager.activeLanguageCode = prefs.appLanguage
+                }
+            } catch (e: Exception) {
+                // Handled safely
+            }
+        }
         // Collect incoming network messages from engine and store into Room database
         scope.launch {
             try {
@@ -1230,7 +1243,7 @@ class XmppRepository(
             myNickname = nickname,
             occupantCount = 1,
             unreadCount = 0,
-            lastMessageText = "Baru saja bergabung",
+            lastMessageText = getAppStrings(currentAppLanguage).sysJustJoined,
             lastMessageTime = System.currentTimeMillis(),
             isJoined = true,
             isBookmarked = true,
