@@ -78,6 +78,14 @@ class AppUpdateManagerTest {
     }
 
     @Test
+    fun `buildConfig exposes updated versionCode 2 and versionName 1_1`() {
+        assertEquals(2, BuildConfig.VERSION_CODE)
+        assertEquals("1.1", BuildConfig.VERSION_NAME)
+        assertFalse(AppVersionComparator.isNewerVersion("v1.1", BuildConfig.VERSION_NAME))
+        assertTrue(AppVersionComparator.isNewerVersion("v1.2", BuildConfig.VERSION_NAME))
+    }
+
+    @Test
     fun `moshi parses GitHub latest release json with assets`() {
         val sampleJson = """
             {

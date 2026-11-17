@@ -23,7 +23,7 @@ import javax.crypto.spec.SecretKeySpec
 
 data class ChatBackupPayload(
     val exportTimestamp: Long = System.currentTimeMillis(),
-    val appVersion: String = "1.0.0",
+    val appVersion: String = com.ndregil.inchat.BuildConfig.VERSION_NAME,
     val accounts: List<AccountEntity> = emptyList(),
     val rooms: List<RoomEntity> = emptyList(),
     val roomConfigs: List<RoomConfigEntity> = emptyList(),
@@ -80,7 +80,7 @@ class ChatBackupManager(
 
             val payload = ChatBackupPayload(
                 exportTimestamp = System.currentTimeMillis(),
-                appVersion = "1.0.0",
+                appVersion = com.ndregil.inchat.BuildConfig.VERSION_NAME,
                 accounts = accounts,
                 rooms = rooms,
                 roomConfigs = roomConfigs,

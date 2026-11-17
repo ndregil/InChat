@@ -189,7 +189,7 @@ fun WelcomeScreen(
                 Spacer(modifier = Modifier.height(64.dp))
                 
                 Text(
-                    text = "XMPP Community Client • v1.0.0",
+                    text = "XMPP Community Client • v${com.ndregil.inchat.BuildConfig.VERSION_NAME}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )

@@ -345,7 +345,7 @@ class XmppConnectionManager(
 
             try {
                 val versionManager = VersionManager.getInstanceFor(connection)
-                versionManager.setVersion("InChat", "1.0.0", "Android ${Build.VERSION.RELEASE}")
+                versionManager.setVersion("InChat", com.ndregil.inchat.BuildConfig.VERSION_NAME, "Android ${Build.VERSION.RELEASE}")
             } catch (e: Exception) {
                 Log.w(TAG, "VersionManager setup failed: ${e.message}")
             }
