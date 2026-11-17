@@ -958,6 +958,31 @@ interface AppStrings {
     val reasonPrefix: String
     val adminFallback: String
     val sysJustJoined: String
+
+    // App Updates
+    val settingsUpdateTitle: String
+    val settingsUpdateSubtitle: String
+    val updateAvailableTitle: String
+    val updateNowBtn: String
+    val updateLaterBtn: String
+    val checkForUpdatesBtn: String
+    val checkingForUpdatesText: String
+    val appUpToDateText: String
+    val updateFailedPrefix: String
+    val currentVersionLabel: String
+    val latestVersionLabel: String
+    val releaseNotesLabel: String
+    val noReleaseNotesText: String
+    val autoCheckUpdatesTitle: String
+    val autoCheckUpdatesDesc: String
+    val lastCheckedLabel: String
+    val neverCheckedText: String
+    val downloadingApkText: String
+    val installUnknownAppsTitle: String
+    val installUnknownAppsDesc: String
+    val openInstallSettingsBtn: String
+    val installPermGrantedBadge: String
+    val installPermRequiredBadge: String
 }
 
 fun getAppStrings(languageCode: String): AppStrings {

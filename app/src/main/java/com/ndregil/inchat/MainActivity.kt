@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
         com.ndregil.inchat.data.network.fcm.XmppForegroundService.startService(this)
         com.ndregil.inchat.data.network.fcm.XmppKeepAliveWorker.enqueue(this)
         handleNotificationIntent(intent)
+        viewModel.checkUpdatesOnAppStart()
 
         // Request POST_NOTIFICATIONS runtime permission on Android 13+ (API 33+)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
 
             val currentAccount by viewModel.currentAccount.collectAsStateWithLifecycle()
             val themePrefs by viewModel.themePreferences.collectAsStateWithLifecycle()
+            val updateUiState by viewModel.updateUiState.collectAsStateWithLifecycle()
             var onboardingTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 
             val customAccent = if (themePrefs.isCustomThemeEnabled) {
@@ -100,6 +102,14 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+
+                    com.ndregil.inchat.ui.components.AppUpdateDialog(
+                        updateState = updateUiState,
+                        onUpdateClick = { viewModel.downloadAndInstallUpdate() },
+                        onDismiss = { viewModel.dismissUpdateDialog() },
+                        buildUnknownAppsIntent = { viewModel.buildUnknownAppsSettingsIntent() },
+                        onUnknownAppsSettingsReturned = { viewModel.onUnknownAppsSettingsReturned() }
+                    )
                 }
             }
         }
@@ -127,6 +137,14 @@ class MainActivity : ComponentActivity() {
         if (!targetRoomJid.isNullOrBlank()) {
             intent.removeExtra(FcmPushManager.EXTRA_ROOM_JID)
             viewModel.selectRoom(targetRoomJid)
+        }
+        val openUpdate = intent?.getBooleanExtra(
+            com.ndregil.inchat.data.network.update.UpdateCheckWorker.EXTRA_OPEN_UPDATE_DIALOG,
+            false
+        ) == true
+        if (openUpdate) {
+            intent?.removeExtra(com.ndregil.inchat.data.network.update.UpdateCheckWorker.EXTRA_OPEN_UPDATE_DIALOG)
+            viewModel.openUpdateDialogFromNotification()
         }
     }
 }

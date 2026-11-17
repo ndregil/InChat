@@ -1845,7 +1845,13 @@ fun MultiRoomMainScreen(
                                     showAccountSettingsDirectly = true
                                 }
                             },
-                            onExitApp = { viewModel.exitApp() }
+                            onExitApp = { viewModel.exitApp() },
+                            updateUiState = viewModel.updateUiState.collectAsStateWithLifecycle().value,
+                            onCheckForUpdates = { viewModel.checkForUpdates(isManual = true) },
+                            onToggleAutoCheckUpdates = { viewModel.setAutoCheckUpdates(it) },
+                            onOpenUpdateDialog = { viewModel.openUpdateDialogFromNotification() },
+                            buildUnknownAppsSettingsIntent = { viewModel.buildUnknownAppsSettingsIntent() },
+                            onUnknownAppsSettingsReturned = { viewModel.onUnknownAppsSettingsReturned() }
                         )
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {

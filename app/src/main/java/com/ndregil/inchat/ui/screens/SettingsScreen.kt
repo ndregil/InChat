@@ -84,6 +84,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     FONT("Pengaturan Font", "Ukuran font pesan, aplikasi & kontak", Icons.Default.TextFields),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
+    UPDATE("Pengaturan Pembaruan", "Periksa pembaruan APK, cek harian & izin instalasi", Icons.Default.SystemUpdate),
     MISC("Pengaturan Lainnya", "Konfigurasi tingkat lanjut, stanza stream debug", Icons.Default.Build),
     ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info);
 
@@ -98,6 +99,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
             FONT -> s.settingsFontTitle
             CONNECTION -> s.settingsConnectionTitle
             NOTIFICATION -> s.settingsNotificationTitle
+            UPDATE -> s.settingsUpdateTitle
             MISC -> s.settingsMiscTitle
             ABOUT -> s.settingsAboutTitle
         }
@@ -114,6 +116,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
             FONT -> s.settingsFontSubtitle
             CONNECTION -> s.settingsConnectionSubtitle
             NOTIFICATION -> s.settingsNotificationSubtitle
+            UPDATE -> s.settingsUpdateSubtitle
             MISC -> s.settingsMiscSubtitle
             ABOUT -> s.settingsAboutSubtitle
         }
@@ -151,6 +154,12 @@ fun SettingsScreen(
     onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
+    updateUiState: com.ndregil.inchat.data.network.update.UpdateUiState = com.ndregil.inchat.data.network.update.UpdateUiState(),
+    onCheckForUpdates: () -> Unit = {},
+    onToggleAutoCheckUpdates: (Boolean) -> Unit = {},
+    onOpenUpdateDialog: () -> Unit = {},
+    buildUnknownAppsSettingsIntent: () -> Intent = { Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES) },
+    onUnknownAppsSettingsReturned: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedCategory by remember { mutableStateOf<SubSettingCategory?>(null) }
@@ -201,6 +210,12 @@ fun SettingsScreen(
                 onUpdateThemePreferences = onUpdateThemePreferences,
                 onSignOut = onSignOut,
                 onExitApp = onExitApp,
+                updateUiState = updateUiState,
+                onCheckForUpdates = onCheckForUpdates,
+                onToggleAutoCheckUpdates = onToggleAutoCheckUpdates,
+                onOpenUpdateDialog = onOpenUpdateDialog,
+                buildUnknownAppsSettingsIntent = buildUnknownAppsSettingsIntent,
+                onUnknownAppsSettingsReturned = onUnknownAppsSettingsReturned,
                 onBack = { selectedCategory = null },
                 modifier = modifier
             )
@@ -574,6 +589,12 @@ fun SubSettingDetailScreen(
     onUpdateThemePreferences: (com.ndregil.inchat.data.model.ThemePreferences) -> Unit = {},
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
+    updateUiState: com.ndregil.inchat.data.network.update.UpdateUiState = com.ndregil.inchat.data.network.update.UpdateUiState(),
+    onCheckForUpdates: () -> Unit = {},
+    onToggleAutoCheckUpdates: (Boolean) -> Unit = {},
+    onOpenUpdateDialog: () -> Unit = {},
+    buildUnknownAppsSettingsIntent: () -> Intent = { Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES) },
+    onUnknownAppsSettingsReturned: () -> Unit = {},
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -657,8 +678,19 @@ fun SubSettingDetailScreen(
                     onDisconnect = onDisconnect
                 )
                 SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
+                SubSettingCategory.UPDATE -> UpdateSubSettings(
+                    updateUiState = updateUiState,
+                    onCheckForUpdates = onCheckForUpdates,
+                    onToggleAutoCheckUpdates = onToggleAutoCheckUpdates,
+                    onOpenUpdateDialog = onOpenUpdateDialog,
+                    buildUnknownAppsSettingsIntent = buildUnknownAppsSettingsIntent,
+                    onUnknownAppsSettingsReturned = onUnknownAppsSettingsReturned
+                )
                 SubSettingCategory.MISC -> MiscSubSettings()
-                SubSettingCategory.ABOUT -> AboutSubSettings()
+                SubSettingCategory.ABOUT -> AboutSubSettings(
+                    updateUiState = updateUiState,
+                    onCheckForUpdates = onCheckForUpdates
+                )
             }
         }
     }
@@ -1146,7 +1178,10 @@ fun ConnectionSubSettings(
 // 5. TENTANG APLIKASI (ABOUT) SUB-SETTING
 // ==========================================
 @Composable
-fun AboutSubSettings() {
+fun AboutSubSettings(
+    updateUiState: com.ndregil.inchat.data.network.update.UpdateUiState = com.ndregil.inchat.data.network.update.UpdateUiState(),
+    onCheckForUpdates: () -> Unit = {}
+) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Column(
         modifier = Modifier
@@ -1200,6 +1235,25 @@ fun AboutSubSettings() {
             )
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = onCheckForUpdates,
+            enabled = !updateUiState.isChecking,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.testTag("btn_about_check_updates")
+        ) {
+            if (updateUiState.isChecking) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(strings.checkingForUpdatesText)
+            } else {
+                Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(strings.checkForUpdatesBtn)
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
@@ -1207,6 +1261,393 @@ fun AboutSubSettings() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
+    }
+}
+
+// ==========================================
+// 6. PENGATURAN PEMBARUAN (APP UPDATES)
+// ==========================================
+@Composable
+fun UpdateSubSettings(
+    updateUiState: com.ndregil.inchat.data.network.update.UpdateUiState,
+    onCheckForUpdates: () -> Unit,
+    onToggleAutoCheckUpdates: (Boolean) -> Unit,
+    onOpenUpdateDialog: () -> Unit,
+    buildUnknownAppsSettingsIntent: () -> Intent,
+    onUnknownAppsSettingsReturned: () -> Unit
+) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+    val context = LocalContext.current
+
+    var canInstallUnknownApps by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.packageManager.canRequestPackageInstalls()
+            } else {
+                true
+            }
+        )
+    }
+
+    val unknownAppsLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        canInstallUnknownApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+        onUnknownAppsSettingsReturned()
+    }
+
+    val lastCheckedText = remember(updateUiState.lastCheckedTimestampMs, strings.neverCheckedText) {
+        if (updateUiState.lastCheckedTimestampMs <= 0L) {
+            strings.neverCheckedText
+        } else {
+            java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(updateUiState.lastCheckedTimestampMs))
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 12.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Version & Manual Update Check Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(40.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = strings.settingsUpdateTitle,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.settingsUpdateTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${strings.currentVersionLabel}: v${BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = strings.lastCheckedLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = lastCheckedText,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    // Status Banner
+                    val availableRelease = updateUiState.availableRelease
+                    when {
+                        updateUiState.isChecking -> {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = strings.checkingForUpdatesText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                        availableRelease != null -> {
+                            val remoteVer = com.ndregil.inchat.data.network.update.AppVersionComparator
+                                .stripLeadingV(availableRelease.tagName)
+                            Surface(
+                                onClick = onOpenUpdateDialog,
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("card_update_available_banner")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.NewReleases,
+                                        contentDescription = strings.updateAvailableTitle,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = strings.updateAvailableTitle,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = "${strings.latestVersionLabel}: v$remoteVer",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                    Text(
+                                        text = strings.updateNowBtn,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                        updateUiState.errorMessage != null -> {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "${strings.updateFailedPrefix} ${updateUiState.errorMessage}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                        updateUiState.isUpToDate && updateUiState.hasCheckedOnce -> {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("banner_app_up_to_date")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = OnlineGreen,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = strings.appUpToDateText,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        onClick = onCheckForUpdates,
+                        enabled = !updateUiState.isChecking && !updateUiState.isDownloading,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("btn_check_for_updates")
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.checkForUpdatesBtn, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Daily WorkManager Auto-Check Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = strings.autoCheckUpdatesTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = strings.autoCheckUpdatesDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = updateUiState.autoCheckEnabled,
+                        onCheckedChange = onToggleAutoCheckUpdates,
+                        modifier = Modifier.testTag("switch_auto_check_updates")
+                    )
+                }
+            }
+        }
+
+        // Install Unknown Apps Permission Card (Android 8.0+)
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                border = BorderStroke(
+                    1.dp,
+                    if (canInstallUnknownApps) MaterialTheme.colorScheme.outlineVariant
+                    else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = strings.installUnknownAppsTitle,
+                            tint = if (canInstallUnknownApps) OnlineGreen else MaterialTheme.colorScheme.tertiary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = strings.installUnknownAppsTitle,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = strings.installUnknownAppsDesc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (canInstallUnknownApps)
+                                MaterialTheme.colorScheme.secondaryContainer
+                            else
+                                MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                text = if (canInstallUnknownApps) strings.installPermGrantedBadge else strings.installPermRequiredBadge,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                color = if (canInstallUnknownApps)
+                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+
+                        if (!canInstallUnknownApps) {
+                            FilledTonalButton(
+                                onClick = {
+                                    try {
+                                        unknownAppsLauncher.launch(buildUnknownAppsSettingsIntent())
+                                    } catch (_: Exception) {
+                                        context.startActivity(buildUnknownAppsSettingsIntent().apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.testTag("btn_settings_unknown_apps")
+                            ) {
+                                Text(strings.openInstallSettingsBtn)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

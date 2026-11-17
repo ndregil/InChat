@@ -1674,5 +1674,48 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
             repository.deleteStory(storyId)
         }
     }
+
+    // --- In-App Updater (GitHub Releases) ---
+    private val updateManager = com.ndregil.inchat.data.network.update.AppUpdateManager.getInstance(application)
+    val updateUiState: StateFlow<com.ndregil.inchat.data.network.update.UpdateUiState> = updateManager.uiState
+
+    fun checkUpdatesOnAppStart() {
+        updateManager.checkOnAppStart()
+    }
+
+    fun checkForUpdates(isManual: Boolean = true) {
+        viewModelScope.launch {
+            updateManager.checkForUpdates(isManual = isManual)
+        }
+    }
+
+    fun openUpdateDialogFromNotification() {
+        updateManager.openCachedOrShowUpdateDialog()
+    }
+
+    fun downloadAndInstallUpdate() {
+        updateManager.startDownloadAndInstall(getApplication())
+    }
+
+    fun dismissUpdateDialog() {
+        updateManager.dismissUpdateDialog()
+    }
+
+    fun setAutoCheckUpdates(enabled: Boolean) {
+        updateManager.setAutoCheckEnabled(enabled)
+    }
+
+    fun canRequestPackageInstalls(): Boolean {
+        return updateManager.canRequestPackageInstalls(getApplication())
+    }
+
+    fun buildUnknownAppsSettingsIntent(): android.content.Intent {
+        return updateManager.buildUnknownAppsSettingsIntent(getApplication())
+    }
+
+    fun onUnknownAppsSettingsReturned() {
+        updateManager.onUnknownAppsSettingsReturned(getApplication())
+    }
 }
+
 
