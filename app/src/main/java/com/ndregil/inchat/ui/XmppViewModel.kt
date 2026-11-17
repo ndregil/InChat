@@ -258,7 +258,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
             return@combine null
         }
         
-        val found = rooms.find { it.jid == jid }
+        val found = rooms.find { it.jid.equals(jid, ignoreCase = true) }
         if (found != null) return@combine found
         
         // If JID is specified but not in DB yet, create a "virtual" placeholder room
@@ -611,32 +611,43 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearSelectedRoom() {
+        _selectedRoomJid.value = null
+        replyingToMessage.value = null
+        whisperTargetOccupant.value = null
+    }
+
     fun selectRoom(jid: String) {
-        _selectedRoomJid.value = jid
-        if (!_roomMessageLimits.value.containsKey(jid)) {
-            _roomMessageLimits.value = _roomMessageLimits.value + (jid to DEFAULT_LIMIT)
+        val trimmedJid = jid.trim()
+        if (trimmedJid.isBlank()) return
+        val existingRoom = allRooms.value.find { it.jid.equals(trimmedJid, ignoreCase = true) }
+        val canonicalJid = existingRoom?.jid ?: trimmedJid
+        _selectedRoomJid.value = canonicalJid
+        if (!_roomMessageLimits.value.containsKey(canonicalJid)) {
+            _roomMessageLimits.value = _roomMessageLimits.value + (canonicalJid to DEFAULT_LIMIT)
         }
         viewModelScope.launch {
             // Check if it's already in the room list and if it's NOT joined yet
-            val room = allRooms.value.find { it.jid == jid }
+            val room = existingRoom ?: allRooms.value.find { it.jid.equals(canonicalJid, ignoreCase = true) }
             if (room != null && room.isGroupChat && !room.isJoined) {
-                Log.i("XmppViewModel", "Selected room $jid is not joined. Triggering manual join...")
-                // Trigger manual join
+                Log.i("XmppViewModel", "Selected room $canonicalJid is not joined. Triggering manual join...")
+                // Trigger manual join without overriding selection if user navigates away during connect
                 joinOrCreateRoom(
                     roomJid = room.jid,
                     roomName = room.name,
                     nickname = room.myNickname,
                     topic = room.topic,
                     password = room.password ?: "",
-                    saveToBookmarks = room.isBookmarked
+                    saveToBookmarks = room.isBookmarked,
+                    selectOnSuccess = false
                 )
             }
 
-            repository.markRoomAsRead(jid)
+            repository.markRoomAsRead(canonicalJid)
             try {
-                repository.syncMamHistory(jid)
+                repository.syncMamHistory(canonicalJid)
             } catch (e: Exception) {
-                Log.w("XmppViewModel", "MAM sync failed on selectRoom for $jid: ${e.message}")
+                Log.w("XmppViewModel", "MAM sync failed on selectRoom for $canonicalJid: ${e.message}")
             }
         }
     }
@@ -645,10 +656,22 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         _searchQuery.value = query
     }
 
+    private var lastSentSignature: Pair<String, String>? = null
+    private var lastSentElapsedMs: Long = 0L
+
     fun sendMessage(text: String) {
         val trimmed = text.trim()
         val room = activeRoom.value ?: return
         if (trimmed.isBlank()) return
+
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        val sig = room.jid.lowercase() to trimmed
+        if (lastSentSignature == sig && (nowMs - lastSentElapsedMs) < 400L) {
+            Log.d("XmppViewModel", "Ignoring duplicate rapid sendMessage tap in ${room.jid}")
+            return
+        }
+        lastSentSignature = sig
+        lastSentElapsedMs = nowMs
 
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         val replyTarget = replyingToMessage.value
@@ -797,7 +820,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         nickname: String,
         topic: String = "",
         password: String = "",
-        saveToBookmarks: Boolean = true
+        saveToBookmarks: Boolean = true,
+        selectOnSuccess: Boolean = true
     ) {
         viewModelScope.launch {
             val trimmedJid = roomJid.trim()
@@ -833,7 +857,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     if (saveToBookmarks) {
                         repository.saveRoom(validJid, roomName.trim(), validNick, topic.trim(), password)
                     }
-                    _selectedRoomJid.value = validJid
+                    if (selectOnSuccess) {
+                        _selectedRoomJid.value = allRooms.value.find { it.jid.equals(validJid, ignoreCase = true) }?.jid ?: validJid
+                    }
                     isJoinCreateDialogOpen.value = false
                     joinStatus.value = null
                 },
@@ -897,15 +923,15 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun leaveRoom(roomJid: String) {
         val currentRooms = allRooms.value
         // Find another room to switch to (ONLY joined rooms)
-        val nextRoomJid = currentRooms.firstOrNull { it.jid != roomJid && it.isJoined }?.jid
+        val nextRoomJid = currentRooms.firstOrNull { !it.jid.equals(roomJid, ignoreCase = true) && it.isJoined }?.jid
             
         // Move to the next room window or back to list immediately
-        if (_selectedRoomJid.value == roomJid) {
+        if (_selectedRoomJid.value?.equals(roomJid, ignoreCase = true) == true) {
             _selectedRoomJid.value = nextRoomJid
         }
         
         viewModelScope.launch {
-            val room = currentRooms.find { it.jid == roomJid }
+            val room = currentRooms.find { it.jid.equals(roomJid, ignoreCase = true) }
             val nick = room?.myNickname ?: currentAccount.value.nickname
             repository.leaveRoom(roomJid, nick)
         }
@@ -914,9 +940,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteRoom(roomJid: String) {
         viewModelScope.launch {
             repository.deleteRoom(roomJid)
-            if (_selectedRoomJid.value == roomJid) {
-                _selectedRoomJid.value = allRooms.value.firstOrNull { it.jid != roomJid && it.isJoined }?.jid
-                    ?: allRooms.value.firstOrNull { it.jid != roomJid }?.jid
+            if (_selectedRoomJid.value?.equals(roomJid, ignoreCase = true) == true) {
+                _selectedRoomJid.value = allRooms.value.firstOrNull { !it.jid.equals(roomJid, ignoreCase = true) && it.isJoined }?.jid
+                    ?: allRooms.value.firstOrNull { !it.jid.equals(roomJid, ignoreCase = true) }?.jid
             }
         }
     }

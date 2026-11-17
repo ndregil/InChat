@@ -48,10 +48,10 @@ interface RoomDao {
     @Query("SELECT * FROM rooms WHERE isBookmarked = 1 ORDER BY lastMessageTime DESC")
     fun getSavedRooms(): Flow<List<RoomEntity>>
 
-    @Query("SELECT * FROM rooms WHERE jid = :roomJid")
+    @Query("SELECT * FROM rooms WHERE LOWER(jid) = LOWER(:roomJid) LIMIT 1")
     suspend fun getRoomByJid(roomJid: String): RoomEntity?
 
-    @Query("SELECT * FROM rooms WHERE jid = :roomJid")
+    @Query("SELECT * FROM rooms WHERE LOWER(jid) = LOWER(:roomJid) LIMIT 1")
     fun observeRoomByJid(roomJid: String): Flow<RoomEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -60,49 +60,49 @@ interface RoomDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRooms(rooms: List<RoomEntity>)
 
-    @Query("UPDATE rooms SET isBookmarked = :isBookmarked WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET isBookmarked = :isBookmarked WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateBookmark(roomJid: String, isBookmarked: Boolean)
 
-    @Query("UPDATE rooms SET unreadCount = 0 WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET unreadCount = 0 WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun markRoomAsRead(roomJid: String)
 
-    @Query("UPDATE rooms SET unreadCount = 0 WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET unreadCount = 0 WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun resetUnreadCount(roomJid: String)
 
-    @Query("UPDATE rooms SET topic = :newTopic WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET topic = :newTopic WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateTopic(roomJid: String, newTopic: String)
 
-    @Query("UPDATE rooms SET isJoined = :isJoined WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET isJoined = :isJoined WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateJoinStatus(roomJid: String, isJoined: Boolean)
 
-    @Query("UPDATE rooms SET isAutoJoin = :isAutoJoin WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET isAutoJoin = :isAutoJoin WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateAutoJoin(roomJid: String, isAutoJoin: Boolean)
 
-    @Query("UPDATE rooms SET password = :password WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET password = :password WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updatePassword(roomJid: String, password: String?)
 
-    @Query("UPDATE rooms SET myNickname = :nickname WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET myNickname = :nickname WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateNickname(roomJid: String, nickname: String)
 
-    @Query("UPDATE rooms SET bubbleTheme = :bubbleTheme, wallpaperStyle = :wallpaperStyle WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET bubbleTheme = :bubbleTheme, wallpaperStyle = :wallpaperStyle WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateThemeAndWallpaper(roomJid: String, bubbleTheme: String, wallpaperStyle: String)
 
-    @Query("UPDATE rooms SET colorHex = :colorHex WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET colorHex = :colorHex WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateColor(roomJid: String, colorHex: String)
 
-    @Query("UPDATE rooms SET myRole = :role, myAffiliation = :affiliation WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET myRole = :role, myAffiliation = :affiliation WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateOccupantRoleAndAffiliation(roomJid: String, role: com.ndregil.inchat.data.model.OccupantRole, affiliation: com.ndregil.inchat.data.model.OccupantAffiliation)
 
-    @Query("UPDATE rooms SET occupantCount = :count WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET occupantCount = :count WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateOccupantCount(roomJid: String, count: Int)
 
-    @Query("UPDATE rooms SET lastMessageText = :text, lastMessageTime = :time, unreadCount = unreadCount + :unreadIncrement WHERE jid = :roomJid AND (:time >= lastMessageTime OR lastMessageTime IS NULL OR lastMessageTime = 0)")
+    @Query("UPDATE rooms SET lastMessageText = :text, lastMessageTime = :time, unreadCount = unreadCount + :unreadIncrement WHERE LOWER(jid) = LOWER(:roomJid) AND (:time >= lastMessageTime OR lastMessageTime IS NULL OR lastMessageTime = 0)")
     suspend fun updateLastMessage(roomJid: String, text: String, time: Long, unreadIncrement: Int): Int
 
-    @Query("UPDATE rooms SET unreadCount = unreadCount + :unreadIncrement WHERE jid = :roomJid")
+    @Query("UPDATE rooms SET unreadCount = unreadCount + :unreadIncrement WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun incrementUnreadCount(roomJid: String, unreadIncrement: Int)
 
-    @Query("DELETE FROM rooms WHERE jid = :roomJid")
+    @Query("DELETE FROM rooms WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun deleteRoom(roomJid: String)
 
     @Query("DELETE FROM rooms")
@@ -111,24 +111,24 @@ interface RoomDao {
 
 @Dao
 interface MessageDao {
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp ASC")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) ORDER BY timestamp ASC")
     fun getMessagesForRoom(roomJid: String): Flow<List<MessageEntity>>
 
     @Query("""
         SELECT * FROM messages 
-        WHERE roomJid = :roomJid 
+        WHERE LOWER(roomJid) = LOWER(:roomJid) 
           AND timestamp >= COALESCE(
             (
               SELECT MIN(timestamp) FROM (
                 SELECT timestamp FROM messages 
-                WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE') 
+                WHERE LOWER(roomJid) = LOWER(:roomJid) AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE') 
                 ORDER BY timestamp DESC LIMIT :limit
               )
             ),
             (
               SELECT MIN(timestamp) FROM (
                 SELECT timestamp FROM messages 
-                WHERE roomJid = :roomJid 
+                WHERE LOWER(roomJid) = LOWER(:roomJid) 
                 ORDER BY timestamp DESC LIMIT :limit
               )
             ),
@@ -138,16 +138,16 @@ interface MessageDao {
     """)
     fun getRecentMessagesForRoom(roomJid: String, limit: Int = 30): Flow<List<MessageEntity>>
 
-    @Query("SELECT MIN(timestamp) FROM messages WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
+    @Query("SELECT MIN(timestamp) FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
     suspend fun getEarliestMessageTimestamp(roomJid: String): Long?
 
     @Query("SELECT * FROM messages ORDER BY timestamp ASC")
     suspend fun getAllMessagesList(): List<MessageEntity>
 
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid ORDER BY timestamp DESC LIMIT :limit")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentMessages(roomJid: String, limit: Int = 100): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND body LIKE '%' || :query || '%' ORDER BY timestamp ASC")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND body LIKE '%' || :query || '%' ORDER BY timestamp ASC")
     fun searchMessages(roomJid: String, query: String): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE id = :id")
@@ -156,7 +156,7 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE id = :id")
     suspend fun getMessageByIdSync(id: String): MessageEntity?
 
-    @Query("SELECT COUNT(*) FROM messages WHERE roomJid = :roomJid")
+    @Query("SELECT COUNT(*) FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid)")
     fun getMessageCount(roomJid: String): Flow<Int>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -168,13 +168,13 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(messages: List<MessageEntity>)
 
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND body = :body AND isMine = :isMine ORDER BY timestamp DESC LIMIT 1")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND (body = :body OR translatedBody = :body) AND isMine = :isMine ORDER BY timestamp DESC LIMIT 1")
     suspend fun findRecentMessage(roomJid: String, body: String, isMine: Boolean): MessageEntity?
 
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND isMine = 1 AND (body = :text OR translatedBody = :text) ORDER BY timestamp DESC LIMIT 1")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 AND (body = :text OR translatedBody = :text) ORDER BY timestamp DESC LIMIT 1")
     suspend fun findRecentOutgoingMessage(roomJid: String, text: String): MessageEntity?
 
-    @Query("SELECT * FROM messages WHERE roomJid = :roomJid AND isMine = 1 ORDER BY timestamp DESC LIMIT 1")
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 ORDER BY timestamp DESC LIMIT 1")
     suspend fun findLatestMineMessage(roomJid: String): MessageEntity?
 
     @Query("UPDATE messages SET status = :status WHERE id = :id")
@@ -186,16 +186,16 @@ interface MessageDao {
     @Query("UPDATE messages SET translatedBody = :translatedBody, translationLanguage = :language WHERE id = :id")
     suspend fun updateMessageTranslation(id: String, translatedBody: String, language: String)
 
-    @Query("UPDATE messages SET status = :status WHERE roomJid = :roomJid AND isMine = 1 AND status != :status")
+    @Query("UPDATE messages SET status = :status WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 AND status != :status")
     suspend fun updateMineMessagesStatusForRoom(roomJid: String, status: DeliveryStatus)
 
-    @Query("SELECT MAX(timestamp) FROM messages WHERE roomJid = :roomJid AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
+    @Query("SELECT MAX(timestamp) FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND messageType NOT IN ('SYSTEM_JOIN', 'SYSTEM_LEAVE')")
     suspend fun getLatestMessageTimestamp(roomJid: String): Long?
 
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: String)
 
-    @Query("DELETE FROM messages WHERE roomJid = :roomJid")
+    @Query("DELETE FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid)")
     suspend fun clearRoomMessages(roomJid: String)
 
     @Query("DELETE FROM messages")

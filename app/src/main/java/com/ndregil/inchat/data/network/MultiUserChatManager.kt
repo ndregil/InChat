@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.jivesoftware.smack.MessageListener
 import org.jivesoftware.smack.PresenceListener
@@ -87,9 +89,18 @@ class MultiUserChatManager(
 
     // MessageListener instances registered per room
     private val roomMessageListeners = ConcurrentHashMap<String, MutableList<MessageListener>>()
+
+    // ParticipantStatusListener instances registered per room
+    private val roomParticipantListeners = ConcurrentHashMap<String, MutableList<ParticipantStatusListener>>()
+
+    // SubjectUpdatedListener instances registered per room
+    private val roomSubjectListeners = ConcurrentHashMap<String, MutableList<SubjectUpdatedListener>>()
     
     // PresenceListener instances registered per room (StanzaListeners)
     private val roomPresenceListeners = ConcurrentHashMap<String, MutableList<org.jivesoftware.smack.StanzaListener>>()
+
+    // Per-room join lock to prevent concurrent joins attaching duplicate listeners
+    private val joinMutexes = ConcurrentHashMap<String, Mutex>()
 
     // State flow of joined room JIDs
     private val _joinedRooms = MutableStateFlow<Set<String>>(emptySet())
@@ -168,90 +179,100 @@ class MultiUserChatManager(
         maxHistoryStanzas: Int = DEFAULT_HISTORY_STANZAS
     ): Result<MultiUserChat> = withContext(Dispatchers.IO) {
         try {
-            val smackMucManager = getSmackMucManager()
             val bareJid = JidCreate.entityBareFrom(roomJid.trim())
-            val nick = Resourcepart.from(nickname.trim().ifBlank { connectionManager.credentials.value.username.ifBlank { "User" } })
+            val norm = bareJid.toString().lowercase()
+            val joinMutex = joinMutexes.computeIfAbsent(norm) { Mutex() }
 
-            val muc = smackMucManager.getMultiUserChat(bareJid)
+            joinMutex.withLock {
+                val smackMucManager = getSmackMucManager()
+                val nick = Resourcepart.from(nickname.trim().ifBlank { connectionManager.credentials.value.username.ifBlank { "User" } })
+                val muc = smackMucManager.getMultiUserChat(bareJid)
 
-            // If already joined, return existing instance
-            if (muc.isJoined) {
-                Log.d(TAG, "Already joined room $roomJid")
-                val norm = bareJid.toString().lowercase()
+                // If already joined, return existing instance cleanly without duplicating listeners
+                if (muc.isJoined) {
+                    Log.d(TAG, "Already joined room $roomJid")
+                    val actualNick = muc.nickname?.toString()?.takeIf { it.isNotBlank() } ?: nick.toString()
+                    activeMucs[roomJid] = muc
+                    activeMucs[norm] = muc
+                    roomNicknames[roomJid] = actualNick
+                    roomNicknames[norm] = actualNick
+                    if (roomMessageListeners[norm].isNullOrEmpty() && roomMessageListeners[roomJid].isNullOrEmpty()) {
+                        registerMucListeners(bareJid.toString(), muc, actualNick)
+                    }
+                    _joinedRooms.value = activeMucs.keys.toSet()
+                    updateOccupantsForRoom(bareJid.toString(), muc)
+                    avatarManager.getAvatar(roomJid)
+                    return@withLock Result.success(muc)
+                }
+
+                // Build enter configuration
+                val enterConfigBuilder = muc.getEnterConfigurationBuilder(nick)
+                val liveCapsVer = try {
+                    connectionManager.getRawConnection()?.let {
+                        org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(it)?.capsVersionAndHash
+                    }
+                } catch (_: Exception) { null }
+                val capsNodeExt = org.jivesoftware.smackx.caps.packet.CapsExtension(
+                    "http://ndregil.inchat",
+                    liveCapsVer?.version ?: "kFwX23eY765qL90mN12aBcDeFgH=",
+                    liveCapsVer?.hash ?: "sha-1"
+                )
+                enterConfigBuilder.withPresence { pb ->
+                    pb.overrideExtension(capsNodeExt)
+                }
+                if (!password.isNullOrBlank()) {
+                    enterConfigBuilder.withPassword(password)
+                }
+                if (maxHistoryStanzas > 0) {
+                    enterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
+                } else {
+                    enterConfigBuilder.requestNoHistory()
+                }
+
+                Log.i(TAG, "Joining MUC room $roomJid as '$nick'...")
+                var effectiveNick = nick
+                try {
+                    muc.join(enterConfigBuilder.build())
+                } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+                    if (e.stanzaError.condition == StanzaError.Condition.conflict) {
+                        Log.w(TAG, "Nickname '$nick' conflict in $roomJid, retrying with unique suffix...")
+                        val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
+                        val newEnterConfigBuilder = muc.getEnterConfigurationBuilder(newNick)
+                        newEnterConfigBuilder.withPresence { pb ->
+                            pb.overrideExtension(capsNodeExt)
+                        }
+                        if (!password.isNullOrBlank()) {
+                            newEnterConfigBuilder.withPassword(password)
+                        }
+                        if (maxHistoryStanzas > 0) {
+                            newEnterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
+                        } else {
+                            newEnterConfigBuilder.requestNoHistory()
+                        }
+                        muc.join(newEnterConfigBuilder.build())
+                        effectiveNick = newNick
+                    } else {
+                        throw e
+                    }
+                }
+
+                val actualNick = muc.nickname?.toString()?.takeIf { it.isNotBlank() } ?: effectiveNick.toString()
+
                 activeMucs[roomJid] = muc
                 activeMucs[norm] = muc
-                roomNicknames[roomJid] = nick.toString()
-                roomNicknames[norm] = nick.toString()
+                roomNicknames[roomJid] = actualNick
+                roomNicknames[norm] = actualNick
                 _joinedRooms.value = activeMucs.keys.toSet()
-                updateOccupantsForRoom(roomJid, muc)
+
+                // Register listeners after cleaning up any stale ones for this room
+                registerMucListeners(bareJid.toString(), muc, actualNick)
+
+                updateOccupantsForRoom(bareJid.toString(), muc)
                 avatarManager.getAvatar(roomJid)
-                return@withContext Result.success(muc)
+                Log.i(TAG, "Successfully joined room $roomJid as '$actualNick'")
+
+                Result.success(muc)
             }
-
-            // Build enter configuration
-            val enterConfigBuilder = muc.getEnterConfigurationBuilder(nick)
-            val liveCapsVer = try {
-                connectionManager.getRawConnection()?.let {
-                    org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(it)?.capsVersionAndHash
-                }
-            } catch (_: Exception) { null }
-            val capsNodeExt = org.jivesoftware.smackx.caps.packet.CapsExtension(
-                "http://ndregil.inchat",
-                liveCapsVer?.version ?: "kFwX23eY765qL90mN12aBcDeFgH=",
-                liveCapsVer?.hash ?: "sha-1"
-            )
-            enterConfigBuilder.withPresence { pb ->
-                pb.overrideExtension(capsNodeExt)
-            }
-            if (!password.isNullOrBlank()) {
-                enterConfigBuilder.withPassword(password)
-            }
-            if (maxHistoryStanzas > 0) {
-                enterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
-            } else {
-                enterConfigBuilder.requestNoHistory()
-            }
-
-            Log.i(TAG, "Joining MUC room $roomJid as '$nick'...")
-            try {
-                muc.join(enterConfigBuilder.build())
-            } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
-                if (e.stanzaError.condition == StanzaError.Condition.conflict) {
-                    Log.w(TAG, "Nickname '$nick' conflict in $roomJid, retrying with unique suffix...")
-                    val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
-                    val newEnterConfigBuilder = muc.getEnterConfigurationBuilder(newNick)
-                    newEnterConfigBuilder.withPresence { pb ->
-                        pb.overrideExtension(capsNodeExt)
-                    }
-                    if (!password.isNullOrBlank()) {
-                        newEnterConfigBuilder.withPassword(password)
-                    }
-                    if (maxHistoryStanzas > 0) {
-                        newEnterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
-                    } else {
-                        newEnterConfigBuilder.requestNoHistory()
-                    }
-                    muc.join(newEnterConfigBuilder.build())
-                } else {
-                    throw e
-                }
-            }
-
-            // Register listeners
-            registerMucListeners(roomJid, muc, nick.toString())
-
-            val norm = bareJid.toString().lowercase()
-            activeMucs[roomJid] = muc
-            activeMucs[norm] = muc
-            roomNicknames[roomJid] = nick.toString()
-            roomNicknames[norm] = nick.toString()
-            _joinedRooms.value = activeMucs.keys.toSet()
-
-            updateOccupantsForRoom(roomJid, muc)
-            avatarManager.getAvatar(roomJid)
-            Log.i(TAG, "Successfully joined room $roomJid")
-
-            Result.success(muc)
         } catch (e: org.jivesoftware.smackx.muc.MultiUserChatException.NotAMucServiceException) {
             Log.w(TAG, "Not a MUC service: $roomJid")
             Result.failure(Exception("Domain '${JidCreate.entityBareFrom(roomJid).domain}' tidak menyediakan layanan MUC (XEP-45). Jika ini adalah akun pribadi, gunakan 'Obrolan Langsung'.", e))
@@ -500,14 +521,9 @@ class MultiUserChatManager(
         }
 
         // 3. Remove registered listeners
-        val keysToRemove = setOfNotNull(roomJid, bareJidStr, matchedKey)
+        val keysToRemove = setOfNotNull(roomJid, bareJidStr, bareJidStr.lowercase(), matchedKey)
+        detachMucListeners(keysToRemove, muc)
         for (key in keysToRemove) {
-            roomMessageListeners.remove(key)?.forEach { listener ->
-                try { muc?.removeMessageListener(listener) } catch (_: Exception) {}
-            }
-            roomPresenceListeners.remove(key)?.forEach { listener ->
-                try { connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
-            }
             activeMucs.remove(key)
             roomNicknames.remove(key)
             roomOccupantCapsCache.remove(key)
@@ -557,13 +573,15 @@ class MultiUserChatManager(
      * Changes user nickname in a joined MUC room (XEP-0045 7.6).
      */
     suspend fun changeNickname(roomJid: String, newNickname: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(
             IllegalStateException("Room $roomJid is not joined.")
         )
         try {
             val nick = Resourcepart.from(newNickname.trim())
             muc.changeNickname(nick)
+            val norm = roomJid.trim().lowercase()
             roomNicknames[roomJid] = nick.toString()
+            roomNicknames[norm] = nick.toString()
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to change nickname in $roomJid to '$newNickname': ${e.message}", e)
@@ -574,13 +592,16 @@ class MultiUserChatManager(
     /**
      * Sends a groupchat message to all participants in the MUC room.
      */
-    suspend fun sendMessage(roomJid: String, body: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
+    suspend fun sendMessage(roomJid: String, body: String, stanzaId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(
             IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
         try {
             val message = muc.createMessage().apply {
                 this.body = body
+                if (!stanzaId.isNullOrBlank()) {
+                    this.stanzaId = stanzaId
+                }
                 org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
             }
             muc.sendMessage(message)
@@ -820,6 +841,9 @@ class MultiUserChatManager(
         activeMucs.clear()
         roomNicknames.clear()
         roomMessageListeners.clear()
+        roomParticipantListeners.clear()
+        roomSubjectListeners.clear()
+        roomPresenceListeners.clear()
         _joinedRooms.value = emptySet()
         _roomOccupants.value = emptyMap()
         _serverBookmarks.value = emptyList()
@@ -1188,14 +1212,39 @@ class MultiUserChatManager(
         return null
     }
 
+    private fun detachMucListeners(keys: Set<String>, muc: MultiUserChat?) {
+        for (key in keys) {
+            roomMessageListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeMessageListener(listener) } catch (_: Exception) {}
+            }
+            roomParticipantListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeParticipantStatusListener(listener) } catch (_: Exception) {}
+            }
+            roomSubjectListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeSubjectUpdatedListener(listener) } catch (_: Exception) {}
+            }
+            roomPresenceListeners.remove(key)?.forEach { listener ->
+                try { connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
+            }
+        }
+    }
+
     /**
      * Attaches message, presence, and subject listeners to a [MultiUserChat] instance.
      */
     private fun registerMucListeners(roomJid: String, muc: MultiUserChat, myNickname: String) {
+        val norm = roomJid.trim().lowercase()
+        detachMucListeners(setOf(roomJid, norm), muc)
+
         // Instantiate and hook our dedicated MucMessageListener implementation
         val mucMessageListener = MucMessageListener(
             roomJid = roomJid,
-            myNicknameProvider = { roomNicknames[roomJid] ?: myNickname },
+            myNicknameProvider = {
+                muc.nickname?.toString()?.takeIf { it.isNotBlank() }
+                    ?: roomNicknames[norm]
+                    ?: roomNicknames[roomJid]
+                    ?: myNickname
+            },
             onMessageProcessed = { xmppMessage ->
                 val senderJid = xmppMessage.senderJid
                 val cachedCaps = getOccupantCaps(roomJid, xmppMessage.senderNickname)
@@ -1216,10 +1265,10 @@ class MultiUserChatManager(
             }
         )
         muc.addMessageListener(mucMessageListener)
-        roomMessageListeners.getOrPut(roomJid) { mutableListOf() }.add(mucMessageListener)
+        roomMessageListeners.getOrPut(norm) { mutableListOf() }.add(mucMessageListener)
 
         // Participant status listener (catches join/leave/kick/ban/role/nick events like BombusMod)
-        muc.addParticipantStatusListener(object : org.jivesoftware.smackx.muc.ParticipantStatusListener {
+        val participantStatusListener = object : org.jivesoftware.smackx.muc.ParticipantStatusListener {
             override fun joined(participant: EntityFullJid?) {
                 Log.d(TAG, "MUC [$roomJid] Participant joined: $participant")
                 updateOccupantsForRoom(roomJid, muc)
@@ -1498,15 +1547,19 @@ class MultiUserChatManager(
                 )
                 _incomingMessages.tryEmit(msg)
             }
-        })
+        }
+        muc.addParticipantStatusListener(participantStatusListener)
+        roomParticipantListeners.getOrPut(norm) { mutableListOf() }.add(participantStatusListener)
 
         // Subject / Topic change listener
-        muc.addSubjectUpdatedListener(SubjectUpdatedListener { newSubject, from ->
+        val subjectListener = SubjectUpdatedListener { newSubject, from ->
             if (newSubject != null) {
                 Log.i(TAG, "MUC [$roomJid] Subject updated to '$newSubject' by $from")
                 _topicUpdates.tryEmit(Pair(roomJid, newSubject))
             }
-        })
+        }
+        muc.addSubjectUpdatedListener(subjectListener)
+        roomSubjectListeners.getOrPut(norm) { mutableListOf() }.add(subjectListener)
 
         // Participant presence listener for real-time presence (Online, Chat, Away, DND, Offline, status message)
         val presenceListener = org.jivesoftware.smack.StanzaListener { stanza ->
@@ -1561,7 +1614,11 @@ class MultiUserChatManager(
                     roomCache[nick] = currentPair
 
                     // Only emit status message if this is a subsequent change (avoid initial spam on join)
-                    if (prev != null && nick != myNickname) {
+                    val effectiveMyNick = muc.nickname?.toString()?.takeIf { it.isNotBlank() }
+                        ?: roomNicknames[norm]
+                        ?: roomNicknames[roomJid]
+                        ?: myNickname
+                    if (prev != null && !nick.equals(effectiveMyNick, ignoreCase = true)) {
                         val strings = getCurrentStrings()
                         val modeName = when (presence.mode) {
                             Presence.Mode.away -> strings.presenceAway
@@ -1593,7 +1650,7 @@ class MultiUserChatManager(
         }
         val presenceFilter = org.jivesoftware.smack.filter.StanzaTypeFilter(Presence::class.java)
         connectionManager.getRawConnection()?.addAsyncStanzaListener(presenceListener, presenceFilter)
-        roomPresenceListeners.getOrPut(roomJid) { mutableListOf() }.add(presenceListener)
+        roomPresenceListeners.getOrPut(norm) { mutableListOf() }.add(presenceListener)
     }
 
     /**

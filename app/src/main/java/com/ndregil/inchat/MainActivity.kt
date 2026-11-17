@@ -125,6 +125,7 @@ class MainActivity : ComponentActivity() {
     private fun handleNotificationIntent(intent: Intent?) {
         val targetRoomJid = intent?.getStringExtra(FcmPushManager.EXTRA_ROOM_JID)
         if (!targetRoomJid.isNullOrBlank()) {
+            intent.removeExtra(FcmPushManager.EXTRA_ROOM_JID)
             viewModel.selectRoom(targetRoomJid)
         }
     }

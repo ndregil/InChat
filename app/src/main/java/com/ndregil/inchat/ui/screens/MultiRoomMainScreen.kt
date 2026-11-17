@@ -255,8 +255,20 @@ fun MultiRoomMainScreen(
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
     var isWhisperBubbleExpanded by remember { mutableStateOf(false) }
 
+    val groupRoomsList by viewModel.groupRooms.collectAsStateWithLifecycle()
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
-    val activeWindows = displayedRooms.filter { it.isJoined }
+    val activeWindows = remember(showOnlySavedRooms, savedRooms, groupRoomsList, activeRoom?.jid, activeRoom?.isGroupChat) {
+        val base = if (showOnlySavedRooms) savedRooms else groupRoomsList
+        val activeGroup = activeRoom?.takeIf { it.isGroupChat }
+        val combined = base.filter {
+            it.isJoined || (activeGroup != null && it.jid.equals(activeGroup.jid, ignoreCase = true))
+        }.toMutableList()
+        if (activeGroup != null && combined.none { it.jid.equals(activeGroup.jid, ignoreCase = true) }) {
+            val fromAll = groupRoomsList.find { it.jid.equals(activeGroup.jid, ignoreCase = true) } ?: activeGroup
+            combined.add(fromAll)
+        }
+        combined.distinctBy { it.jid.lowercase() }.sortedBy { it.jid.lowercase() }
+    }
     var selectedOccupantForMenu by remember { mutableStateOf<RoomOccupant?>(null) }
     var selectedProfileOccupant by remember { mutableStateOf<Pair<RoomOccupant, org.jivesoftware.smackx.vcardtemp.packet.VCard?>?>(null) }
     var isLoadingProfile by remember { mutableStateOf(false) }
@@ -440,10 +452,8 @@ fun MultiRoomMainScreen(
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val roomUnread = viewModel.groupRooms.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
+                    val roomUnread = groupRoomsList.sumOf { it.unreadCount }
                     val directUnread = viewModel.directChats.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
-
-                    val groupRoomsList by viewModel.groupRooms.collectAsStateWithLifecycle()
 
                     CompactNavItem(
                         selected = activeNavIndex == 0,
@@ -765,38 +775,35 @@ fun MultiRoomMainScreen(
                     // Multi-Room Chat View with dynamic horizontal multi-room switcher tabs
                     // Page 0 = Room List, Page 1..N = Active Rooms
                     
-                    LaunchedEffect(activeRoom?.jid, activeWindows.map { it.jid }) {
-                        val activeJid = activeRoom?.jid
-                        if (activeJid == null) {
-                            if (roomPagerState.currentPage != 0) {
-                                roomPagerState.scrollToPage(0)
-                            }
-                            return@LaunchedEffect
-                        }
-                        
-                        val index = activeWindows.indexOfFirst { it.jid == activeJid }
-                        if (index >= 0) {
-                            val targetPage = index + 1
-                            if (roomPagerState.currentPage != targetPage) {
-                                roomPagerState.scrollToPage(targetPage)
-                            }
+                    val activeWindowKeys = remember(activeWindows) { activeWindows.map { it.jid.lowercase() } }
+
+                    LaunchedEffect(activeRoom?.jid, activeRoom?.isGroupChat, activeWindowKeys) {
+                        val currentActive = activeRoom
+                        val targetPage = if (currentActive == null || !currentActive.isGroupChat) {
+                            0
                         } else {
-                            if (roomPagerState.currentPage != 0) {
-                                roomPagerState.scrollToPage(0)
-                            }
+                            val index = activeWindows.indexOfFirst { it.jid.equals(currentActive.jid, ignoreCase = true) }
+                            if (index >= 0) index + 1 else 0
+                        }
+                        if (roomPagerState.currentPage != targetPage) {
+                            roomPagerState.scrollToPage(targetPage)
                         }
                     }
 
                     if (roomPagerState.currentPage > 0) {
                         BackHandler {
-                            coroutineScope.launch { roomPagerState.animateScrollToPage(0) }
+                            viewModel.clearSelectedRoom()
                         }
                     }
 
                         HorizontalPager(
                             state = roomPagerState,
                             modifier = Modifier.fillMaxSize(),
-                            userScrollEnabled = false
+                            userScrollEnabled = false,
+                            key = { page ->
+                                if (page == 0) "room_list"
+                                else "room_" + (activeWindows.getOrNull(page - 1)?.jid?.lowercase() ?: page.toString())
+                            }
                         ) { page ->
                             if (page == 0) {
                                 // Page 0: Active Group Chat List (Daftar Ruangan Aktif)
@@ -900,17 +907,11 @@ fun MultiRoomMainScreen(
                                         selectedRoomJid = room.jid,
                                         showOnlySavedRooms = showOnlySavedRooms,
                                         onToggleSavedOnly = { showOnlySavedRooms = !showOnlySavedRooms },
-                                        onSelectRoom = { jid -> 
+                                        onSelectRoom = { jid ->
                                             viewModel.selectRoom(jid)
-                                            coroutineScope.launch {
-                                                val idx = displayedRooms.indexOfFirst { it.jid == jid }
-                                                if (idx >= 0) roomPagerState.animateScrollToPage(idx + 1)
-                                            }
                                         },
                                         onAddRoomClick = {
-                                            coroutineScope.launch {
-                                                roomPagerState.animateScrollToPage(0)
-                                            }
+                                            viewModel.clearSelectedRoom()
                                         }
                                     )
 
@@ -1134,27 +1135,39 @@ fun MultiRoomMainScreen(
                     val isDirectActive = isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
                     
                     val chatPagerState = rememberPagerState(initialPage = if (isDirectActive) 1 else 0) { 2 }
-                    
+                    var wasOnDirectPage1 by remember { mutableStateOf(isDirectActive) }
+
                     LaunchedEffect(isDirectActive) {
-                        chatPagerState.animateScrollToPage(if (isDirectActive) 1 else 0)
+                        val target = if (isDirectActive) 1 else 0
+                        if (chatPagerState.currentPage != target) {
+                            chatPagerState.animateScrollToPage(target)
+                        }
                     }
-                    
-                    LaunchedEffect(chatPagerState.currentPage) {
-                        if (chatPagerState.currentPage == 0 && isDirectActive) {
-                            isDirectConversationOpen = false
+
+                    LaunchedEffect(chatPagerState) {
+                        androidx.compose.runtime.snapshotFlow {
+                            chatPagerState.settledPage to chatPagerState.isScrollInProgress
+                        }.collect { (settled, scrolling) ->
+                            if (settled == 1) {
+                                wasOnDirectPage1 = true
+                            } else if (wasOnDirectPage1 && !scrolling && settled == 0 && isDirectActive) {
+                                wasOnDirectPage1 = false
+                                isDirectConversationOpen = false
+                            }
                         }
                     }
 
                     if (isDirectActive && chatPagerState.currentPage == 1) {
                         BackHandler {
-                            coroutineScope.launch { chatPagerState.animateScrollToPage(0) }
+                            isDirectConversationOpen = false
                         }
                     }
 
                     HorizontalPager(
                         state = chatPagerState,
                         modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = chatPagerState.currentPage == 0
+                        userScrollEnabled = chatPagerState.currentPage == 0,
+                        key = { p -> "direct_page_$p" }
                     ) { page ->
                         if (page == 0) {
                             // MODE A: Direct Chat List View
@@ -2579,8 +2592,9 @@ fun MultiRoomTabHeader(
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     val tabListState = rememberLazyListState()
 
-    androidx.compose.runtime.LaunchedEffect(selectedRoomJid, rooms) {
-        val index = rooms.indexOfFirst { it.jid == selectedRoomJid }
+    val tabKeys = remember(rooms) { rooms.map { it.jid.lowercase() } }
+    androidx.compose.runtime.LaunchedEffect(selectedRoomJid, tabKeys) {
+        val index = rooms.indexOfFirst { it.jid.equals(selectedRoomJid, ignoreCase = true) }
         if (index >= 0) {
             tabListState.animateScrollToItem(index)
         }
@@ -2633,8 +2647,8 @@ fun MultiRoomTabHeader(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(rooms, key = { it.jid }) { room ->
-                        val isSelected = room.jid == selectedRoomJid
+                    items(rooms, key = { it.jid.lowercase() }) { room ->
+                        val isSelected = room.jid.equals(selectedRoomJid, ignoreCase = true)
                         val tabColor = try {
                             Color(android.graphics.Color.parseColor(room.colorHex))
                         } catch (e: Exception) {
@@ -3309,8 +3323,13 @@ fun ChatInputBar(
                         // Floating Send Button
                         FloatingActionButton(
                             onClick = {
-                                onSendMessage(inputText)
-                                showEmojiKeyboard = false
+                                val textToSend = tfvState.text
+                                if (textToSend.isNotBlank()) {
+                                    tfvState = androidx.compose.ui.text.input.TextFieldValue("")
+                                    onInputChange("")
+                                    onSendMessage(textToSend)
+                                    showEmojiKeyboard = false
+                                }
                             },
                             modifier = Modifier
                                 .size(44.dp)

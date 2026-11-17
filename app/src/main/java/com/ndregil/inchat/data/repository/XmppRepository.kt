@@ -70,6 +70,9 @@ class XmppRepository(
     private val scope: CoroutineScope
 ) {
     private val connectionMutex = Mutex()
+    private val incomingMessageMutex = Mutex()
+    private val autoJoinMutex = Mutex()
+    private val listenerAttachLock = Any()
 
     companion object {
         @Volatile
@@ -749,12 +752,15 @@ class XmppRepository(
     }
 
     private var lastAttachedConnection: org.jivesoftware.smack.XMPPConnection? = null
+    private var lastAttachedReceiptConnection: org.jivesoftware.smack.XMPPConnection? = null
     private val processedStanzaIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
 
     private fun setupIncomingStanzaListener() {
         val conn = smackConnectionManager.getRawConnection() ?: return
-        if (!conn.isAuthenticated || lastAttachedConnection == conn) return
-        lastAttachedConnection = conn
+        synchronized(listenerAttachLock) {
+            if (!conn.isAuthenticated || lastAttachedConnection == conn) return
+            lastAttachedConnection = conn
+        }
 
         val filter = org.jivesoftware.smack.filter.StanzaTypeFilter(org.jivesoftware.smack.packet.Message::class.java)
         conn.addAsyncStanzaListener({ stanza ->
@@ -1061,6 +1067,10 @@ class XmppRepository(
     }
 
     private fun setupReceiptListener(connection: org.jivesoftware.smack.XMPPConnection) {
+        synchronized(listenerAttachLock) {
+            if (lastAttachedReceiptConnection == connection) return
+            lastAttachedReceiptConnection = connection
+        }
         val receiptManager = org.jivesoftware.smackx.receipts.DeliveryReceiptManager.getInstanceFor(connection)
         receiptManager.addReceiptReceivedListener { fromJid, toJid, receiptId, receipt ->
             Log.d("XmppRepository", "Received delivery receipt for message $receiptId from $fromJid")
@@ -1074,45 +1084,66 @@ class XmppRepository(
         }
     }
 
-    private suspend fun processIncomingMessage(msg: XmppMessage) {
+    private suspend fun processIncomingMessage(msg: XmppMessage) = incomingMessageMutex.withLock {
         try {
+            val canonicalRoomJid = database.roomDao().getRoomByJid(msg.roomJid)?.jid ?: msg.roomJid.trim()
+
             // Deduplication by ID
             if (msg.id.isNotBlank()) {
                 val byId = database.messageDao().getMessageByIdSync(msg.id)
                 if (byId != null) {
                     Log.d("XmppRepository", "Deduplicating message by ID: ${msg.id}")
-                    return
+                    if (byId.isMine && byId.status == DeliveryStatus.SENDING) {
+                        database.messageDao().updateMessageStatus(byId.id, DeliveryStatus.SENT)
+                    }
+                    return@withLock
                 }
             }
 
+            // Re-verify whether this MUC reflection is from our live joined nickname
+            val liveMucNick = smackMucManager.getMultiUserChat(canonicalRoomJid)?.nickname?.toString()
+            val effectiveIsMine = msg.isMine ||
+                (!liveMucNick.isNullOrBlank() && msg.senderNickname.equals(liveMucNick, ignoreCase = true))
+
             // Enhanced Client Caps Resolution: Try global cache if not identified or is placeholder
-            val finalMsg = if (msg.senderClientCaps.iconResId == null) {
+            val withCaps = if (msg.senderClientCaps.iconResId == null) {
                 val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(msg.senderJid)
                 if (cached != null) msg.copy(senderClientCaps = cached) else msg
             } else msg
 
+            val finalMsg = withCaps.copy(
+                roomJid = canonicalRoomJid,
+                isMine = effectiveIsMine
+            )
+
             // Deduplication for outgoing echoes/reflections (isMine == true)
             if (finalMsg.isMine) {
                 val recentMine = database.messageDao().findRecentOutgoingMessage(finalMsg.roomJid, finalMsg.body)
-                if (recentMine != null && Math.abs(recentMine.timestamp - finalMsg.timestamp) < 60000) {
+                if (recentMine != null && kotlin.math.abs(recentMine.timestamp - finalMsg.timestamp) < 120_000L) {
                     Log.d("XmppRepository", "Deduplicating outgoing echo message by content/time: ${finalMsg.id}")
-                    database.messageDao().updateMessageStatus(recentMine.id, DeliveryStatus.SENT)
-                    return
+                    if (recentMine.status == DeliveryStatus.SENDING) {
+                        database.messageDao().updateMessageStatus(recentMine.id, DeliveryStatus.SENT)
+                    }
+                    return@withLock
                 }
 
                 val latestMine = database.messageDao().findLatestMineMessage(finalMsg.roomJid)
-                if (latestMine != null && Math.abs(latestMine.timestamp - finalMsg.timestamp) < 15000) {
-                    Log.d("XmppRepository", "Deduplicating outgoing echo message by time window: ${finalMsg.id}")
-                    database.messageDao().updateMessageStatus(latestMine.id, DeliveryStatus.SENT)
-                    return
+                if (latestMine != null && kotlin.math.abs(latestMine.timestamp - finalMsg.timestamp) < 60_000L &&
+                    (latestMine.body.trim() == finalMsg.body.trim() || latestMine.translatedBody?.trim() == finalMsg.body.trim())
+                ) {
+                    Log.d("XmppRepository", "Deduplicating outgoing echo message by trimmed content/time: ${finalMsg.id}")
+                    if (latestMine.status == DeliveryStatus.SENDING) {
+                        database.messageDao().updateMessageStatus(latestMine.id, DeliveryStatus.SENT)
+                    }
+                    return@withLock
                 }
             }
 
             // Deduplication by recent message content/timestamp
             val existing = database.messageDao().findRecentMessage(finalMsg.roomJid, finalMsg.body, finalMsg.isMine)
-            if (existing != null && Math.abs(existing.timestamp - finalMsg.timestamp) < 60000) {
+            if (existing != null && kotlin.math.abs(existing.timestamp - finalMsg.timestamp) < 60_000L) {
                 Log.d("XmppRepository", "Deduplicating message by content/time: ${finalMsg.id}")
-                return
+                return@withLock
             }
 
             // 0. Ensure room exists in database so it appears in Chat list
@@ -1297,6 +1328,10 @@ class XmppRepository(
                     updateRoomAutoJoin(roomJid, false)
                 }
             } else {
+                val actualNick = mucResult.getOrNull()?.nickname?.toString()?.takeIf { it.isNotBlank() }
+                if (actualNick != null && !actualNick.equals(nickname, ignoreCase = true)) {
+                    database.roomDao().updateNickname(roomJid, actualNick)
+                }
                 val liveCount = smackMucManager.getRoomOccupantsCount(roomJid)
                 if (liveCount > 0) {
                     database.roomDao().updateOccupantCount(roomJid, liveCount)
@@ -1365,82 +1400,132 @@ class XmppRepository(
      * Automatically rejoins rooms configured with isAutoJoin = true or saved in Room database using persisted credentials.
      */
     suspend fun autoJoinConfiguredRooms() = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        Log.i("XmppRepository", "Starting concurrent auto-join for configured rooms...")
-        val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
-        val savedRooms = database.roomDao().getAllRoomsList()
-        
-        val roomsToJoin = mutableMapOf<String, Triple<String, String, String?>>() // jid -> (name, nick, pass)
-        
-        for (cfg in autoJoinConfigs) {
-            val nick = cfg.nickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
-            roomsToJoin[cfg.roomJid] = Triple(cfg.roomName, nick, cfg.password)
-        }
-        
-        for (room in savedRooms) {
-            if (!roomsToJoin.containsKey(room.jid) && (room.isAutoJoin || room.isJoined)) {
-                val nick = room.myNickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
-                roomsToJoin[room.jid] = Triple(room.name, nick, room.password)
+        autoJoinMutex.withLock {
+            Log.i("XmppRepository", "Starting auto-join for configured rooms...")
+            val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
+            val savedRooms = database.roomDao().getAllRoomsList()
+
+            val roomsToJoin = linkedMapOf<String, Triple<String, String, String?>>() // normalized jid -> (name, nick, pass)
+            val originalJidByNorm = mutableMapOf<String, String>()
+
+            for (cfg in autoJoinConfigs) {
+                val norm = cfg.roomJid.trim().lowercase()
+                val nick = cfg.nickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
+                roomsToJoin[norm] = Triple(cfg.roomName, nick, cfg.password)
+                originalJidByNorm.putIfAbsent(norm, cfg.roomJid)
             }
-        }
 
-        if (roomsToJoin.isEmpty()) {
-            Log.d("XmppRepository", "No rooms configured for auto-join.")
-            return@withContext
-        }
-
-        val joinedNames = java.util.Collections.synchronizedList(mutableListOf<String>())
-        
-        // Join rooms sequentially with a small delay to avoid overwhelming the server and connection
-        for ((jid, data) in roomsToJoin) {
-            val (name, nick, pass) = data
-            try {
-                Log.d("XmppRepository", "Attempting auto-join for $jid as $nick...")
-                val res = joinRoom(
-                    roomJid = jid,
-                    name = name,
-                    nickname = nick,
-                    password = pass.orEmpty()
-                )
-                if (res.isSuccess) {
-                    joinedNames.add(name.ifBlank { jid.substringBefore("@") })
-                    Log.i("XmppRepository", "Successfully auto-joined $jid")
-                } else {
-                    Log.w("XmppRepository", "Auto-join failed for $jid: ${res.exceptionOrNull()?.message}")
+            for (room in savedRooms) {
+                val norm = room.jid.trim().lowercase()
+                if (!roomsToJoin.containsKey(norm) && (room.isAutoJoin || room.isJoined)) {
+                    val nick = room.myNickname.ifBlank { currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } } }
+                    roomsToJoin[norm] = Triple(room.name, nick, room.password)
+                    originalJidByNorm.putIfAbsent(norm, room.jid)
                 }
-                // Small delay between joins to keep connection stable and avoid flood
-                kotlinx.coroutines.delay(800)
-            } catch (e: Exception) {
-                Log.w("XmppRepository", "Auto-join Exception for $jid: ${e.message}")
+            }
+
+            if (roomsToJoin.isEmpty()) {
+                Log.d("XmppRepository", "No rooms configured for auto-join.")
+                return@withLock
+            }
+
+            val joinedNames = java.util.Collections.synchronizedList(mutableListOf<String>())
+
+            // Join rooms sequentially with a small delay to avoid overwhelming the server and connection
+            for ((norm, data) in roomsToJoin) {
+                val jid = originalJidByNorm[norm] ?: norm
+                if (smackMucManager.isRoomJoined(jid)) {
+                    Log.d("XmppRepository", "Skipping auto-join for already-joined room $jid")
+                    continue
+                }
+                val (name, nick, pass) = data
+                try {
+                    Log.d("XmppRepository", "Attempting auto-join for $jid as $nick...")
+                    val res = joinRoom(
+                        roomJid = jid,
+                        name = name,
+                        nickname = nick,
+                        password = pass.orEmpty()
+                    )
+                    if (res.isSuccess) {
+                        joinedNames.add(name.ifBlank { jid.substringBefore("@") })
+                        Log.i("XmppRepository", "Successfully auto-joined $jid")
+                    } else {
+                        Log.w("XmppRepository", "Auto-join failed for $jid: ${res.exceptionOrNull()?.message}")
+                    }
+                    // Small delay between joins to keep connection stable and avoid flood
+                    kotlinx.coroutines.delay(800)
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Auto-join Exception for $jid: ${e.message}")
+                }
+            }
+
+            if (joinedNames.isNotEmpty()) {
+                val namesStr = joinedNames.distinct().joinToString(", ")
+                _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")
+                Log.i("XmppRepository", "Auto-join completed for: $namesStr")
             }
         }
+    }
 
-        if (joinedNames.isNotEmpty()) {
-            val namesStr = joinedNames.distinct().joinToString(", ")
-            _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")
-            Log.i("XmppRepository", "Concurrent auto-join completed for: $namesStr")
+    private suspend fun deduplicateAndInsertMamMessages(
+        canonicalRoomJid: String,
+        xmppMessages: List<XmppMessage>,
+        updateRoomLastMessage: Boolean
+    ): Int = incomingMessageMutex.withLock {
+        val toInsert = mutableListOf<MessageEntity>()
+        val seenIds = mutableSetOf<String>()
+        for (msg in xmppMessages) {
+            if (!seenIds.add(msg.id)) continue
+            if (database.messageDao().getMessageByIdSync(msg.id) != null) continue
+            if (msg.isMine) {
+                val recentMine = database.messageDao().findRecentOutgoingMessage(canonicalRoomJid, msg.body)
+                if (recentMine != null && kotlin.math.abs(recentMine.timestamp - msg.timestamp) < 120_000L) {
+                    continue
+                }
+            }
+            val recentSame = database.messageDao().findRecentMessage(canonicalRoomJid, msg.body, msg.isMine)
+            if (recentSame != null && kotlin.math.abs(recentSame.timestamp - msg.timestamp) < 120_000L) {
+                continue
+            }
+            toInsert.add(msg.copy(roomJid = canonicalRoomJid).toEntity())
         }
+        if (toInsert.isNotEmpty()) {
+            val latest = if (updateRoomLastMessage) toInsert.maxByOrNull { it.timestamp } else null
+            database.withTransaction {
+                database.messageDao().insertAll(toInsert)
+                if (latest != null) {
+                    database.roomDao().updateLastMessage(canonicalRoomJid, latest.body, latest.timestamp, 0)
+                }
+            }
+        }
+        toInsert.size
     }
 
     suspend fun syncMamHistory(roomJid: String, limit: Int = 100) {
         if (!smackConnectionManager.isConnected()) return
 
+        val canonicalJid = database.roomDao().getRoomByJid(roomJid)?.jid ?: roomJid.trim()
+        val jobKey = canonicalJid.lowercase()
+
         // Deduplicate sync requests for the same room
-        mamSyncJobs[roomJid]?.cancel()
+        mamSyncJobs[jobKey]?.cancel()
         val job = scope.launch(Dispatchers.IO) {
             try {
-                val latestTimestamp = database.messageDao().getLatestMessageTimestamp(roomJid) ?: 0L
-                Log.i("XmppRepository", "Starting MAM Sync for $roomJid since ${java.util.Date(latestTimestamp)} (limit: $limit)")
+                val latestTimestamp = database.messageDao().getLatestMessageTimestamp(canonicalJid) ?: 0L
+                Log.i("XmppRepository", "Starting MAM Sync for $canonicalJid since ${java.util.Date(latestTimestamp)} (limit: $limit)")
 
-                val result = smackMucManager.fetchMamHistory(roomJid, since = latestTimestamp, before = 0L, limit = limit)
+                val result = smackMucManager.fetchMamHistory(canonicalJid, since = latestTimestamp, before = 0L, limit = limit)
                 result.onSuccess { messages ->
                     if (messages.isEmpty()) {
-                        Log.d("XmppRepository", "No new MAM messages for $roomJid")
+                        Log.d("XmppRepository", "No new MAM messages for $canonicalJid")
                         return@onSuccess
                     }
 
-                    Log.i("XmppRepository", "Processing ${messages.size} MAM messages for $roomJid")
-                    val roomEntity = database.roomDao().getRoomByJid(roomJid)
-                    val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
+                    Log.i("XmppRepository", "Processing ${messages.size} MAM messages for $canonicalJid")
+                    val roomEntity = database.roomDao().getRoomByJid(canonicalJid)
+                    val liveNick = smackMucManager.getMultiUserChat(canonicalJid)?.nickname?.toString()?.takeIf { it.isNotBlank() }
+                    val myNickname = liveNick ?: roomEntity?.myNickname ?: currentAccount.value.nickname
                     val myJid = currentAccount.value.jid
 
                     val xmppMessages = mutableListOf<XmppMessage>()
@@ -1448,11 +1533,11 @@ class XmppRepository(
                         try {
                             val body = smackMsg.body ?: return@forEach
                             val fromJid = smackMsg.from
-                            val senderNick = fromJid?.resourceOrNull?.toString() 
-                                ?: fromJid?.asBareJid()?.toString()?.substringBefore("@") 
+                            val senderNick = fromJid?.resourceOrNull?.toString()
+                                ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
                                 ?: "User"
-                            
-                            val isMine = if (isMucJid(roomJid)) {
+
+                            val isMine = if (isMucJid(canonicalJid)) {
                                 senderNick.equals(myNickname, ignoreCase = true)
                             } else {
                                 fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
@@ -1460,12 +1545,13 @@ class XmppRepository(
 
                             val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                             val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                            val stanzaId = smackMsg.stanzaId ?: "${roomJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
+                            val stanzaId = smackMsg.stanzaId?.ifBlank { null }
+                                ?: "${canonicalJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                             val xmppMsg = XmppMessage(
                                 id = stanzaId,
-                                roomJid = roomJid,
-                                senderJid = fromJid?.toString() ?: roomJid,
+                                roomJid = canonicalJid,
+                                senderJid = fromJid?.toString() ?: canonicalJid,
                                 senderNickname = senderNick,
                                 body = body,
                                 timestamp = timestamp,
@@ -1481,43 +1567,42 @@ class XmppRepository(
                     }
 
                     if (xmppMessages.isNotEmpty()) {
-                        val entities = xmppMessages.map { it.toEntity() }
-                        val latest = xmppMessages.maxByOrNull { it.timestamp }
-                        database.withTransaction {
-                            database.messageDao().insertAll(entities)
-                            if (latest != null) {
-                                database.roomDao().updateLastMessage(roomJid, latest.body, latest.timestamp, 0)
-                            }
-                        }
+                        deduplicateAndInsertMamMessages(
+                            canonicalRoomJid = canonicalJid,
+                            xmppMessages = xmppMessages,
+                            updateRoomLastMessage = true
+                        )
                     }
                 }
             } catch (e: Exception) {
-                Log.w("XmppRepository", "MAM Sync exception for $roomJid: ${e.message}")
+                Log.w("XmppRepository", "MAM Sync exception for $canonicalJid: ${e.message}")
             } finally {
-                mamSyncJobs.remove(roomJid)
+                mamSyncJobs.remove(jobKey)
             }
         }
-        mamSyncJobs[roomJid] = job
+        mamSyncJobs[jobKey] = job
     }
 
     suspend fun loadOlderMamHistory(roomJid: String, limit: Int = 100): Int {
         if (!smackConnectionManager.isConnected()) return 0
 
-        val earliestTimestamp = database.messageDao().getEarliestMessageTimestamp(roomJid) ?: 0L
-        Log.i("XmppRepository", "Starting older MAM Sync for $roomJid before ${java.util.Date(earliestTimestamp)} (limit: $limit)")
+        val canonicalJid = database.roomDao().getRoomByJid(roomJid)?.jid ?: roomJid.trim()
+        val earliestTimestamp = database.messageDao().getEarliestMessageTimestamp(canonicalJid) ?: 0L
+        Log.i("XmppRepository", "Starting older MAM Sync for $canonicalJid before ${java.util.Date(earliestTimestamp)} (limit: $limit)")
 
         val beforeParam = if (earliestTimestamp > 0L) earliestTimestamp - 1 else 0L
-        val result = smackMucManager.fetchMamHistory(roomJid, since = 0L, before = beforeParam, limit = limit)
+        val result = smackMucManager.fetchMamHistory(canonicalJid, since = 0L, before = beforeParam, limit = limit)
         var countAdded = 0
         result.onSuccess { messages ->
             if (messages.isEmpty()) {
-                Log.d("XmppRepository", "No older MAM messages found for $roomJid")
+                Log.d("XmppRepository", "No older MAM messages found for $canonicalJid")
                 return@onSuccess
             }
 
-            Log.i("XmppRepository", "Processing ${messages.size} older MAM messages for $roomJid")
-            val roomEntity = database.roomDao().getRoomByJid(roomJid)
-            val myNickname = roomEntity?.myNickname ?: currentAccount.value.nickname
+            Log.i("XmppRepository", "Processing ${messages.size} older MAM messages for $canonicalJid")
+            val roomEntity = database.roomDao().getRoomByJid(canonicalJid)
+            val liveNick = smackMucManager.getMultiUserChat(canonicalJid)?.nickname?.toString()?.takeIf { it.isNotBlank() }
+            val myNickname = liveNick ?: roomEntity?.myNickname ?: currentAccount.value.nickname
             val myJid = currentAccount.value.jid
 
             val xmppMessages = mutableListOf<XmppMessage>()
@@ -1525,11 +1610,11 @@ class XmppRepository(
                 try {
                     val body = smackMsg.body ?: return@forEach
                     val fromJid = smackMsg.from
-                    val senderNick = fromJid?.resourceOrNull?.toString() 
-                        ?: fromJid?.asBareJid()?.toString()?.substringBefore("@") 
+                    val senderNick = fromJid?.resourceOrNull?.toString()
+                        ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
                         ?: "User"
-                    
-                    val isMine = if (isMucJid(roomJid)) {
+
+                    val isMine = if (isMucJid(canonicalJid)) {
                         senderNick.equals(myNickname, ignoreCase = true)
                     } else {
                         fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
@@ -1537,12 +1622,13 @@ class XmppRepository(
 
                     val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                     val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                    val stanzaId = smackMsg.stanzaId ?: "${roomJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
+                    val stanzaId = smackMsg.stanzaId?.ifBlank { null }
+                        ?: "${canonicalJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                     val xmppMsg = XmppMessage(
                         id = stanzaId,
-                        roomJid = roomJid,
-                        senderJid = fromJid?.toString() ?: roomJid,
+                        roomJid = canonicalJid,
+                        senderJid = fromJid?.toString() ?: canonicalJid,
                         senderNickname = senderNick,
                         body = body,
                         timestamp = timestamp,
@@ -1552,17 +1638,17 @@ class XmppRepository(
                         isHistory = true
                     )
                     xmppMessages.add(xmppMsg)
-                    countAdded++
                 } catch (e: Exception) {
                     Log.w("XmppRepository", "Error parsing older MAM message: ${e.message}")
                 }
             }
 
             if (xmppMessages.isNotEmpty()) {
-                val entities = xmppMessages.map { it.toEntity() }
-                database.withTransaction {
-                    database.messageDao().insertAll(entities)
-                }
+                countAdded = deduplicateAndInsertMamMessages(
+                    canonicalRoomJid = canonicalJid,
+                    xmppMessages = xmppMessages,
+                    updateRoomLastMessage = false
+                )
             }
         }
         return countAdded
@@ -1888,8 +1974,9 @@ class XmppRepository(
         replyToSender: String? = null,
         replyToText: String? = null
     ) = withContext(Dispatchers.IO) {
-        val cleanJid = roomJid.trim()
-        if (cleanJid.isBlank() || text.isBlank()) return@withContext
+        val rawCleanJid = roomJid.trim()
+        if (rawCleanJid.isBlank() || text.isBlank()) return@withContext
+        val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
 
         val myJid = currentAccount.value.jid
         val isGroup = isMucJid(cleanJid)
@@ -1929,34 +2016,36 @@ class XmppRepository(
             fileName = if (isUrl) "Lampiran" else null
         )
 
-        try {
-            database.messageDao().insertMessage(initialMsg.toEntity())
-            val existing = database.roomDao().getRoomByJid(cleanJid)
-            val previewText = if (isUrl) "[Berkas] $text" else text
-            if (existing != null) {
-                database.roomDao().updateLastMessage(cleanJid, previewText, timestamp, 0)
-            } else {
-                val newRoom = RoomEntity(
-                    jid = cleanJid,
-                    name = cleanJid.substringBefore("@"),
-                    topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
-                    myNickname = myNickname,
-                    occupantCount = if (isGroup) 1 else 2,
-                    unreadCount = 0,
-                    lastMessageText = previewText,
-                    lastMessageTime = timestamp,
-                    isJoined = true,
-                    isBookmarked = false,
-                    myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.MEMBER,
-                    myAffiliation = OccupantAffiliation.MEMBER,
-                    colorHex = randomColorForRoom(cleanJid),
-                    isAutoJoin = isGroup,
-                    isGroupChat = isGroup
-                )
-                database.roomDao().insertOrUpdateRoom(newRoom)
+        incomingMessageMutex.withLock {
+            try {
+                database.messageDao().insertMessage(initialMsg.toEntity())
+                val existing = database.roomDao().getRoomByJid(cleanJid)
+                val previewText = if (isUrl) "[Berkas] $text" else text
+                if (existing != null) {
+                    database.roomDao().updateLastMessage(cleanJid, previewText, timestamp, 0)
+                } else {
+                    val newRoom = RoomEntity(
+                        jid = cleanJid,
+                        name = cleanJid.substringBefore("@"),
+                        topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
+                        myNickname = myNickname,
+                        occupantCount = if (isGroup) 1 else 2,
+                        unreadCount = 0,
+                        lastMessageText = previewText,
+                        lastMessageTime = timestamp,
+                        isJoined = true,
+                        isBookmarked = false,
+                        myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.MEMBER,
+                        myAffiliation = OccupantAffiliation.MEMBER,
+                        colorHex = randomColorForRoom(cleanJid),
+                        isAutoJoin = isGroup,
+                        isGroupChat = isGroup
+                    )
+                    database.roomDao().insertOrUpdateRoom(newRoom)
+                }
+            } catch (e: Exception) {
+                Log.e("XmppRepository", "Failed optimistic local insert for $cleanJid: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e("XmppRepository", "Failed optimistic local insert for $cleanJid: ${e.message}")
         }
 
         // 2. Check if outgoing auto-translate is enabled
@@ -1978,12 +2067,21 @@ class XmppRepository(
             Log.w("XmppRepository", "Failed to translate outgoing message: ${e.message}")
         }
 
+        // Persist translatedBody BEFORE sending so fast MUC echoes match translatedBody immediately
+        if (textToSend != text && targetLangCode != null) {
+            try {
+                database.messageDao().updateMessageTranslation(stanzaId, textToSend, targetLangCode)
+            } catch (e: Exception) {
+                Log.w("XmppRepository", "Failed to pre-update outgoing translation: ${e.message}")
+            }
+        }
+
         val isUrlFinal = textToSend.trim().startsWith("http")
         var isSentSuccessfully = false
 
         // 3. Send via Smack MUC if joined room
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
-            val sendRes = smackMucManager.sendMessage(cleanJid, textToSend)
+            val sendRes = smackMucManager.sendMessage(cleanJid, textToSend, stanzaId = stanzaId)
             isSentSuccessfully = sendRes.isSuccess
             if (!isSentSuccessfully) {
                 Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${sendRes.exceptionOrNull()?.message}")
@@ -2043,9 +2141,6 @@ class XmppRepository(
                 stanzaId,
                 if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED
             )
-            if (textToSend != text && targetLangCode != null) {
-                database.messageDao().updateMessageTranslation(stanzaId, textToSend, targetLangCode)
-            }
             if (!isSentSuccessfully && !currentAccount.value.isDemoMode) {
                 checkAndReconnectIfNeeded()
             }
