@@ -152,21 +152,14 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
                     val senderNick = if (from.contains("/")) from.substringAfter("/") else from
 
                     val bodyClean = body.trim()
-                    val isBodyImageUrl = (bodyClean.startsWith("http") && (
-                            bodyClean.contains(".jpg", ignoreCase = true) ||
-                            bodyClean.contains(".jpeg", ignoreCase = true) ||
-                            bodyClean.contains(".png", ignoreCase = true) ||
-                            bodyClean.contains(".gif", ignoreCase = true) ||
-                            bodyClean.contains(".webp", ignoreCase = true) ||
-                            bodyClean.contains("/preview/", ignoreCase = true)
-                    ))
-                    
+                    val bodyUrls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(body)
+                    val bodyImageUrl = bodyUrls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
                     val isVoice = bodyClean.startsWith("🎤 Pesan Suara") ||
-                        (bodyClean.contains("http") && (bodyClean.contains(".m4a") || bodyClean.contains(".aac") || bodyClean.contains(".mp3") || bodyClean.contains(".ogg") || bodyClean.contains(".wav") || bodyClean.contains("voice_")))
+                        bodyUrls.any { com.ndregil.inchat.util.MediaUrlUtils.isVoiceOrAudioUrl(it) }
 
                     val mType = when {
                         isVoice -> MessageType.VOICE
-                        isBodyImageUrl -> MessageType.FILE
+                        bodyImageUrl != null -> MessageType.FILE
                         type == "chat" -> MessageType.CHAT
                         else -> MessageType.GROUPCHAT
                     }
@@ -186,9 +179,9 @@ class XmppProtocolEngine(private val scope: CoroutineScope) {
                         isMine = senderNick == _currentAccount.value.nickname,
                         messageType = mType,
                         status = DeliveryStatus.DELIVERED,
-                        fileUrl = if (isVoice || isBodyImageUrl) bodyClean else null,
+                        fileUrl = bodyImageUrl ?: if (isVoice) bodyUrls.firstOrNull() ?: bodyClean else null,
                         fileMimeType = when {
-                            isBodyImageUrl -> "image/jpeg"
+                            bodyImageUrl != null -> com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(bodyImageUrl)
                             isVoice -> "audio/mp4"
                             else -> null
                         },

@@ -912,25 +912,8 @@ class XmppRepository(
                 ?: fromStr.substringAfterLast("/").takeIf { fromStr.contains("/") && !it.equals(fromBareJid, ignoreCase = true) }
 
             scope.launch(Dispatchers.IO) {
-                // Detect image/file URLs in body (common in XEP-0363 HTTP File Upload)
-                val bodyClean = bodyText.trim()
-                
-                // More robust URL extraction: find any URL in the body
-                val urlRegex = Regex("""(https?://[^\s]+)""", RegexOption.IGNORE_CASE)
-                val urls = urlRegex.findAll(bodyText).map { it.value }.toList()
-                
-                val isImageUrl = { url: String ->
-                    url.contains(".jpg", ignoreCase = true) ||
-                    url.contains(".jpeg", ignoreCase = true) ||
-                    url.contains(".png", ignoreCase = true) ||
-                    url.contains(".gif", ignoreCase = true) ||
-                    url.contains(".webp", ignoreCase = true) ||
-                    url.contains("/preview/", ignoreCase = true) ||
-                    url.contains("image", ignoreCase = true)
-                }
-
-                val bodyUrl = urls.firstOrNull()
-                val isBodyImageUrl = bodyUrl != null && isImageUrl(bodyUrl)
+                val urls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(bodyText)
+                val bodyImageUrl = urls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
 
                 // XEP-0066 OOB Detection
                 val oobUrl = if (message.hasExtension("x", "jabber:x:oob")) {
@@ -938,15 +921,15 @@ class XmppRepository(
                     Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
                         .find(xml)?.groupValues?.get(1)?.trim()
                 } else null
-                val isOobImage = (oobUrl != null && isImageUrl(oobUrl))
+                val isOobImage = oobUrl != null && com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(oobUrl)
 
                 val isVoice = bodyText.contains("🎤 Pesan Suara", ignoreCase = true) ||
-                        (bodyText.contains("http") && (bodyText.contains(".m4a") || bodyText.contains(".aac") || bodyText.contains(".mp3") || bodyText.contains(".ogg") || bodyText.contains(".wav") || bodyText.contains("voice_")))
+                    urls.any { com.ndregil.inchat.util.MediaUrlUtils.isVoiceOrAudioUrl(it) }
 
-                val isImage = isOobImage || isBodyImageUrl
-                val isFile = isImage || oobUrl != null || bodyUrl != null
+                val isImage = isOobImage || bodyImageUrl != null
+                val isFile = isImage || oobUrl != null
 
-                val fileUrl = oobUrl ?: bodyUrl
+                val fileUrl = oobUrl ?: bodyImageUrl ?: if (isVoice) urls.firstOrNull() else null
                 
                 val voiceDuration = if (isVoice) {
                     val durationMatch = Regex("\\((\\d+)d\\)").find(bodyText)
@@ -984,7 +967,6 @@ class XmppRepository(
                         isMine = false,
                         messageType = when {
                             isVoice -> MessageType.VOICE
-                            isImage -> MessageType.FILE
                             isFile -> MessageType.FILE
                             else -> MessageType.WHISPER
                         },
@@ -992,7 +974,7 @@ class XmppRepository(
                         recipientNickname = myRoomNick,
                         fileUrl = fileUrl,
                         fileMimeType = when {
-                            isImage -> "image/jpeg"
+                            isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
                             isVoice -> "audio/mp4"
                             else -> if (isFile) "application/octet-stream" else null
                         },
@@ -1043,14 +1025,13 @@ class XmppRepository(
                     isMine = isSentByMe,
                     messageType = when {
                         isVoice -> MessageType.VOICE
-                        isImage -> MessageType.FILE
                         isFile -> MessageType.FILE
                         else -> MessageType.CHAT
                     },
                     status = DeliveryStatus.DELIVERED,
                     fileUrl = fileUrl,
                     fileMimeType = when {
-                        isImage -> "image/jpeg"
+                        isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
                         isVoice -> "audio/mp4"
                         else -> if (isFile) "application/octet-stream" else null
                     },
@@ -1980,18 +1961,12 @@ class XmppRepository(
 
         val myJid = currentAccount.value.jid
         val isGroup = isMucJid(cleanJid)
-        val isUrl = text.trim().startsWith("http")
+        val urls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(text)
+        val standaloneImageUrl = urls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
+        val isStandaloneUrl = text.trim().startsWith("http", ignoreCase = true) && urls.size == 1 && !text.trim().contains(" ")
         val stanzaId = java.util.UUID.randomUUID().toString()
         val timestamp = System.currentTimeMillis()
-
-        val isImage = isUrl && (
-            text.contains(".jpg", ignoreCase = true) ||
-            text.contains(".jpeg", ignoreCase = true) ||
-            text.contains(".png", ignoreCase = true) ||
-            text.contains(".gif", ignoreCase = true) ||
-            text.contains(".webp", ignoreCase = true) ||
-            text.contains("/preview/", ignoreCase = true)
-        )
+        val isImage = standaloneImageUrl != null
 
         // 1. Optimistic local DB insert immediately so UI shows the outgoing message without waiting on network/translation
         val initialMsg = XmppMessage(
@@ -2003,7 +1978,7 @@ class XmppRepository(
             timestamp = timestamp,
             isMine = true,
             messageType = when {
-                isImage -> MessageType.FILE
+                isImage && isStandaloneUrl -> MessageType.FILE
                 isGroup -> MessageType.GROUPCHAT
                 else -> MessageType.CHAT
             },
@@ -2011,16 +1986,20 @@ class XmppRepository(
             replyToMessageId = replyToMessageId,
             replyToSender = replyToSender,
             replyToText = replyToText,
-            fileUrl = if (isUrl) text.trim() else null,
-            fileMimeType = if (isImage) "image/jpeg" else if (isUrl) "application/octet-stream" else null,
-            fileName = if (isUrl) "Lampiran" else null
+            fileUrl = standaloneImageUrl ?: if (isStandaloneUrl) urls.firstOrNull() else null,
+            fileMimeType = when {
+                standaloneImageUrl != null -> com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(standaloneImageUrl)
+                isStandaloneUrl -> "application/octet-stream"
+                else -> null
+            },
+            fileName = if (isStandaloneUrl) "Lampiran" else null
         )
 
         incomingMessageMutex.withLock {
             try {
                 database.messageDao().insertMessage(initialMsg.toEntity())
                 val existing = database.roomDao().getRoomByJid(cleanJid)
-                val previewText = if (isUrl) "[Berkas] $text" else text
+                val previewText = if (isImage && isStandaloneUrl) "[Gambar] $text" else text
                 if (existing != null) {
                     database.roomDao().updateLastMessage(cleanJid, previewText, timestamp, 0)
                 } else {
@@ -2056,7 +2035,7 @@ class XmppRepository(
             val shouldTranslateOutgoing = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
                     if (isGroup) prefs.translateRooms else prefs.translateContacts
 
-            if (!isUrl && shouldTranslateOutgoing) {
+            if (!isStandaloneUrl && shouldTranslateOutgoing) {
                 val translated = translationService.translateText(text, prefs.targetLanguageCode)
                 if (!translated.isNullOrBlank()) {
                     textToSend = translated

@@ -924,6 +924,16 @@ fun MultiRoomMainScreen(
                                         onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
                                     )
 
+                                    if (room.topic.isNotBlank()) {
+                                        com.ndregil.inchat.ui.components.RoomTopicBanner(
+                                            topic = room.topic,
+                                            roomJid = room.jid,
+                                            onTopicChange = { newTopic -> viewModel.updateTopic(newTopic) },
+                                            isBookmarked = room.isBookmarked,
+                                            onBookmarkToggle = { viewModel.toggleSaveRoom(room.jid) }
+                                        )
+                                    }
+
                                     // Message Feed
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                         com.ndregil.inchat.ui.components.WallpaperBackground(
@@ -2339,10 +2349,19 @@ fun MultiRoomMainScreen(
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = if (currentTopic.isNotBlank()) currentTopic else strings.noRoomTopicSetNotice,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(12.dp)
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            com.ndregil.inchat.ui.components.LinkifiedText(
+                                text = if (currentTopic.isNotBlank()) currentTopic else strings.noRoomTopicSetNotice,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                linkColor = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+                    if (currentTopic.isNotBlank()) {
+                        com.ndregil.inchat.ui.components.InlineUrlImagePreviews(
+                            text = currentTopic
                         )
                     }
                     Text(

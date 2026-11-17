@@ -88,31 +88,18 @@ class MucMessageListener(
             val isMine = senderNickname.equals(myNickname, ignoreCase = true)
             val isWhisper = message.type == Message.Type.chat
 
-            val bodyClean = body.trim()
-            val isBodyImageUrl = (bodyClean.startsWith("http") && (
-                    bodyClean.contains(".jpg", ignoreCase = true) ||
-                    bodyClean.contains(".jpeg", ignoreCase = true) ||
-                    bodyClean.contains(".png", ignoreCase = true) ||
-                    bodyClean.contains(".gif", ignoreCase = true) ||
-                    bodyClean.contains(".webp", ignoreCase = true) ||
-                    bodyClean.contains("/preview/", ignoreCase = true)
-            ))
+            val bodyUrls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(body)
+            val bodyImageUrl = bodyUrls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
 
             val xml = if (onRawStanzaReceived != null || message.hasExtension("x", "jabber:x:oob")) {
                 try { message.toXML().toString() } catch (_: Exception) { "" }
             } else ""
             val oobUrl = if (xml.isNotEmpty()) OOB_REGEX.find(xml)?.groupValues?.get(1)?.trim() else null
-            val isOobImage = (oobUrl != null && (
-                    oobUrl.contains(".jpg", ignoreCase = true) ||
-                    oobUrl.contains(".jpeg", ignoreCase = true) ||
-                    oobUrl.contains(".png", ignoreCase = true) ||
-                    oobUrl.contains(".gif", ignoreCase = true) ||
-                    oobUrl.contains(".webp", ignoreCase = true)
-            ))
+            val isOobImage = oobUrl != null && com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(oobUrl)
 
-            val isImage = isOobImage || isBodyImageUrl
-            val isVoice = body.startsWith("🎤 Pesan Suara") || 
-                (body.contains("http") && (body.contains(".m4a") || body.contains(".aac") || body.contains(".mp3") || body.contains(".ogg") || body.contains(".wav") || body.contains("voice_")))
+            val isImage = isOobImage || bodyImageUrl != null
+            val isVoice = body.startsWith("🎤 Pesan Suara") ||
+                bodyUrls.any { com.ndregil.inchat.util.MediaUrlUtils.isVoiceOrAudioUrl(it) }
             val isFile = isImage || oobUrl != null
 
             val messageType = when {
@@ -122,9 +109,9 @@ class MucMessageListener(
                 else -> MessageType.GROUPCHAT
             }
 
-            val fileUrl = oobUrl ?: if (isVoice || isBodyImageUrl) {
-                body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") } 
-                    ?: body.substringAfter("\n", "").takeIf { it.startsWith("http") || it.startsWith("file://") }
+            val fileUrl = oobUrl ?: bodyImageUrl ?: if (isVoice) {
+                bodyUrls.firstOrNull()
+                    ?: body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") }
                     ?: body.trim().takeIf { it.startsWith("http") }
             } else null
 
@@ -151,7 +138,7 @@ class MucMessageListener(
                 recipientNickname = if (isWhisper) myNickname else null,
                 fileUrl = fileUrl,
                 fileMimeType = when {
-                    isImage -> "image/jpeg"
+                    isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
                     isVoice -> "audio/mp4"
                     else -> null
                 },

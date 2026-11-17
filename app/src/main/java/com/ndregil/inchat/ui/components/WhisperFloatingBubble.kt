@@ -774,11 +774,20 @@ private fun WhisperMiniAirBubble(msg: XmppMessage, isDark: Boolean) {
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Column {
-                Text(
+                LinkifiedText(
                     text = msg.body,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    ),
                     color = textColor,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp
+                    linkColor = if (isMine || isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8)
+                )
+                InlineUrlImagePreviews(
+                    text = msg.body,
+                    extraUrls = listOfNotNull(msg.fileUrl),
+                    mimeTypeHint = msg.fileMimeType,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(

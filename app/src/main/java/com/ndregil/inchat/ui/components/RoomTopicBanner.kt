@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -81,11 +82,13 @@ fun RoomTopicBanner(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                Text(
+                LinkifiedText(
                     text = topic.ifBlank { strings.emptyRoomTopic },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (isExpanded) 4 else 1,
+                    linkColor = MaterialTheme.colorScheme.primary,
+                    maxLines = if (isExpanded) 8 else 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
 
@@ -127,6 +130,12 @@ fun RoomTopicBanner(
                 exit = shrinkVertically()
             ) {
                 Column(modifier = Modifier.padding(top = 6.dp, start = 24.dp)) {
+                    if (topic.isNotBlank()) {
+                        InlineUrlImagePreviews(
+                            text = topic,
+                            modifier = Modifier.padding(bottom = 6.dp)
+                        )
+                    }
                     Text(
                         text = "${strings.roomJidPrefix} $roomJid",
                         fontSize = 11.sp,
