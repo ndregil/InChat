@@ -142,13 +142,21 @@ object ClientRegistryManager {
             defaultOs = "Mobile"
         ),
         ClientDefinition(
-            patterns = listOf("dev.narayana.im", "anotherim"),
+            patterns = listOf(
+                "https://dev.narayana.im/narayana/Conversations-Classic",
+                "http://dev.narayana.im/narayana/Conversations-Classic",
+                "dev.narayana.im/narayana/Conversations-Classic",
+                "dev.narayana.im",
+                "narayana.im",
+                "anotherim",
+                "another im"
+            ),
             clientName = "Another IM",
-            canonicalNodeUri = "http://dev.narayana.im",
-            platform = ClientPlatform.DESKTOP,
+            canonicalNodeUri = "https://dev.narayana.im/narayana/Conversations-Classic",
+            platform = ClientPlatform.ANDROID,
             iconResId = com.ndregil.inchat.R.drawable.ic_client_anotherim,
             defaultVersion = "1.0",
-            defaultOs = "Desktop"
+            defaultOs = "Android"
         ),
         ClientDefinition(
             patterns = listOf("ndregil.smart-ng", "smartng", "Smart Next-Gen XMPP Bot", "Smart Next-Gen"),
@@ -491,6 +499,7 @@ object ClientRegistryManager {
             clean.contains("bombus") -> com.ndregil.inchat.R.drawable.ic_client_bombus
             clean.contains("miranda ng") || clean == "miranda-ng" -> com.ndregil.inchat.R.drawable.ic_client_miranda_ng
             clean.contains("miranda") -> com.ndregil.inchat.R.drawable.ic_client_miranda
+            clean.contains("another im") || clean == "anotherim" || clean.contains("narayana") -> com.ndregil.inchat.R.drawable.ic_client_anotherim
             clean.contains("conversations") -> com.ndregil.inchat.R.drawable.ic_client_conversations
             clean.contains("psi+") || clean.contains("psi-plus") || clean.contains("psi plus") -> com.ndregil.inchat.R.drawable.ic_client_psi_plus
             clean.contains("psi") -> com.ndregil.inchat.R.drawable.ic_client_psi
@@ -508,7 +517,6 @@ object ClientRegistryManager {
             clean.contains("movim") -> com.ndregil.inchat.R.drawable.ic_client_movim
             clean.contains("poezio") -> com.ndregil.inchat.R.drawable.ic_client_poezio
             clean.contains("c0nnect") -> com.ndregil.inchat.R.drawable.ic_client_c0nnect
-            clean.contains("another im") || clean == "anotherim" -> com.ndregil.inchat.R.drawable.ic_client_anotherim
             clean.contains("smartng") || clean == "smart-ng" -> com.ndregil.inchat.R.drawable.ic_client_smartng
             clean.contains("archon") -> com.ndregil.inchat.R.drawable.ic_client_archon
             clean.contains("jimm") -> com.ndregil.inchat.R.drawable.ic_client_jimm
@@ -537,7 +545,7 @@ object ClientRegistryManager {
     private fun determineDefaultOs(clientName: String): String {
         val clean = clientName.lowercase()
         return when {
-            clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" || clean == "smartng" -> "Android"
+            clean.contains("another im") || clean.contains("narayana") || clean.contains("android") || clean == "conversations" || clean == "inchat" || clean == "blabber" || clean == "monocles" || clean == "yaxim" || clean == "cheogram" || clean == "bombusmod" || clean == "bombus" || clean == "smartng" -> "Android"
             clean.contains("ios") || clean.contains("monal") -> "iOS"
             clean.contains("bot") || clean.contains("rss") || clean.contains("pyicq") || clean.contains("slixmpp") -> "Server"
             clean.contains("movim") || clean.contains("web") || clean.contains("google") -> "Web"
@@ -552,7 +560,7 @@ object ClientRegistryManager {
     private fun determinePlatform(name: String): ClientPlatform {
         val n = name.lowercase()
         return when {
-            n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") || n == "smartng" -> ClientPlatform.ANDROID
+            n.contains("another im") || n.contains("narayana") || n.contains("android") || n == "conversations" || n == "inchat" || n == "blabber" || n == "monocles" || n == "yaxim" || n == "cheogram" || n.contains("bombus") || n.contains("jimm") || n == "smartng" -> ClientPlatform.ANDROID
             n.contains("ios") || n.contains("monal") -> ClientPlatform.IOS
             n.contains("bot") || n.contains("pyicq") || n.contains("rss") || n.contains("isida") || n.contains("twitter") || n.contains("slixmpp") -> ClientPlatform.BOT
             n.contains("web") || n == "movim" || n == "google" || n.contains("ya.online") -> ClientPlatform.WEB
@@ -624,11 +632,12 @@ object ClientRegistryManager {
             } catch (_: Exception) {}
         }
 
-        if (candidates.isEmpty()) return null
-        // Prefer an InChat or known registry node if multiple <c> extensions were attached
+        // Prefer an InChat, Another IM, or known bot/registry node if multiple <c> extensions were attached
         return candidates.firstOrNull { isInChatNode(it.first) }
+            ?: candidates.firstOrNull { isAnotherIm(it.first) }
+            ?: candidates.firstOrNull { hasBotKeyword(it.first) }
             ?: candidates.firstOrNull { resolveByNode(it.first) != null }
-            ?: candidates.first()
+            ?: candidates.firstOrNull()
     }
 
     /**
@@ -673,20 +682,44 @@ object ClientRegistryManager {
             bare.contains("@chat.") || bare.contains("@room.") || bare.contains("@group.")
     }
 
-    fun isDelimitedOrCamelBot(value: String): Boolean {
-        val clean = value.trim()
+    fun isAnotherIm(value: String): Boolean {
+        val clean = value.trim().lowercase()
         if (clean.isEmpty()) return false
-        val lower = clean.lowercase()
-        if (lower == "bot" ||
-            lower.startsWith("bot-") || lower.startsWith("bot_") || lower.startsWith("bot.") || lower.startsWith("bot ") ||
-            lower.endsWith("-bot") || lower.endsWith("_bot") || lower.endsWith(".bot") || lower.endsWith(" bot") ||
-            lower.contains("-bot-") || lower.contains("_bot_") || lower.contains(" bot ") || lower.contains(".bot.")
-        ) {
-            return true
-        }
-        // CamelCase suffix like BudiBot, SmartBot (does not falsely match "robot" or "abbott")
-        return Regex("""[a-z0-9]Bot(?:$|[^a-zA-Z0-9])""").containsMatchIn(clean)
+        return clean.contains("narayana.im") ||
+               clean.contains("dev.narayana.im") ||
+               clean == "another im" ||
+               clean == "anotherim" ||
+               clean.contains("another im") ||
+               clean.contains("anotherim") ||
+               clean.contains("conversations-classic")
     }
+
+    fun isSmartNg(value: String): Boolean {
+        val clean = value.trim().lowercase()
+        if (clean.isEmpty()) return false
+        return clean.contains("smartng") ||
+               clean.contains("smart-ng") ||
+               clean.contains("ndregil.smart-ng") ||
+               clean.contains("smart next-gen")
+    }
+
+    fun isIsidaBot(value: String): Boolean {
+        val clean = value.trim().lowercase()
+        if (clean.isEmpty()) return false
+        return clean.contains("isida-bot") ||
+               clean.contains("isida")
+    }
+
+    fun hasBotKeyword(value: String): Boolean {
+        val clean = value.trim().lowercase()
+        if (clean.isEmpty()) return false
+        if (isSmartNg(clean) || isIsidaBot(clean) || isAnotherIm(clean) || isInChatExact(clean) || isInChatNode(clean)) {
+            return false
+        }
+        return clean.contains("bot") || clean.contains("jabbrik") || clean.contains("jabrvista")
+    }
+
+    fun isDelimitedOrCamelBot(value: String): Boolean = hasBotKeyword(value)
 
     fun findDefByName(targetName: String): ClientDefinition? {
         val cleanTarget = targetName.trim().lowercase()
@@ -697,15 +730,37 @@ object ClientRegistryManager {
 
     /**
      * Flexible matching of a node URL against clients.txt patterns.
-     * InChat is strictly matched via isInChatNode BEFORE the dot/protocol check.
+     * InChat, Another IM, SmartNG, and Isida bot are checked first.
      */
     fun resolveByNode(node: String): ClientDefinition? {
         val rawClean = node.trim()
         if (rawClean.isBlank()) return null
 
-        // Check strict InChat node forms first (including "inchat", "http://ndregil.inchat/caps", "...#ver")
+        // 1. InChat check
         if (isInChatNode(rawClean)) {
             return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
+        // 2. Another IM check (must precede Conversations check)
+        // https://dev.narayana.im/narayana/Conversations-Classic atau narayana.im tampilkan ke Another IM
+        if (isAnotherIm(rawClean)) {
+            return findDefByName("Another IM") ?: staticRegistry.find { it.clientName.equals("Another IM", ignoreCase = true) }
+        }
+
+        // 3. SmartNG check (must precede generic bot check)
+        if (isSmartNg(rawClean)) {
+            return findDefByName("SmartNG") ?: staticRegistry.find { it.clientName.equals("SmartNG", ignoreCase = true) }
+        }
+
+        // 4. Isida bot check (must precede generic bot check)
+        if (isIsidaBot(rawClean)) {
+            return findDefByName("Isida bot") ?: staticRegistry.find { it.clientName.equals("Isida bot", ignoreCase = true) }
+        }
+
+        // 5. Bot check: "asal ada kata-kata bot masuk ke Jabber Bot kecuali SmartNG dan isida bot"
+        // seperti kata-kata dari node blaba-bot.xxx dll langsung tembus ke Jabber Bot!
+        if (hasBotKeyword(rawClean)) {
+            return findDefByName("Jabber Bot") ?: staticRegistry.find { it.clientName.equals("Jabber Bot", ignoreCase = true) }
         }
 
         // Ensure remaining node strings look like a valid node URL or domain (has dots or protocol)
@@ -718,9 +773,11 @@ object ClientRegistryManager {
 
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        // Pass 1: Match specific client patterns first (excluding InChat and generic "bot" keyword)
+        // Pass 1: Match specific client patterns first (excluding InChat, Another IM, Jabber Bot)
         registry.firstOrNull { def ->
-            if (def.clientName.equals("InChat", ignoreCase = true)) return@firstOrNull false
+            if (def.clientName.equals("InChat", ignoreCase = true) ||
+                def.clientName.equals("Another IM", ignoreCase = true) ||
+                def.clientName.equals("Jabber Bot", ignoreCase = true)) return@firstOrNull false
             def.patterns.any { pattern ->
                 val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
                 if (keyword.isBlank() || keyword == "bot") return@any false
@@ -728,33 +785,53 @@ object ClientRegistryManager {
             }
         }?.let { return it }
 
-        // Pass 2: Fallback for generic bot node keywords (e.g., xmpp.bot.com, bot.xmpp.today/caps)
-        return registry.firstOrNull { def ->
-            if (def.clientName.equals("InChat", ignoreCase = true)) return@firstOrNull false
-            def.patterns.any { pattern ->
-                val keyword = pattern.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                keyword == "bot" && cleanNode.contains(keyword)
-            }
+        // Pass 2: Fallback for generic bot node keywords (asal ada kata-kata bot)
+        if (hasBotKeyword(cleanNode)) {
+            return findDefByName("Jabber Bot") ?: staticRegistry.find { it.clientName.equals("Jabber Bot", ignoreCase = true) }
         }
+
+        return null
     }
 
     /**
      * Flexible matching of client name/resource against registry patterns.
-     * InChat is strictly matched via isInChatExact and never guessed via substring.
+     * InChat, Another IM, SmartNG, and Isida bot are checked first.
      */
     fun resolveByName(name: String): ClientDefinition? {
         val cleanName = name.trim().lowercase()
         if (cleanName.isBlank() || cleanName == "unknown" || cleanName.contains("@")) return null
 
-        // Aturan KETAT untuk InChat:
+        // InChat check
         if (isInChatExact(cleanName)) {
             return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
         }
 
+        // Another IM check
+        if (isAnotherIm(cleanName)) {
+            return findDefByName("Another IM") ?: staticRegistry.find { it.clientName.equals("Another IM", ignoreCase = true) }
+        }
+
+        // SmartNG check
+        if (isSmartNg(cleanName)) {
+            return findDefByName("SmartNG") ?: staticRegistry.find { it.clientName.equals("SmartNG", ignoreCase = true) }
+        }
+
+        // Isida bot check
+        if (isIsidaBot(cleanName)) {
+            return findDefByName("Isida bot") ?: staticRegistry.find { it.clientName.equals("Isida bot", ignoreCase = true) }
+        }
+
+        // Bot check: "asal ada kata-kata bot masuk ke Jabber Bot kecuali SmartNG dan isida bot"
+        if (hasBotKeyword(cleanName)) {
+            return findDefByName("Jabber Bot") ?: staticRegistry.find { it.clientName.equals("Jabber Bot", ignoreCase = true) }
+        }
+
         val registry = synchronized(dynamicRegistry) { dynamicRegistry.toList() }
 
-        return registry.firstOrNull { def ->
-            if (def.clientName.equals("InChat", ignoreCase = true)) {
+        val matchedDef = registry.firstOrNull { def ->
+            if (def.clientName.equals("InChat", ignoreCase = true) ||
+                def.clientName.equals("Another IM", ignoreCase = true) ||
+                def.clientName.equals("Jabber Bot", ignoreCase = true)) {
                 return@firstOrNull false
             }
 
@@ -764,12 +841,11 @@ object ClientRegistryManager {
             // 2. Pattern match (STRICT for names)
             def.patterns.any { p ->
                 val keyword = p.trim().lowercase().removePrefix("http://").removePrefix("https://").removeSuffix("/")
-                if (keyword.isBlank()) return@any false
-
-                // Only allow exact match for name-based resolution to avoid "inchatuser" matching "inchat"
+                if (keyword.isBlank() || keyword == "bot") return@any false
                 cleanName == keyword
             }
         }
+        return matchedDef
     }
 
     /**
@@ -781,35 +857,53 @@ object ClientRegistryManager {
         val resource = if (jid.contains("/")) jid.substringAfterLast("/").trim() else ""
         val mucJid = isMucJid(jid)
 
-        // 1. Resolusi berdasarkan Node XEP-0115 terlebih dahulu (paling otoritatif):
-        // Termasuk http://ndregil.inchat, .../caps, ...#ver, ndregil.inchat, inchat, maupun bot node.
-        // Tidak boleh diblokir oleh nick/room JID yang mengandung "bot" (seperti "robot", "abbott", atau room "*bot*").
+        // 1. InChat check
+        if (isInChatNode(cleanNode) || isInChatExact(cleanName) || (!mucJid && isInChatExact(resource))) {
+            return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
+        }
+
+        // 2. Another IM check:
+        // "Another IM https://dev.narayana.im/narayana/Conversations-Classic atau narayana.im tampilkan ke Another IM."
+        if (isAnotherIm(cleanNode) || isAnotherIm(cleanName) || isAnotherIm(resource) || jid.contains("narayana.im", ignoreCase = true)) {
+            return findDefByName("Another IM") ?: staticRegistry.find { it.clientName.equals("Another IM", ignoreCase = true) }
+        }
+
+        // 3. SmartNG check (exception to Jabber Bot)
+        if (isSmartNg(cleanNode) || isSmartNg(cleanName) || isSmartNg(resource)) {
+            return findDefByName("SmartNG") ?: staticRegistry.find { it.clientName.equals("SmartNG", ignoreCase = true) }
+        }
+
+        // 4. Isida bot check (exception to Jabber Bot)
+        if (isIsidaBot(cleanNode) || isIsidaBot(cleanName) || isIsidaBot(resource)) {
+            return findDefByName("Isida bot") ?: staticRegistry.find { it.clientName.equals("Isida bot", ignoreCase = true) }
+        }
+
+        // 5. Node resolution (XEP-0115):
+        // resolveByNode checks hasBotKeyword(cleanNode) first (e.g. blaba-bot.xxx -> Jabber Bot),
+        // then matches specific known client nodes before falling back to nickname/jid bot keywords.
         if (cleanNode.isNotBlank()) {
             resolveByNode(cleanNode)?.let { return it }
         }
 
-        // 2. Resolusi berdasarkan Nama Software / Klien (jika spesifik dan valid):
+        // 6. Bot matching on nickname/resource/localPart:
+        // "asal ada kata-kata bot masuk ke Jabber Bot kecuali SmartNG dan isida bot"
+        val localPart = jid.substringBefore("@").trim()
+        val hasBot = hasBotKeyword(cleanName) ||
+            hasBotKeyword(resource) ||
+            (!mucJid && hasBotKeyword(localPart))
+
+        if (hasBot) {
+            return findDefByName("Jabber Bot") ?: staticRegistry.find { it.clientName.equals("Jabber Bot", ignoreCase = true) }
+        }
+
+        // 7. Name resolution
         if (cleanName.isNotBlank() && !cleanName.contains(".") && !cleanName.contains("/")) {
             resolveByName(cleanName)?.let { return it }
         }
 
-        // 3. Resolusi berdasarkan Resource JID HANYA untuk chat 1:1 (bukan MUC room, karena di MUC resource = nickname):
+        // 8. Resource resolution (1:1 chat)
         if (!mucJid && resource.isNotBlank()) {
             resolveByName(resource)?.let { return it }
-            // Support resource variants like "InChat.abc123" or "InChat-Android" in 1:1 chat
-            val resBase = resource.substringBefore(".").trim()
-            if (isInChatExact(resBase)) {
-                return findDefByName("InChat") ?: staticRegistry.find { it.clientName.equals("InChat", ignoreCase = true) }
-            }
-        }
-
-        // 4. Fallback Bot (token terpisah / CamelCase, TIDAK menyamakan "robot", "abbott", atau nama room MUC):
-        val localPart = jid.substringBefore("@").trim()
-        if (isDelimitedOrCamelBot(cleanName) ||
-            isDelimitedOrCamelBot(resource) ||
-            (!mucJid && isDelimitedOrCamelBot(localPart))
-        ) {
-            findDefByName("Jabber Bot")?.let { return it }
         }
 
         return null
@@ -820,6 +914,9 @@ object ClientRegistryManager {
      */
     fun resolveByJid(jid: String): ClientDefinition? {
         if (jid.isBlank()) return null
+        if (jid.contains("narayana.im", ignoreCase = true)) {
+            return findDefByName("Another IM") ?: staticRegistry.find { it.clientName.equals("Another IM", ignoreCase = true) }
+        }
         val resource = if (jid.contains("/")) jid.substringAfterLast("/") else ""
         if (resource.isNotBlank()) {
             return resolveByName(resource)

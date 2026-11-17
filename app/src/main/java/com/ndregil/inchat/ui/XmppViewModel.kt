@@ -328,8 +328,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Occupants for active room
-    val activeRoomOccupants: StateFlow<List<RoomOccupant>> = combine(allRoomOccupants, activeRoom) { map, room ->
-        if (room != null) map[room.jid] ?: emptyList() else emptyList()
+    val activeRoomOccupants: StateFlow<List<RoomOccupant>> = combine(allRoomOccupants, activeRoom, _selectedRoomJid) { map, room, selectedJid ->
+        val jid = room?.jid ?: selectedJid
+        if (jid != null) {
+            val norm = jid.trim().lowercase()
+            map[jid] ?: map[norm] ?: map.entries.firstOrNull { it.key.equals(jid.trim(), ignoreCase = true) }?.value ?: emptyList()
+        } else emptyList()
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -1459,6 +1463,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshRoomOccupants() {
         activeRoom.value?.let { room ->
             repository.refreshRoomOccupants(room.jid)
+        } ?: selectedRoomJid.value?.let { jid ->
+            repository.refreshRoomOccupants(jid)
         }
     }
 

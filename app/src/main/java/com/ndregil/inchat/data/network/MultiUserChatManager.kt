@@ -177,8 +177,11 @@ class MultiUserChatManager(
             // If already joined, return existing instance
             if (muc.isJoined) {
                 Log.d(TAG, "Already joined room $roomJid")
+                val norm = bareJid.toString().lowercase()
                 activeMucs[roomJid] = muc
+                activeMucs[norm] = muc
                 roomNicknames[roomJid] = nick.toString()
+                roomNicknames[norm] = nick.toString()
                 _joinedRooms.value = activeMucs.keys.toSet()
                 updateOccupantsForRoom(roomJid, muc)
                 avatarManager.getAvatar(roomJid)
@@ -237,8 +240,11 @@ class MultiUserChatManager(
             // Register listeners
             registerMucListeners(roomJid, muc, nick.toString())
 
+            val norm = bareJid.toString().lowercase()
             activeMucs[roomJid] = muc
+            activeMucs[norm] = muc
             roomNicknames[roomJid] = nick.toString()
+            roomNicknames[norm] = nick.toString()
             _joinedRooms.value = activeMucs.keys.toSet()
 
             updateOccupantsForRoom(roomJid, muc)
@@ -830,17 +836,26 @@ class MultiUserChatManager(
     /**
      * Checks if a room is currently joined.
      */
-    fun isRoomJoined(roomJid: String): Boolean = activeMucs[roomJid]?.isJoined == true
+    fun isRoomJoined(roomJid: String): Boolean {
+        val norm = roomJid.trim().lowercase()
+        return (activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value)?.isJoined == true
+    }
 
     /**
      * Retrieves the active [MultiUserChat] instance for a room, or null if not joined.
      */
-    fun getMultiUserChat(roomJid: String): MultiUserChat? = activeMucs[roomJid]
+    fun getMultiUserChat(roomJid: String): MultiUserChat? {
+        val norm = roomJid.trim().lowercase()
+        return activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
+    }
 
     /**
      * Returns current cached occupant list for a room.
      */
-    fun getOccupants(roomJid: String): List<RoomOccupant> = _roomOccupants.value[roomJid] ?: emptyList()
+    fun getOccupants(roomJid: String): List<RoomOccupant> {
+        val norm = roomJid.trim().lowercase()
+        return _roomOccupants.value[norm] ?: _roomOccupants.value[roomJid] ?: _roomOccupants.value.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value ?: emptyList()
+    }
 
     /**
      * Attaches a [MessageListener] implementation to a joined MUC room.
@@ -1585,18 +1600,53 @@ class MultiUserChatManager(
      * Public method to force a refresh of the occupant list for a room.
      */
     fun refreshOccupants(roomJid: String) {
-        val muc = activeMucs[roomJid] ?: return
+        val norm = roomJid.trim().lowercase()
+        val muc = activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value ?: return
         updateOccupantsForRoom(roomJid, muc)
+    }
+
+    /**
+     * Retrieves the current count of occupants for a room.
+     */
+    fun getRoomOccupantsCount(roomJid: String): Int {
+        val norm = roomJid.trim().lowercase()
+        val list = _roomOccupants.value[norm] ?: _roomOccupants.value[roomJid] ?: _roomOccupants.value.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
+        if (!list.isNullOrEmpty()) return list.size
+        val muc = activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
+        if (muc != null && muc.isJoined && muc.occupantsCount > 0) {
+            return muc.occupantsCount
+        }
+        return 0
+    }
+
+    /**
+     * Queries the occupant count from server info via XEP-0045/XEP-0030 disco.
+     */
+    suspend fun queryRoomOccupantsCount(roomJid: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val live = getRoomOccupantsCount(roomJid)
+            if (live > 0) return@withContext live
+            val conn = connectionManager.getRawConnection() ?: return@withContext -1
+            if (!conn.isAuthenticated) return@withContext -1
+            val bareJid = JidCreate.entityBareFrom(roomJid.trim())
+            val smackMucManager = getSmackMucManager()
+            val info = smackMucManager.getRoomInfo(bareJid)
+            val count = info.occupantsCount
+            if (count >= 0) count else -1
+        } catch (e: Exception) {
+            -1
+        }
     }
 
     /**
      * Retrieves cached ClientCaps for an occupant in a room.
      */
     fun getOccupantCaps(roomJid: String, nickname: String): com.ndregil.inchat.data.model.ClientCaps? {
-        val roomCached = roomOccupantCapsCache[roomJid]?.get(nickname)
+        val norm = roomJid.trim().lowercase()
+        val roomCached = roomOccupantCapsCache[norm]?.get(nickname) ?: roomOccupantCapsCache[roomJid]?.get(nickname)
         if (roomCached != null) return roomCached
-        val occupants = _roomOccupants.value[roomJid]
-        val occupant = occupants?.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
+        val occupants = getOccupants(roomJid)
+        val occupant = occupants.firstOrNull { it.nickname.equals(nickname, ignoreCase = true) }
         return occupant?.clientCaps
     }
 
@@ -1614,9 +1664,11 @@ class MultiUserChatManager(
         node: String,
         ver: String
     ): com.ndregil.inchat.data.model.ClientCaps {
+        val nick = presenceFrom?.resourceOrNull?.toString() ?: ""
+        val effectiveJid = presenceFrom?.toString() ?: realJid
         val resolved = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-            name = "",
-            jid = realJid,
+            name = nick,
+            jid = effectiveJid,
             node = node,
             ver = ver
         )
@@ -1656,13 +1708,35 @@ class MultiUserChatManager(
             try {
                 val myNickname = roomNicknames[roomJid] ?: ""
                 val occupantsList = mutableListOf<RoomOccupant>()
+                val seenNicknames = mutableSetOf<String>()
                 val myJid = connectionManager.credentials.value.jid
 
-                for (occupantJid in muc.occupants) {
+                val occupantJids = muc.occupants.toMutableSet()
+                try {
+                    muc.participants.forEach { occ ->
+                        occ.jid?.let { jid ->
+                            try {
+                                occupantJids.add(org.jxmpp.jid.impl.JidCreate.entityFullFrom(jid.toString()))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    muc.moderators.forEach { occ ->
+                        occ.jid?.let { jid ->
+                            try {
+                                occupantJids.add(org.jxmpp.jid.impl.JidCreate.entityFullFrom(jid.toString()))
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                for (occupantJid in occupantJids) {
                     val occupant: Occupant? = muc.getOccupant(occupantJid)
                     val nickname = occupant?.nick?.toString()
                         ?: occupantJid.resourceOrNull?.toString()
                         ?: occupantJid.toString().substringAfterLast("/")
+
+                    if (nickname.isBlank() || seenNicknames.contains(nickname.lowercase())) continue
+                    seenNicknames.add(nickname.lowercase())
 
                     val isMe = nickname.equals(myNickname, ignoreCase = true)
 
@@ -1751,9 +1825,10 @@ class MultiUserChatManager(
                             cachedCaps
                         }
                         else -> {
+                            val targetJid = if (realJid.isNotBlank() && realJid.contains("/")) realJid else occupantJid.toString()
                             com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                                name = "",
-                                jid = realJid,
+                                name = nickname,
+                                jid = targetJid,
                                 node = ""
                             )
                         }
@@ -1779,6 +1854,8 @@ class MultiUserChatManager(
 
                 val currentMap = _roomOccupants.value.toMutableMap()
                 currentMap[roomJid] = occupantsList
+                val normJid = roomJid.trim().lowercase()
+                currentMap[normJid] = occupantsList
                 _roomOccupants.value = currentMap
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {

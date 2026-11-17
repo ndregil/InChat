@@ -93,6 +93,9 @@ interface RoomDao {
     @Query("UPDATE rooms SET myRole = :role, myAffiliation = :affiliation WHERE jid = :roomJid")
     suspend fun updateOccupantRoleAndAffiliation(roomJid: String, role: com.ndregil.inchat.data.model.OccupantRole, affiliation: com.ndregil.inchat.data.model.OccupantAffiliation)
 
+    @Query("UPDATE rooms SET occupantCount = :count WHERE jid = :roomJid")
+    suspend fun updateOccupantCount(roomJid: String, count: Int)
+
     @Query("UPDATE rooms SET lastMessageText = :text, lastMessageTime = :time, unreadCount = unreadCount + :unreadIncrement WHERE jid = :roomJid AND (:time >= lastMessageTime OR lastMessageTime IS NULL OR lastMessageTime = 0)")
     suspend fun updateLastMessage(roomJid: String, text: String, time: Long, unreadIncrement: Int): Int
 

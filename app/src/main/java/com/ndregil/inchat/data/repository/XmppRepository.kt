@@ -225,11 +225,14 @@ class XmppRepository(
             }
         }
 
-        // Collect MUC occupant changes to update user's role/affiliation
+        // Collect MUC occupant changes to update user's role/affiliation and occupantCount
         scope.launch {
             try {
                 smackMucManager.roomOccupants.collect { occupantsMap ->
                     occupantsMap.forEach { (roomJid, occupants) ->
+                        if (occupants.isNotEmpty()) {
+                            database.roomDao().updateOccupantCount(roomJid, occupants.size)
+                        }
                         val me = occupants.find { it.isMe }
                         if (me != null) {
                             database.roomDao().updateOccupantRoleAndAffiliation(roomJid, me.role, me.affiliation)
@@ -253,6 +256,7 @@ class XmppRepository(
                         scope.launch {
                             kotlinx.coroutines.delay(2000) // Give the connection a moment to stabilize
                             autoJoinConfiguredRooms()
+                            refreshAllRoomOccupantCounts()
                         }
                     }
                 }
@@ -1293,6 +1297,10 @@ class XmppRepository(
                     updateRoomAutoJoin(roomJid, false)
                 }
             } else {
+                val liveCount = smackMucManager.getRoomOccupantsCount(roomJid)
+                if (liveCount > 0) {
+                    database.roomDao().updateOccupantCount(roomJid, liveCount)
+                }
                 // If join succeeded, trigger MAM history sync to fill gaps since last seen message
                 // Delay MAM sync slightly to let the room presence stabilize and avoid flooding the connection
                 scope.launch {
@@ -2584,6 +2592,31 @@ class XmppRepository(
 
     fun refreshRoomOccupants(roomJid: String) {
         smackMucManager.refreshOccupants(roomJid)
+        val liveCount = smackMucManager.getRoomOccupantsCount(roomJid)
+        if (liveCount > 0) {
+            scope.launch(Dispatchers.IO) {
+                database.roomDao().updateOccupantCount(roomJid, liveCount)
+            }
+        }
+    }
+
+    suspend fun refreshAllRoomOccupantCounts() = withContext(Dispatchers.IO) {
+        try {
+            val rooms = database.roomDao().getAllRoomsList().filter { it.isGroupChat }
+            for (room in rooms) {
+                val liveCount = smackMucManager.getRoomOccupantsCount(room.jid)
+                if (liveCount > 0) {
+                    database.roomDao().updateOccupantCount(room.jid, liveCount)
+                } else if (smackConnectionManager.isConnected()) {
+                    val queried = smackMucManager.queryRoomOccupantsCount(room.jid)
+                    if (queried > 0) {
+                        database.roomDao().updateOccupantCount(room.jid, queried)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Error refreshing room occupant counts: ${e.message}")
+        }
     }
 
     suspend fun updateUserPresence(presence: UserPresence, statusMessage: String) {

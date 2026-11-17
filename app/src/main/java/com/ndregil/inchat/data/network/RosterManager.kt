@@ -205,8 +205,9 @@ class RosterManager(
 
             val existing = _contacts.value.find { it.jid.equals(fromJid, ignoreCase = true) }
 
+            val contactName = existing?.name ?: extractedNick ?: ""
             var contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = "",
+                name = contactName,
                 jid = fullJid,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""
@@ -938,7 +939,7 @@ class RosterManager(
             val effectiveName = nickFromPresence ?: entry.name ?: existing?.name ?: jidString.substringBefore("@")
 
             var contactCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor(
-                name = "",
+                name = effectiveName,
                 jid = presence.from?.toString() ?: jidString,
                 node = extractedCaps?.first ?: existing?.clientCaps?.rawNode ?: "",
                 ver = extractedCaps?.second ?: existing?.clientCaps?.ver ?: ""

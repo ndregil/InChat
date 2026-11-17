@@ -185,6 +185,32 @@ data class ClientCaps(
                 defaultOs = "Android"
             ),
             ClientDefinition(
+                patterns = listOf(
+                    "https://dev.narayana.im/narayana/Conversations-Classic",
+                    "http://dev.narayana.im/narayana/Conversations-Classic",
+                    "dev.narayana.im/narayana/Conversations-Classic",
+                    "dev.narayana.im",
+                    "narayana.im",
+                    "anotherim",
+                    "another im"
+                ),
+                clientName = "Another IM",
+                canonicalNodeUri = "https://dev.narayana.im/narayana/Conversations-Classic",
+                platform = ClientPlatform.ANDROID,
+                iconResId = com.ndregil.inchat.R.drawable.ic_client_anotherim,
+                defaultVersion = "1.0",
+                defaultOs = "Android"
+            ),
+            ClientDefinition(
+                patterns = listOf("ndregil.smart-ng", "smartng", "smart-ng", "Smart Next-Gen XMPP Bot", "Smart Next-Gen"),
+                clientName = "SmartNG",
+                canonicalNodeUri = "http://ndregil.smart-ng",
+                platform = ClientPlatform.ANDROID,
+                iconResId = com.ndregil.inchat.R.drawable.ic_client_smartng,
+                defaultVersion = "1.0",
+                defaultOs = "Android"
+            ),
+            ClientDefinition(
                 patterns = listOf("http://conversations.im", "conversations.im", "conversations"),
                 clientName = "Conversations",
                 canonicalNodeUri = "http://conversations.im",
@@ -490,21 +516,13 @@ data class ClientCaps(
             if (definition == null && cleanNode.isBlank()) {
                 val cached = com.ndregil.inchat.data.network.ClientRegistryManager.getCachedCaps(jid, ver)
                 if (cached != null && cached.iconResId != null) {
-                    return if (cleanName.isNotBlank() && cleanName != "unknown" && cleanName != cached.clientName) {
-                        cached.copy(clientName = cleanName)
-                    } else {
-                        cached
-                    }
+                    return cached
                 }
             }
 
-            // If cleanName is explicitly provided (occupant nick, contact name), preserve it.
-            // Otherwise use the recognized software name from the definition.
-            val resolvedName = if (cleanName.isNotBlank() && cleanName != "unknown") {
-                cleanName
-            } else {
-                definition?.clientName ?: ""
-            }
+            // Client software name: only use matched definition's clientName (e.g. "Another IM", "Jabber Bot").
+            // Never overwrite or populate clientName with the user's personal nickname.
+            val resolvedName = definition?.clientName ?: ""
 
             val resolvedVersion = cleanVersion
             val resolvedOs = cleanOs

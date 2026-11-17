@@ -1,10 +1,13 @@
 http://ndregil.inchat,ndregil.inchat,inchat	InChat
+https://dev.narayana.im/narayana/Conversations-Classic,dev.narayana.im/narayana/Conversations-Classic,dev.narayana.im,narayana.im,anotherim,Another IM	Another IM
+ndregil.smart-ng,Smart Next-Gen XMPP Bot,Smart Next-Gen,smartng,smart-ng	SmartNG
+http://isida-bot.com,isida-bot,isida	Isida bot
+http://jabbrik.ru/caps,http://jabrvista.net.ru,bot,Bot,jabber-bot,freQ,freq	Jabber Bot
 bombusmod.net.ru,BombusMod	BombusMod
 bombus-im.org,voffk.org.ru/bombus	Bombus
 bombusmod-qd	Bombus-QD
 gajim.org,Gajim	Gajim
 google.com,gmail	Google
-http://jabbrik.ru/caps,http://jabrvista.net.ru,bot,Bot,jabber-bot,freQ,freq	Jabber Bot
 jimm.net.ru	Jimm aspro
 kopete	Kopete
 miranda-im	Miranda
@@ -18,7 +21,6 @@ Ajabb,yandex	Ya.Online
 miranda-ng.org	Miranda NG
 mcabber	Mcabber
 twitter	Twitter bot
-http://isida-bot.com	Isida bot
 JabRSS	RSS Bot
 http://conversations.im,conversations	Conversations
 blabber.im	Blabber
@@ -33,8 +35,5 @@ archon,archon-bifrost,archon.im	Archon
 dino.im,http://dino.im	Dino
 profanity.im,http://profanity.im	Profanity
 beagleim.org,http://beagleim.org	BeagleIM
-gajim,http://gajim.org	Gajim
-dev.narayana.im	Another IM
 jtalk.ustyugov.net/caps	jTalk
-ndregil.smart-ng,Smart Next-Gen XMPP Bot,Smart Next-Gen	SmartNG
 slixmpp.com	Slixmpp

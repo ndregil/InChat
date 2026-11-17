@@ -2102,6 +2102,9 @@ fun MultiRoomMainScreen(
 
     if (isRosterOpen) {
         val occupants by viewModel.activeRoomOccupants.collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) {
+            viewModel.refreshRoomOccupants()
+        }
         OccupantRosterSheet(
             occupants = occupants,
             roomName = activeRoom?.name ?: strings.roomTitle,
