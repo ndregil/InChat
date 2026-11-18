@@ -572,7 +572,8 @@ data class XmppMessage(
     val voiceDurationSeconds: Int? = null,
     val isHistory: Boolean = false,
     val translatedBody: String? = null,
-    val translationLanguage: String? = null
+    val translationLanguage: String? = null,
+    val isEncrypted: Boolean = false
 )
 
 data class RoomOccupant(

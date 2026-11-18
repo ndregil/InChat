@@ -106,6 +106,21 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    val omemoEnabledJids: StateFlow<Set<String>> = repository.omemoEncryptionManager.omemoEnabledJids
+    val autoTrustOmemo: StateFlow<Boolean> = repository.omemoEncryptionManager.autoTrustDevices
+
+    fun isOmemoEnabledFor(jid: String): Boolean = repository.omemoEncryptionManager.isOmemoEnabledFor(jid)
+    fun setOmemoEnabledFor(jid: String, enabled: Boolean) = repository.omemoEncryptionManager.setOmemoEnabledFor(jid, enabled)
+    fun setAutoTrustOmemo(enabled: Boolean) = repository.omemoEncryptionManager.setAutoTrustDevices(enabled)
+    fun getOwnOmemoFingerprint(): String? = repository.omemoEncryptionManager.getOwnFingerprint()
+    fun getOwnOmemoDeviceId(): Int? = repository.omemoEncryptionManager.getOwnDeviceId()
+
+    suspend fun getActiveFingerprints(jid: String): Map<org.jivesoftware.smackx.omemo.internal.OmemoDevice, String> =
+        repository.omemoEncryptionManager.getActiveFingerprints(jid)
+
+    fun trustOmemoIdentity(device: org.jivesoftware.smackx.omemo.internal.OmemoDevice, fp: org.jivesoftware.smackx.omemo.trust.OmemoFingerprint, state: org.jivesoftware.smackx.omemo.trust.TrustState) =
+        repository.omemoEncryptionManager.setTrust(device, fp, state)
+
     val autoJoinToastStatus = MutableStateFlow<String?>(null)
     fun clearAutoJoinToastStatus() { autoJoinToastStatus.value = null }
 

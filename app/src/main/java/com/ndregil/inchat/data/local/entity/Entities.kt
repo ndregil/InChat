@@ -83,7 +83,8 @@ data class MessageEntity(
     val replyToText: String? = null,
     val voiceDurationSeconds: Int? = null,
     val translatedBody: String? = null,
-    val translationLanguage: String? = null
+    val translationLanguage: String? = null,
+    val isEncrypted: Boolean = false
 )
 
 typealias ChatMessageEntity = MessageEntity

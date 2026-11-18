@@ -682,6 +682,14 @@ fun MessageBubble(
                         modifier = Modifier.align(Alignment.End),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (message.isEncrypted) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "OMEMO Encrypted",
+                                tint = if (isMine) textColor.copy(alpha = 0.85f) else Color(0xFF10B981),
+                                modifier = Modifier.size(11.dp).padding(end = 3.dp)
+                            )
+                        }
                         Text(
                             text = formatTime(message.timestamp),
                             fontSize = 10.sp,

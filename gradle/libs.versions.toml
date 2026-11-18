@@ -108,6 +108,8 @@ smack-extensions = { group = "org.igniterealtime.smack", name = "smack-extension
 smack-experimental = { group = "org.igniterealtime.smack", name = "smack-experimental", version.ref = "smack" }
 smack-im = { group = "org.igniterealtime.smack", name = "smack-im", version.ref = "smack" }
 smack-tcp = { group = "org.igniterealtime.smack", name = "smack-tcp", version.ref = "smack" }
+smack-omemo = { group = "org.igniterealtime.smack", name = "smack-omemo", version.ref = "smack" }
+smack-omemo-signal = { group = "org.igniterealtime.smack", name = "smack-omemo-signal", version.ref = "smack" }
 androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
 
 

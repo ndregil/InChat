@@ -122,6 +122,7 @@ class XmppRepository(
     val themePreferencesManager = com.ndregil.inchat.data.local.ThemePreferencesManager(context)
     val translationService = com.ndregil.inchat.data.network.TranslationService()
     val translationPreferencesManager = com.ndregil.inchat.data.local.TranslationPreferencesManager(context)
+    val omemoEncryptionManager = com.ndregil.inchat.data.network.OmemoEncryptionManager(context)
 
     private val mamSyncJobs = ConcurrentHashMap<String, kotlinx.coroutines.Job>()
     private var currentAppLanguage = "system"
@@ -198,6 +199,11 @@ class XmppRepository(
 
     init {
         connectionService.start()
+        omemoEncryptionManager.onDecryptedMessageReceived = { xmppMsg, _ ->
+            scope.launch(Dispatchers.IO) {
+                processIncomingMessage(xmppMsg)
+            }
+        }
         // Collect theme preferences to sync current language
         scope.launch {
             try {
@@ -525,6 +531,9 @@ class XmppRepository(
                 smackAvatarManager.onConnectionReady(conn)
                 setupReceiptListener(conn)
                 setupIncomingStanzaListener()
+                scope.launch(Dispatchers.IO) {
+                    omemoEncryptionManager.onConnectionReady(conn, sanitizedAccount.jid)
+                }
             }
 
             // Initialize and synchronize XMPP Roster contacts (RFC 6121, XEP-0115, XEP-0172)
@@ -711,6 +720,7 @@ class XmppRepository(
     }
 
     suspend fun disconnect() {
+        omemoEncryptionManager.cleanup()
         try {
             connectionService.release()
             smackRosterManager.release()
@@ -726,6 +736,7 @@ class XmppRepository(
     }
 
     suspend fun signOut() {
+        omemoEncryptionManager.cleanup()
         try {
             connectionService.release()
             smackRosterManager.release()
@@ -749,6 +760,7 @@ class XmppRepository(
     }
 
     suspend fun prepareSwitchAccount() {
+        omemoEncryptionManager.cleanup()
         Log.i("XmppRepository", "Mempersiapkan ganti akun: memutuskan sesi aktif dan membersihkan sesi lama.")
         try {
             connectionService.release()
@@ -2045,6 +2057,8 @@ class XmppRepository(
         val timestamp = System.currentTimeMillis()
         val isImage = standaloneImageUrl != null
 
+        val isOmemoActive = omemoEncryptionManager.isOmemoEnabledFor(cleanJid)
+
         // 1. Optimistic local DB insert immediately so UI shows the outgoing message without waiting on network/translation
         val initialMsg = XmppMessage(
             id = stanzaId,
@@ -2069,7 +2083,8 @@ class XmppRepository(
                 isStandaloneUrl -> "application/octet-stream"
                 else -> null
             },
-            fileName = if (isStandaloneUrl) "Lampiran" else null
+            fileName = if (isStandaloneUrl) "Lampiran" else null,
+            isEncrypted = isOmemoActive
         )
 
         incomingMessageMutex.withLock {
@@ -2137,8 +2152,31 @@ class XmppRepository(
         val isUrlFinal = textToSend.trim().startsWith("http")
         var isSentSuccessfully = false
 
-        // 3. Send via Smack MUC if joined room
-        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
+        // 3. Send via OMEMO Encryption if enabled
+        if (isOmemoActive && smackConnectionManager.isConnected()) {
+            val connection = smackConnectionManager.getRawConnection()
+            if (connection != null) {
+                if (isGroup && smackMucManager.isRoomJoined(cleanJid)) {
+                    val muc = smackMucManager.getMultiUserChat(cleanJid)
+                    if (muc != null) {
+                        val encRes = omemoEncryptionManager.encryptMucMessage(muc, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
+                        if (encRes.isSuccess) {
+                            connection.sendStanza(encRes.getOrNull()!!)
+                            isSentSuccessfully = true
+                        }
+                    }
+                } else if (!isGroup) {
+                    val encRes = omemoEncryptionManager.encryptDirectMessage(cleanJid, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
+                    if (encRes.isSuccess) {
+                        connection.sendStanza(encRes.getOrNull()!!)
+                        isSentSuccessfully = true
+                    }
+                }
+            }
+        }
+
+        // 4. Send via Smack MUC if joined room and not encrypted via OMEMO
+        if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             val sendRes = smackMucManager.sendMessage(
                 roomJid = cleanJid,
                 body = textToSend,
@@ -3061,7 +3099,8 @@ private fun MessageEntity.toModel(): XmppMessage = XmppMessage(
     replyToText = replyToText,
     voiceDurationSeconds = voiceDurationSeconds,
     translatedBody = translatedBody,
-    translationLanguage = translationLanguage
+    translationLanguage = translationLanguage,
+    isEncrypted = isEncrypted
 )
 
 private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
@@ -3084,5 +3123,6 @@ private fun XmppMessage.toEntity(): MessageEntity = MessageEntity(
     replyToText = replyToText,
     voiceDurationSeconds = voiceDurationSeconds,
     translatedBody = translatedBody,
-    translationLanguage = translationLanguage
+    translationLanguage = translationLanguage,
+    isEncrypted = isEncrypted
 )

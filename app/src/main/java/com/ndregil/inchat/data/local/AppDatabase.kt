@@ -87,7 +87,7 @@ class Converters {
         com.ndregil.inchat.data.local.entity.StoryViewerEntity::class,
         com.ndregil.inchat.data.local.entity.ClientCapabilityEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -106,6 +106,12 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE messages ADD COLUMN isEncrypted INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -113,6 +119,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xmpp_multiroom_database"
                 )
+                    .addMigrations(MIGRATION_14_15)
                     .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = instance

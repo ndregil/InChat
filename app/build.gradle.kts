@@ -150,6 +150,12 @@ dependencies {
   implementation(libs.smack.tcp) {
     exclude(group = "xpp3", module = "xpp3")
   }
+  implementation(libs.smack.omemo) {
+    exclude(group = "xpp3", module = "xpp3")
+  }
+  implementation(libs.smack.omemo.signal) {
+    exclude(group = "xpp3", module = "xpp3")
+  }
   implementation(libs.androidx.work.runtime.ktx)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
