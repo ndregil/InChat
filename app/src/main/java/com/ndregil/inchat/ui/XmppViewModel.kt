@@ -99,7 +99,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     fun translateMessage(messageId: String) {
         viewModelScope.launch {
             val targetLang = translationPreferences.value.targetLanguageCode
-            repository.translateMessage(messageId, targetLang)
+            val result = repository.translateMessage(messageId, targetLang)
+            if (result.isNullOrBlank()) {
+                autoJoinToastStatus.value = "Tidak dapat menerjemahkan pesan ini. Periksa koneksi internet."
+            }
         }
     }
 

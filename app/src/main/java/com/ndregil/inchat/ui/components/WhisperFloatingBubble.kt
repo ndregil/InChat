@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.BubbleChart
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,6 +109,7 @@ fun WhisperFloatingBubbleOverlay(
     onClose: () -> Unit,
     onSelectPartner: (RoomOccupant) -> Unit,
     onSendWhisper: (targetNickname: String, text: String) -> Unit,
+    onTranslateClick: ((XmppMessage) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (targetOccupant == null) return
@@ -175,7 +177,8 @@ fun WhisperFloatingBubbleOverlay(
                 onSelectPartner = onSelectPartner,
                 onMinimize = onMinimize,
                 onClose = onClose,
-                onSendWhisper = { text -> onSendWhisper(targetOccupant.nickname, text) }
+                onSendWhisper = { text -> onSendWhisper(targetOccupant.nickname, text) },
+                onTranslateClick = onTranslateClick
             )
         }
 
@@ -386,18 +389,23 @@ private fun WhisperExpandedCard(
     onSelectPartner: (RoomOccupant) -> Unit,
     onMinimize: () -> Unit,
     onClose: () -> Unit,
-    onSendWhisper: (String) -> Unit
+    onSendWhisper: (String) -> Unit,
+    onTranslateClick: ((XmppMessage) -> Unit)? = null
 ) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var draft by remember(activePartner.nickname) { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val lastWhisperId = messages.lastOrNull()?.id
 
-    LaunchedEffect(messages.size, activePartner.nickname) {
+    LaunchedEffect(activePartner.nickname, lastWhisperId, messages.size) {
         if (messages.isNotEmpty()) {
+            val target = messages.size - 1
             try {
-                listState.animateScrollToItem(messages.size - 1)
+                listState.animateScrollToItem(target)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) {
-                listState.scrollToItem(messages.size - 1)
+                listState.scrollToItem(target)
             }
         }
     }
@@ -619,7 +627,11 @@ private fun WhisperExpandedCard(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(messages, key = { it.id }) { msg ->
-                            WhisperMiniAirBubble(msg = msg, isDark = isDark)
+                            WhisperMiniAirBubble(
+                                msg = msg,
+                                isDark = isDark,
+                                onTranslateClick = onTranslateClick
+                            )
                         }
                     }
                 }
@@ -725,7 +737,15 @@ private fun WhisperExpandedCard(
 }
 
 @Composable
-private fun WhisperMiniAirBubble(msg: XmppMessage, isDark: Boolean) {
+private fun WhisperMiniAirBubble(
+    msg: XmppMessage,
+    isDark: Boolean,
+    onTranslateClick: ((XmppMessage) -> Unit)? = null
+) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+    var showOriginal by remember(msg.id) { mutableStateOf(false) }
+    val isTranslated = !msg.translatedBody.isNullOrBlank()
+
     val timeText = remember(msg.timestamp) {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(msg.timestamp))
     }
@@ -774,8 +794,35 @@ private fun WhisperMiniAirBubble(msg: XmppMessage, isDark: Boolean) {
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Column {
+                if (isTranslated) {
+                    val langName = com.ndregil.inchat.data.network.TranslationService.getLanguageName(
+                        msg.translationLanguage ?: "id"
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp)
+                    ) {
+                        Text(
+                            text = "${strings.translatedToPrefix} $langName",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (showOriginal) strings.showTranslationLabel else strings.viewOriginalLabel,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isMine || isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
+                            modifier = Modifier.clickable { showOriginal = !showOriginal }
+                        )
+                    }
+                }
                 LinkifiedText(
-                    text = msg.body,
+                    text = if (isTranslated && !showOriginal) msg.translatedBody!! else msg.body,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 13.sp,
                         lineHeight = 18.sp
@@ -790,12 +837,28 @@ private fun WhisperMiniAirBubble(msg: XmppMessage, isDark: Boolean) {
                     modifier = Modifier.padding(top = 6.dp)
                 )
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = timeText,
-                    color = textColor.copy(alpha = 0.7f),
-                    fontSize = 10.sp,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.align(Alignment.End)
-                )
+                ) {
+                    if (onTranslateClick != null && msg.body.isNotBlank()) {
+                        Icon(
+                            imageVector = Icons.Default.Translate,
+                            contentDescription = strings.translateMessageAction,
+                            tint = textColor.copy(alpha = 0.78f),
+                            modifier = Modifier
+                                .size(13.dp)
+                                .clickable { onTranslateClick(msg) }
+                                .testTag("btn_translate_whisper_${msg.id}")
+                        )
+                    }
+                    Text(
+                        text = timeText,
+                        color = textColor.copy(alpha = 0.7f),
+                        fontSize = 10.sp
+                    )
+                }
             }
         }
     }

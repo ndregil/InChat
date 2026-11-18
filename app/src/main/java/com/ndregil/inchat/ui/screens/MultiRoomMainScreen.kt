@@ -278,7 +278,6 @@ fun MultiRoomMainScreen(
     val rosterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val stanzaSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
-    val listState = remember(activeRoom?.jid) { androidx.compose.foundation.lazy.LazyListState() }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -311,35 +310,6 @@ fun MultiRoomMainScreen(
 
     val roomMessages = remember(messages) {
         messages.filter { it.messageType != com.ndregil.inchat.data.model.MessageType.WHISPER }
-    }
-
-    // Auto scroll to latest room message when active room changes or new messages arrive
-    val lastMsgId = remember(roomMessages) { roomMessages.lastOrNull()?.id }
-    val isLastMsgMine = remember(roomMessages) { roomMessages.lastOrNull()?.isMine == true }
-
-    // Scroll to bottom when room changes
-    LaunchedEffect(activeRoom?.jid) {
-        if (roomMessages.isNotEmpty()) {
-            val targetIndex = roomMessages.size
-            try {
-                listState.scrollToItem(targetIndex)
-            } catch (_: Exception) {}
-        }
-    }
-
-    // Auto scroll when user sends a message or when already near bottom (only if user is NOT currently touch-scrolling)
-    LaunchedEffect(roomMessages.size, lastMsgId) {
-        if (roomMessages.isNotEmpty() && !listState.isScrollInProgress) {
-            val targetIndex = roomMessages.size
-            val isNearBottom = listState.firstVisibleItemIndex >= (roomMessages.size - 4).coerceAtLeast(0)
-            if (isLastMsgMine || isNearBottom) {
-                try {
-                    listState.animateScrollToItem(targetIndex)
-                } catch (_: Exception) {
-                    listState.scrollToItem(targetIndex)
-                }
-            }
-        }
     }
 
     var lastReadWhisperId by remember(activeRoom?.jid) { mutableStateOf<String?>(null) }
@@ -924,9 +894,19 @@ fun MultiRoomMainScreen(
                                         onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
                                     )
 
-                                    
-
                                     // Message Feed
+                                    val paneMessages = remember(roomMessages, room.jid) {
+                                        roomMessages.filter { it.roomJid.equals(room.jid, ignoreCase = true) }
+                                    }
+                                    val roomListState = remember(room.jid) { androidx.compose.foundation.lazy.LazyListState() }
+
+                                    ChatAutoScrollEffect(
+                                        listState = roomListState,
+                                        conversationKey = room.jid,
+                                        messages = paneMessages,
+                                        bottomAnchorIndex = paneMessages.size + 1
+                                    )
+
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                         com.ndregil.inchat.ui.components.WallpaperBackground(
                                             wallpaperStyle = room.wallpaperStyle ?: "default",
@@ -934,7 +914,7 @@ fun MultiRoomMainScreen(
                                             opacity = themePrefs.wallpaperOpacity
                                         )
 
-                                        if (roomMessages.isEmpty()) {
+                                        if (paneMessages.isEmpty()) {
                                             Column(
                                                 modifier = Modifier.fillMaxSize().padding(32.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -946,7 +926,7 @@ fun MultiRoomMainScreen(
                                                 Text(strings.firstMessageHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             }
                                         } else {
-                                            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            LazyColumn(state = roomListState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 item(key = "load_older_header") {
                                                     Box(
                                                         modifier = Modifier
@@ -984,7 +964,7 @@ fun MultiRoomMainScreen(
                                                         }
                                                     }
                                                 }
-                                                items(roomMessages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
+                                                items(paneMessages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
                                                     MessageBubble(
                                                         message = msg,
                                                         myNickname = room.myNickname ?: currentAccount.nickname,
@@ -1029,12 +1009,15 @@ fun MultiRoomMainScreen(
                                                         themePrefs = themePrefs
                                                     )
                                                 }
+                                                item(key = "bottom_anchor") {
+                                                    Spacer(modifier = Modifier.height(1.dp))
+                                                }
                                             }
                                         }
 
                                         ScrollNavigationButtons(
-                                            listState = listState,
-                                            totalMessagesCount = roomMessages.size,
+                                            listState = roomListState,
+                                            totalMessagesCount = paneMessages.size,
                                             modifier = Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .padding(end = 12.dp, bottom = 12.dp)
@@ -1057,6 +1040,9 @@ fun MultiRoomMainScreen(
                                                 onSelectPartner = { occ -> viewModel.setWhisperTarget(occ) },
                                                 onSendWhisper = { targetNick, text ->
                                                     viewModel.sendWhisper(targetNick, text)
+                                                },
+                                                onTranslateClick = { translateMsg ->
+                                                    viewModel.translateMessage(translateMsg.id)
                                                 }
                                             )
                                         }
@@ -1562,6 +1548,22 @@ fun MultiRoomMainScreen(
                                 }
 
                                 // Message Feed (Direct Chat)
+                                val directRoomJid = activeRoom?.jid ?: ""
+                                val directMessages = remember(messages, directRoomJid) {
+                                    if (directRoomJid.isBlank()) emptyList()
+                                    else messages.filter { it.roomJid.equals(directRoomJid, ignoreCase = true) }
+                                }
+                                val directListState = remember(directRoomJid) { androidx.compose.foundation.lazy.LazyListState() }
+
+                                if (directRoomJid.isNotBlank()) {
+                                    ChatAutoScrollEffect(
+                                        listState = directListState,
+                                        conversationKey = directRoomJid,
+                                        messages = directMessages,
+                                        bottomAnchorIndex = directMessages.size + 1
+                                    )
+                                }
+
                                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                     com.ndregil.inchat.ui.components.WallpaperBackground(
                                         wallpaperStyle = activeRoom?.wallpaperStyle ?: "default",
@@ -1569,7 +1571,7 @@ fun MultiRoomMainScreen(
                                         opacity = themePrefs.wallpaperOpacity
                                     )
 
-                                    if (messages.isEmpty()) {
+                                    if (directMessages.isEmpty()) {
                                         Column(
                                             modifier = Modifier.fillMaxSize().padding(32.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1582,7 +1584,7 @@ fun MultiRoomMainScreen(
                                             Text(strings.sendFirstDirectMessageHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     } else {
-                                        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        LazyColumn(state = directListState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                             item(key = "load_older_header_direct") {
                                                 Box(
                                                     modifier = Modifier
@@ -1620,7 +1622,7 @@ fun MultiRoomMainScreen(
                                                     }
                                                 }
                                             }
-                                            items(messages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
+                                            items(directMessages, key = { msg -> msg.id }, contentType = { msg -> msg.messageType }) { msg ->
                                                 MessageBubble(
                                                     message = msg,
                                                     myNickname = activeRoom?.myNickname ?: currentAccount.nickname,
@@ -1655,11 +1657,14 @@ fun MultiRoomMainScreen(
                                                     themePrefs = themePrefs
                                                 )
                                             }
+                                            item(key = "bottom_anchor_direct") {
+                                                Spacer(modifier = Modifier.height(1.dp))
+                                            }
                                         }
 
                                         ScrollNavigationButtons(
-                                            listState = listState,
-                                            totalMessagesCount = messages.size,
+                                            listState = directListState,
+                                            totalMessagesCount = directMessages.size,
                                             modifier = Modifier
                                                 .align(Alignment.BottomEnd)
                                                 .padding(end = 12.dp, bottom = 12.dp)
@@ -3270,13 +3275,9 @@ fun ChatInputBar(
                                     Switch(
                                         checked = translationPreferences.translateOutgoing,
                                         onCheckedChange = { isChecked: Boolean ->
-                                            val needScope = isChecked && !translationPreferences.translateRooms && !translationPreferences.translateContacts
                                             onUpdateTranslationPreferences?.invoke(
                                                 translationPreferences.copy(
-                                                    isAutoTranslateEnabled = if (isChecked) true else translationPreferences.isAutoTranslateEnabled,
-                                                    translateOutgoing = isChecked,
-                                                    translateRooms = if (needScope) true else translationPreferences.translateRooms,
-                                                    translateContacts = if (needScope) true else translationPreferences.translateContacts
+                                                    translateOutgoing = isChecked
                                                 )
                                             )
                                         },
@@ -3319,13 +3320,9 @@ fun ChatInputBar(
                                     }
                                 },
                                 onClick = {
-                                    val needScope = !translationPreferences.translateRooms && !translationPreferences.translateContacts
                                     onUpdateTranslationPreferences?.invoke(
                                         translationPreferences.copy(
-                                            isAutoTranslateEnabled = true,
                                             translateOutgoing = true,
-                                            translateRooms = if (needScope) true else translationPreferences.translateRooms,
-                                            translateContacts = if (needScope) true else translationPreferences.translateContacts,
                                             targetLanguageCode = lang.code
                                         )
                                     )
@@ -3599,6 +3596,103 @@ fun OccupantActionDialog(
 }
 
 @Composable
+private fun ChatAutoScrollEffect(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    conversationKey: String,
+    messages: List<XmppMessage>,
+    bottomAnchorIndex: Int
+) {
+    val density = LocalDensity.current
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    var hasPerformedInitialScroll by remember(conversationKey) { mutableStateOf(false) }
+    var previousLastMsgId by remember(conversationKey) { mutableStateOf<String?>(null) }
+    var wasPinnedToBottom by remember(conversationKey) { mutableStateOf(true) }
+
+    val isCurrentlyAtOrNearBottom by remember(listState) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val totalItems = layoutInfo.totalItemsCount
+            if (totalItems == 0) true
+            else if (!listState.canScrollForward) true
+            else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()
+                lastVisible != null && lastVisible.index >= (totalItems - 2)
+            }
+        }
+    }
+
+    // Track whether user stays pinned to the bottom only after scroll/drag gestures settle
+    LaunchedEffect(listState, conversationKey) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling && hasPerformedInitialScroll) {
+                    wasPinnedToBottom = isCurrentlyAtOrNearBottom
+                }
+            }
+    }
+
+    val lastMsg = messages.lastOrNull()
+    val lastMsgId = lastMsg?.id
+    val isLastMsgMine = lastMsg?.isMine == true
+
+    // Scroll on initial conversation load and on genuinely new tail messages
+    LaunchedEffect(conversationKey, lastMsgId, messages.size) {
+        if (messages.isEmpty()) return@LaunchedEffect
+
+        if (!hasPerformedInitialScroll) {
+            androidx.compose.runtime.withFrameNanos { }
+            try {
+                listState.scrollToItem(bottomAnchorIndex)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                val safeIdx = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0)
+                if (safeIdx > 0) listState.scrollToItem(safeIdx)
+            }
+            previousLastMsgId = lastMsgId
+            hasPerformedInitialScroll = true
+            wasPinnedToBottom = true
+            return@LaunchedEffect
+        }
+
+        val tailChanged = lastMsgId != null && lastMsgId != previousLastMsgId
+        if (tailChanged) {
+            val shouldAutoScroll = isLastMsgMine || wasPinnedToBottom || isCurrentlyAtOrNearBottom
+            previousLastMsgId = lastMsgId
+            if (shouldAutoScroll) {
+                androidx.compose.runtime.withFrameNanos { }
+                try {
+                    listState.animateScrollToItem(bottomAnchorIndex)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    listState.scrollToItem(bottomAnchorIndex)
+                }
+                wasPinnedToBottom = true
+            }
+        }
+    }
+
+    // Keep pinned to bottom when soft keyboard opens or bottom item height expands (e.g. image previews)
+    val lastVisibleItemSize by remember(listState) {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0
+        }
+    }
+    LaunchedEffect(imeBottomPx, lastVisibleItemSize) {
+        if (hasPerformedInitialScroll && messages.isNotEmpty() && wasPinnedToBottom && !listState.isScrollInProgress) {
+            if (listState.canScrollForward) {
+                try {
+                    listState.scrollToItem(bottomAnchorIndex)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
+            }
+        }
+    }
+}
+
+@Composable
 fun ScrollNavigationButtons(
     listState: androidx.compose.foundation.lazy.LazyListState,
     totalMessagesCount: Int,
@@ -3608,7 +3702,7 @@ fun ScrollNavigationButtons(
     val coroutineScope = rememberCoroutineScope()
     val showScrollToBottom by remember(listState, totalMessagesCount) {
         derivedStateOf {
-            totalMessagesCount > 0 && listState.firstVisibleItemIndex < (totalMessagesCount - 3).coerceAtLeast(0)
+            totalMessagesCount > 0 && listState.canScrollForward
         }
     }
     val showScrollToTop by remember(listState, totalMessagesCount) {
@@ -3653,7 +3747,7 @@ fun ScrollNavigationButtons(
                 FloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            val lastIndex = totalMessagesCount
+                            val lastIndex = (listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(totalMessagesCount)
                             listState.animateScrollToItem(lastIndex)
                         }
                     },

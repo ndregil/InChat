@@ -86,4 +86,25 @@ class XmppRepositoryStartupTest {
             caughtErrors.isEmpty()
         )
     }
+
+    @Test
+    fun `XEP-0092 software version omits Smack suffix when XmppConnectionManager initializes`() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        org.jivesoftware.smack.android.AndroidSmackInitializer.initialize(context)
+        com.ndregil.inchat.data.network.XmppConnectionManager()
+
+        val config = org.jivesoftware.smack.tcp.XMPPTCPConnectionConfiguration.builder()
+            .setXmppDomain("example.com")
+            .setUsernameAndPassword("alice", "pass")
+            .build()
+        val conn = org.jivesoftware.smack.tcp.XMPPTCPConnection(config)
+        val vm = org.jivesoftware.smackx.iqversion.VersionManager.getInstanceFor(conn)
+        vm.setVersion("InChat", BuildConfig.VERSION_NAME, "Android 15")
+
+        val ourVersionField = vm.javaClass.getDeclaredField("ourVersion").apply { isAccessible = true }
+        val ourVersion = ourVersionField.get(vm) as org.jivesoftware.smackx.iqversion.packet.Version
+        assertEquals("InChat", ourVersion.name)
+        assertEquals("1.1", ourVersion.version)
+        assertEquals("Android 15", ourVersion.os)
+    }
 }

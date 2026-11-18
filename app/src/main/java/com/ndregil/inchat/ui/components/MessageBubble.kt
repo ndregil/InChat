@@ -435,12 +435,32 @@ fun MessageBubble(
                     }
                 }
             } else {
-                // For own standard messages, show quick quote icon
+                // For own standard messages, show quick quote & translate icons
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.padding(bottom = 2.dp, end = 4.dp)
                 ) {
+                    if (message.body.isNotBlank() && message.messageType != MessageType.FILE && message.messageType != MessageType.VOICE) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .clickable { onTranslateClick?.invoke(message) }
+                                .testTag("btn_translate_msg_${message.id}")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Translate,
+                                    contentDescription = strings.translateMessageAction,
+                                    modifier = Modifier.size(11.dp),
+                                    tint = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+                    }
 
                     Surface(
                         shape = CircleShape,

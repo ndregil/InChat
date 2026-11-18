@@ -94,4 +94,13 @@ class XmppConnectionManagerTest {
         val extracted = urlRegex.find(errorText)?.value?.trim()?.trimEnd('.', ',', ';', ':', ')', ']', '>')
         org.junit.Assert.assertEquals("https://jabber.de/register", extracted)
     }
+
+    @Test
+    fun testAutoAppendSmackVersionIsDisabledOnInit() {
+        XmppConnectionManager()
+        val field = org.jivesoftware.smackx.iqversion.VersionManager::class.java
+            .getDeclaredField("autoAppendSmackVersion")
+            .apply { isAccessible = true }
+        assertFalse(field.getBoolean(null))
+    }
 }

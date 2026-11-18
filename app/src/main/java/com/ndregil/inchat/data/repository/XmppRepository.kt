@@ -60,9 +60,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 
 class XmppRepository(
     private val context: android.content.Context,
@@ -73,6 +76,9 @@ class XmppRepository(
     private val incomingMessageMutex = Mutex()
     private val autoJoinMutex = Mutex()
     private val listenerAttachLock = Any()
+    private val translationInFlight = ConcurrentHashMap.newKeySet<String>()
+    private val translationAttempted = ConcurrentHashMap<String, String>()
+    private val autoTranslateSemaphore = Semaphore(4)
 
     companion object {
         @Volatile
@@ -133,9 +139,14 @@ class XmppRepository(
     suspend fun translateMessage(messageId: String, targetLanguage: String = "id"): String? {
         val message = database.messageDao().getMessageByIdSync(messageId) ?: return null
         if (message.body.isBlank()) return null
-        val translated = translationService.translateText(message.body, targetLanguage)
+        val translated = translationService.translateText(
+            text = message.body,
+            targetLangCode = targetLanguage,
+            skipHeuristics = true
+        )
         if (!translated.isNullOrBlank()) {
             database.messageDao().updateMessageTranslation(messageId, translated, targetLanguage)
+            translationAttempted[messageId] = targetLanguage
         }
         return translated
     }
@@ -359,33 +370,53 @@ class XmppRepository(
             Log.e("XmppRepository", "Error accessing messageDao for $roomJid", e)
             flowOf(emptyList())
         }
-        return roomFlow.map { entities ->
+        return combine(
+            roomFlow,
+            translationPreferencesManager.translationPreferences.distinctUntilChanged()
+        ) { entities, prefs ->
             val list = entities ?: emptyList()
             if (list.isNotEmpty()) {
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val prefs = translationPreferencesManager.translationPreferences.first()
-                        val isGroup = isMucJid(roomJid)
-                        val shouldTranslate = prefs.isAutoTranslateEnabled &&
-                                if (isGroup) prefs.translateRooms else prefs.translateContacts
+                val isGroup = isMucJid(roomJid)
+                val shouldTranslate = prefs.isAutoTranslateEnabled &&
+                        if (isGroup) prefs.translateRooms else prefs.translateContacts
 
-                        if (shouldTranslate) {
-                            val untranslated = list.filter { entity ->
-                                val translateThis = if (entity.isMine) prefs.translateOutgoing else true
-                                translateThis && entity.translatedBody.isNullOrBlank() && entity.body.isNotBlank() &&
-                                        entity.messageType != MessageType.FILE && entity.messageType != MessageType.VOICE &&
-                                        entity.messageType != MessageType.SYSTEM_JOIN && entity.messageType != MessageType.SYSTEM_LEAVE
-                            }.take(10)
+                if (shouldTranslate) {
+                    val targetLang = prefs.targetLanguageCode
+                    val untranslated = list.filter { entity ->
+                        val translateThis = if (entity.isMine) prefs.translateOutgoing else true
+                        val needsTranslationForTarget = entity.translatedBody.isNullOrBlank() ||
+                            !entity.translationLanguage.equals(targetLang, ignoreCase = true)
+                        val alreadyAttemptedForTarget =
+                            translationAttempted[entity.id]?.equals(targetLang, ignoreCase = true) == true
+                        translateThis &&
+                            needsTranslationForTarget &&
+                            !alreadyAttemptedForTarget &&
+                            entity.body.isNotBlank() &&
+                            entity.messageType != MessageType.FILE &&
+                            entity.messageType != MessageType.VOICE &&
+                            entity.messageType != MessageType.CALL_SIGNALLING &&
+                            entity.messageType != MessageType.SYSTEM_JOIN &&
+                            entity.messageType != MessageType.SYSTEM_LEAVE
+                    }
 
-                            for (entity in untranslated) {
-                                val translated = translationService.translateText(entity.body, prefs.targetLanguageCode)
-                                if (!translated.isNullOrBlank()) {
-                                    database.messageDao().updateMessageTranslation(entity.id, translated, prefs.targetLanguageCode)
+                    for (entity in untranslated) {
+                        val flightKey = "${entity.id}:$targetLang"
+                        if (!translationInFlight.add(flightKey)) continue
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                autoTranslateSemaphore.withPermit {
+                                    val translated = translationService.translateText(entity.body, targetLang)
+                                    translationAttempted[entity.id] = targetLang
+                                    if (!translated.isNullOrBlank()) {
+                                        database.messageDao().updateMessageTranslation(entity.id, translated, targetLang)
+                                    }
                                 }
+                            } catch (e: Exception) {
+                                Log.w("XmppRepository", "Room auto-translate item error: ${e.message}")
+                            } finally {
+                                translationInFlight.remove(flightKey)
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.w("XmppRepository", "Room auto-translate error: ${e.message}")
                     }
                 }
             }
@@ -1154,9 +1185,13 @@ class XmppRepository(
             // 1. Efficient Insert
             database.messageDao().insertMessage(finalMsg.toEntity())
 
-            // Auto-translate incoming message if enabled
-            if (!finalMsg.isMine && !finalMsg.isHistory && finalMsg.body.isNotBlank() &&
-                finalMsg.messageType != MessageType.FILE && finalMsg.messageType != MessageType.VOICE
+            // Auto-translate incoming message if enabled (no history cap)
+            if (!finalMsg.isMine && finalMsg.body.isNotBlank() &&
+                finalMsg.messageType != MessageType.FILE &&
+                finalMsg.messageType != MessageType.VOICE &&
+                finalMsg.messageType != MessageType.CALL_SIGNALLING &&
+                finalMsg.messageType != MessageType.SYSTEM_JOIN &&
+                finalMsg.messageType != MessageType.SYSTEM_LEAVE
             ) {
                 scope.launch(Dispatchers.IO) {
                     try {
@@ -1166,9 +1201,20 @@ class XmppRepository(
                                 if (isGroup) prefs.translateRooms else prefs.translateContacts
 
                         if (shouldTranslate) {
-                            val translated = translationService.translateText(finalMsg.body, prefs.targetLanguageCode)
-                            if (!translated.isNullOrBlank()) {
-                                database.messageDao().updateMessageTranslation(finalMsg.id, translated, prefs.targetLanguageCode)
+                            val targetLang = prefs.targetLanguageCode
+                            val flightKey = "${finalMsg.id}:$targetLang"
+                            if (translationInFlight.add(flightKey)) {
+                                try {
+                                    autoTranslateSemaphore.withPermit {
+                                        val translated = translationService.translateText(finalMsg.body, targetLang)
+                                        translationAttempted[finalMsg.id] = targetLang
+                                        if (!translated.isNullOrBlank()) {
+                                            database.messageDao().updateMessageTranslation(finalMsg.id, translated, targetLang)
+                                        }
+                                    }
+                                } finally {
+                                    translationInFlight.remove(flightKey)
+                                }
                             }
                         }
                     } catch (e: Exception) {
@@ -2027,16 +2073,18 @@ class XmppRepository(
             }
         }
 
-        // 2. Check if outgoing auto-translate is enabled
+        // 2. Check if outgoing translation is enabled (works independently without incoming/scope limits)
         var textToSend = text
         var targetLangCode: String? = null
         try {
             val prefs = translationPreferencesManager.translationPreferences.first()
-            val shouldTranslateOutgoing = prefs.isAutoTranslateEnabled && prefs.translateOutgoing &&
-                    if (isGroup) prefs.translateRooms else prefs.translateContacts
-
-            if (!isStandaloneUrl && shouldTranslateOutgoing) {
-                val translated = translationService.translateText(text, prefs.targetLanguageCode)
+            if (!isStandaloneUrl && prefs.translateOutgoing) {
+                val translated = translationService.translateText(
+                    text = text,
+                    targetLangCode = prefs.targetLanguageCode,
+                    skipHeuristics = true
+                )
+                translationAttempted[stanzaId] = prefs.targetLanguageCode
                 if (!translated.isNullOrBlank()) {
                     textToSend = translated
                     targetLangCode = prefs.targetLanguageCode
@@ -2138,10 +2186,29 @@ class XmppRepository(
 
 
     suspend fun sendWhisper(roomJid: String, targetNickname: String, text: String, myNickname: String) {
+        var textToSend = text
+        var targetLangCode: String? = null
+        try {
+            val prefs = translationPreferencesManager.translationPreferences.first()
+            if (prefs.translateOutgoing && !com.ndregil.inchat.data.network.TranslationService.isStandaloneNonTranslatableLink(text)) {
+                val translated = translationService.translateText(
+                    text = text,
+                    targetLangCode = prefs.targetLanguageCode,
+                    skipHeuristics = true
+                )
+                if (!translated.isNullOrBlank()) {
+                    textToSend = translated
+                    targetLangCode = prefs.targetLanguageCode
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Failed to translate outgoing whisper: ${e.message}")
+        }
+
         // If Smack MUC is connected and room joined, send whisper via Smack
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {
             try {
-                smackMucManager.sendWhisper(roomJid, targetNickname, text)
+                smackMucManager.sendWhisper(roomJid, targetNickname, textToSend)
             } catch (e: Exception) {
                 // Handled gracefully
             }
@@ -2149,7 +2216,10 @@ class XmppRepository(
 
         val myJid = currentAccount.value.jid
 
-        val msg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(avatarKey = myJid)
+        val baseMsg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(avatarKey = myJid)
+        val msg = if (textToSend != text && targetLangCode != null) {
+            baseMsg.copy(translatedBody = textToSend, translationLanguage = targetLangCode)
+        } else baseMsg
         database.messageDao().insertMessage(msg.toEntity())
 
         try {
@@ -2157,7 +2227,7 @@ class XmppRepository(
             if (existing != null) {
                 database.roomDao().updateLastMessage(
                     roomJid,
-                    "[Bisikan ke @$targetNickname] $text",
+                    "[Bisikan ke @$targetNickname] $textToSend",
                     msg.timestamp,
                     0
                 )
@@ -2169,7 +2239,7 @@ class XmppRepository(
                     myNickname = myNickname,
                     occupantCount = 1,
                     unreadCount = 0,
-                    lastMessageText = "[Bisikan ke @$targetNickname] $text",
+                    lastMessageText = "[Bisikan ke @$targetNickname] $textToSend",
                     lastMessageTime = msg.timestamp,
                     isJoined = true,
                     isBookmarked = true,

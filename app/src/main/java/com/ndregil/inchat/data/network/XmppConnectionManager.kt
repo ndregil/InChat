@@ -142,6 +142,7 @@ class XmppConnectionManager(
                 org.jivesoftware.smackx.disco.packet.DiscoverInfo.Identity("client", "InChat", "phone")
             )
             org.jivesoftware.smackx.caps.EntityCapsManager.setDefaultEntityNode("http://ndregil.inchat")
+            VersionManager.setAutoAppendSmackVersion(false)
         } catch (e: Exception) {
             Log.w(TAG, "Failed setting Smack default identity/caps node: ${e.message}")
         }
@@ -344,6 +345,7 @@ class XmppConnectionManager(
             }
 
             try {
+                VersionManager.setAutoAppendSmackVersion(false)
                 val versionManager = VersionManager.getInstanceFor(connection)
                 versionManager.setVersion("InChat", com.ndregil.inchat.BuildConfig.VERSION_NAME, "Android ${Build.VERSION.RELEASE}")
             } catch (e: Exception) {

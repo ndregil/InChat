@@ -2385,7 +2385,16 @@ fun TranslationSubSettings(
                         Switch(
                             checked = translationPreferences.isAutoTranslateEnabled,
                             onCheckedChange = { enabled ->
-                                onUpdateTranslationPreferences(translationPreferences.copy(isAutoTranslateEnabled = enabled))
+                                val needIncomingScope = enabled &&
+                                    !translationPreferences.translateRooms &&
+                                    !translationPreferences.translateContacts
+                                onUpdateTranslationPreferences(
+                                    translationPreferences.copy(
+                                        isAutoTranslateEnabled = enabled,
+                                        translateRooms = if (needIncomingScope) true else translationPreferences.translateRooms,
+                                        translateContacts = if (needIncomingScope) true else translationPreferences.translateContacts
+                                    )
+                                )
                             },
                             modifier = Modifier.testTag("switch_auto_translate")
                         )
@@ -2506,36 +2515,97 @@ fun TranslationSubSettings(
     }
 
     if (showLanguagePicker) {
+        var langQuery by remember { mutableStateOf("") }
+        val filteredLangs = remember(langQuery, supportedLangs) {
+            val q = langQuery.trim()
+            if (q.isEmpty()) supportedLangs
+            else supportedLangs.filter {
+                it.displayName.contains(q, ignoreCase = true) ||
+                    it.nativeName.contains(q, ignoreCase = true) ||
+                    it.code.contains(q, ignoreCase = true)
+            }
+        }
+        val customCodeCandidate = remember(langQuery) {
+            val trimmed = langQuery.trim().lowercase()
+            if (trimmed.matches(Regex("^[a-z]{2,5}(-[a-z]{2,4})?$")) &&
+                supportedLangs.none { it.code.equals(trimmed, ignoreCase = true) }
+            ) trimmed else null
+        }
+
         AlertDialog(
             onDismissRequest = { showLanguagePicker = false },
             title = { Text(strings.pickTargetLanguageTitle, fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(supportedLangs.size) { idx ->
-                        val lang = supportedLangs[idx]
-                        val isSelected = lang.code.equals(translationPreferences.targetLanguageCode, ignoreCase = true)
-                        Surface(
-                            onClick = {
-                                onUpdateTranslationPreferences(translationPreferences.copy(targetLanguageCode = lang.code))
-                                showLanguagePicker = false
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                    OutlinedTextField(
+                        value = langQuery,
+                        onValueChange = { langQuery = it },
+                        singleLine = true,
+                        placeholder = { Text("${strings.searchAction} (id, en, ar, ja...)", fontSize = 13.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .testTag("translation_lang_search_input")
+                    )
+
+                    LazyColumn(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(filteredLangs.size) { idx ->
+                            val lang = filteredLangs[idx]
+                            val isSelected = lang.code.equals(translationPreferences.targetLanguageCode, ignoreCase = true)
+                            Surface(
+                                onClick = {
+                                    onUpdateTranslationPreferences(translationPreferences.copy(targetLanguageCode = lang.code))
+                                    showLanguagePicker = false
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column {
-                                    Text(lang.displayName, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
-                                    Text(lang.nativeName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(lang.displayName, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, fontSize = 14.sp)
+                                        Text("${lang.nativeName} (${lang.code})", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    }
                                 }
-                                if (isSelected) {
-                                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        if (customCodeCandidate != null) {
+                            item {
+                                Surface(
+                                    onClick = {
+                                        onUpdateTranslationPreferences(translationPreferences.copy(targetLanguageCode = customCodeCandidate))
+                                        showLanguagePicker = false
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "ISO: ${customCodeCandidate.uppercase()}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                    }
                                 }
                             }
                         }
