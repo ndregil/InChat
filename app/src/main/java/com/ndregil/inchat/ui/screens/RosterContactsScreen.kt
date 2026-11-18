@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
@@ -123,6 +124,7 @@ fun RosterContactsScreen(
     onStartDirectChat: ((jid: String, name: String) -> Unit)? = null,
     onRoomClick: ((String) -> Unit)? = null,
     themePrefs: ThemePreferences = ThemePreferences(),
+    onOpenDrawer: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -195,6 +197,19 @@ fun RosterContactsScreen(
         topBar = {
             Column {
                 TopAppBar(
+                    navigationIcon = {
+                        if (onOpenDrawer != null) {
+                            IconButton(
+                                onClick = onOpenDrawer,
+                                modifier = Modifier.testTag("btn_open_drawer_roster")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = strings.menuDesc
+                                )
+                            }
+                        }
+                    },
                     title = {
                         if (isSearchVisible && selectedSubTab == 1) {
                             OutlinedTextField(

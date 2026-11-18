@@ -23,10 +23,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -128,6 +135,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -139,8 +147,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
@@ -150,6 +160,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -398,92 +409,226 @@ fun MultiRoomMainScreen(
     val isLoadingAffiliations by viewModel.isLoadingAffiliations.collectAsStateWithLifecycle()
     val roomConfigs by viewModel.roomConfigs.collectAsStateWithLifecycle()
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding(),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp,
-                shadowElevation = 4.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val roomUnread = groupRoomsList.sumOf { it.unreadCount }
-                    val directUnread = viewModel.directChats.collectAsStateWithLifecycle().value.sumOf { it.unreadCount }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val directChatsList by viewModel.directChats.collectAsStateWithLifecycle()
+    val roomUnread = remember(groupRoomsList) { groupRoomsList.sumOf { it.unreadCount } }
+    val directUnread = remember(directChatsList) { directChatsList.sumOf { it.unreadCount } }
+    val isRoomChatActive = activeNavIndex == 0 && roomPagerState.currentPage > 0
+    val isDirectChatActive = activeNavIndex == 1 && isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
+    val drawerGesturesEnabled = drawerState.isOpen || (!isRoomChatActive && !isDirectChatActive)
 
-                    CompactNavItem(
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = drawerGesturesEnabled,
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(280.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                    ) {
+                        Text(
+                            text = strings.appName,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (currentAccount.username.isNotBlank() && currentAccount.domain.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${currentAccount.username}@${currentAccount.domain}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
+
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Forum,
+                                contentDescription = strings.tabRooms
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = strings.tabRooms,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = activeNavIndex == 0,
                         onClick = {
                             activeNavIndex = 0
+                            coroutineScope.launch { drawerState.close() }
                         },
-                        icon = Icons.Default.Forum,
-                        label = strings.tabRooms,
-                        badgeCount = roomUnread,
-                        testTag = "nav_tab_rooms"
+                        badge = if (roomUnread > 0) {
+                            {
+                                M3Badge(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ) {
+                                    Text(
+                                        text = if (roomUnread > 99) "99+" else "$roomUnread",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        } else null,
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("nav_tab_rooms")
                     )
 
-                    CompactNavItem(
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = strings.tabChat
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = strings.tabChat,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = activeNavIndex == 1,
                         onClick = {
                             activeNavIndex = 1
                             if (activeRoom?.isGroupChat == true) {
                                 isDirectConversationOpen = false
                             }
+                            coroutineScope.launch { drawerState.close() }
                         },
-                        icon = Icons.Default.Person,
-                        label = strings.tabChat,
-                        badgeCount = directUnread,
-                        testTag = "nav_tab_direct"
+                        badge = if (directUnread > 0) {
+                            {
+                                M3Badge(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ) {
+                                    Text(
+                                        text = if (directUnread > 99) "99+" else "$directUnread",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        } else null,
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("nav_tab_direct")
                     )
 
-                    CompactNavItem(
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Contacts,
+                                contentDescription = strings.tabContacts
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = strings.tabContacts,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = activeNavIndex == 2,
                         onClick = {
                             activeNavIndex = 2
                             viewModel.refreshRoster()
+                            coroutineScope.launch { drawerState.close() }
                         },
-                        icon = Icons.Default.Contacts,
-                        label = strings.tabContacts,
-                        testTag = "nav_tab_roster"
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("nav_tab_roster")
                     )
 
-                    CompactNavItem(
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Explore,
+                                contentDescription = strings.tabDiscover
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = strings.tabDiscover,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = activeNavIndex == 3,
                         onClick = {
                             activeNavIndex = 3
                             viewModel.loadDirectory()
+                            coroutineScope.launch { drawerState.close() }
                         },
-                        icon = Icons.Default.Explore,
-                        label = strings.tabDiscover,
-                        testTag = "nav_tab_discover"
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("nav_tab_discover")
                     )
 
-                    CompactNavItem(
+                    NavigationDrawerItem(
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = strings.tabSettings
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = strings.tabSettings,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
                         selected = activeNavIndex == 4,
                         onClick = {
                             activeNavIndex = 4
                             showAccountSettingsDirectly = false
+                            coroutineScope.launch { drawerState.close() }
                         },
-                        icon = Icons.Default.Settings,
-                        label = strings.tabSettings,
-                        testTag = "nav_tab_settings"
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("nav_tab_settings")
                     )
                 }
             }
-        },
+        }
+    ) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (activeNavIndex == 0) {
                 TopAppBar(
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { coroutineScope.launch { drawerState.open() } },
+                            modifier = Modifier.testTag("btn_open_drawer")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = strings.menuDesc
+                            )
+                        }
+                    },
                     title = {
                         if (isSearchExpanded) {
                             OutlinedTextField(
@@ -723,18 +868,15 @@ fun MultiRoomMainScreen(
             }
         }
     ) { paddingValues ->
-        val isImeOpen = WindowInsets.ime.asPaddingValues().calculateBottomPadding() > 0.dp
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
                     start = paddingValues.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
                     end = paddingValues.calculateEndPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                    top = if (activeNavIndex == 0) paddingValues.calculateTopPadding() else 0.dp,
-                    bottom = if (isImeOpen) 0.dp else paddingValues.calculateBottomPadding()
+                    top = if (activeNavIndex == 0) paddingValues.calculateTopPadding() else 0.dp
                 )
-                .imePadding()
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom).union(WindowInsets.ime))
         ) {
             when (activeNavIndex) {
                 0 -> {
@@ -1185,18 +1327,35 @@ fun MultiRoomMainScreen(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Column {
-                                                Text(
-                                                    text = strings.directChatTitle,
-                                                    style = MaterialTheme.typography.titleLarge,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                                Text(
-                                                    text = strings.directChatSubtitle,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                IconButton(
+                                                    onClick = { coroutineScope.launch { drawerState.open() } },
+                                                    modifier = Modifier
+                                                        .size(48.dp)
+                                                        .testTag("btn_open_drawer_direct")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Menu,
+                                                        contentDescription = strings.menuDesc
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Column {
+                                                    Text(
+                                                        text = strings.directChatTitle,
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    Text(
+                                                        text = strings.directChatSubtitle,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
 
                                             // Button to Start New Chat from Roster
@@ -1724,7 +1883,8 @@ fun MultiRoomMainScreen(
                             viewModel.selectRoom(jid)
                             activeNavIndex = 0
                         },
-                        themePrefs = themePrefs
+                        themePrefs = themePrefs,
+                        onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
                     )
                 }
 
@@ -1792,7 +1952,8 @@ fun MultiRoomMainScreen(
                             activeNavIndex = if (isMucJid(discRoom.jid)) 0 else 1
                         },
                         avatarRevision = viewModel.avatarRevision.collectAsStateWithLifecycle().value,
-                        getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) }
+                        getRoomAvatar = { jid -> viewModel.getRoomAvatar(jid) },
+                        onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
                     )
                 }
 
@@ -1872,7 +2033,8 @@ fun MultiRoomMainScreen(
                             onToggleAutoCheckUpdates = { viewModel.setAutoCheckUpdates(it) },
                             onOpenUpdateDialog = { viewModel.openUpdateDialogFromNotification() },
                             buildUnknownAppsSettingsIntent = { viewModel.buildUnknownAppsSettingsIntent() },
-                            onUnknownAppsSettingsReturned = { viewModel.onUnknownAppsSettingsReturned() }
+                            onUnknownAppsSettingsReturned = { viewModel.onUnknownAppsSettingsReturned() },
+                            onOpenDrawer = { coroutineScope.launch { drawerState.open() } }
                         )
                     } else {
                         Column(modifier = Modifier.fillMaxSize()) {
@@ -1947,6 +2109,13 @@ fun MultiRoomMainScreen(
                 }
             }
         }
+    }
+
+    BackHandler(enabled = drawerState.isOpen) {
+        coroutineScope.launch {
+            drawerState.close()
+        }
+    }
     }
 
     // Modal Bottom Sheets & Dialogs
@@ -2794,71 +2963,6 @@ fun MultiRoomTabHeader(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun CompactNavItem(
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    badgeCount: Int = 0,
-    testTag: String
-) {
-    val activeColor = MaterialTheme.colorScheme.primary
-    val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
-    val color = if (selected) activeColor else inactiveColor
-
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 2.dp)
-            .testTag(testTag),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        if (badgeCount > 0) {
-            BadgedBox(
-                badge = {
-                    M3Badge(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    ) {
-                        Text(
-                            text = if (badgeCount > 99) "99+" else "$badgeCount",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = color,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-        } else {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color,
-                modifier = Modifier.size(19.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = label,
-            fontSize = 9.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = color,
-            maxLines = 1
-        )
     }
 }
 

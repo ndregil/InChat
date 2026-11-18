@@ -160,6 +160,7 @@ fun SettingsScreen(
     onOpenUpdateDialog: () -> Unit = {},
     buildUnknownAppsSettingsIntent: () -> Intent = { Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES) },
     onUnknownAppsSettingsReturned: () -> Unit = {},
+    onOpenDrawer: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedCategory by remember { mutableStateOf<SubSettingCategory?>(null) }
@@ -186,6 +187,7 @@ fun SettingsScreen(
                 onSwitchToAccountTab = onSwitchToAccountTab,
                 onSignOut = onSignOut,
                 onExitApp = onExitApp,
+                onOpenDrawer = onOpenDrawer,
                 modifier = modifier
             )
         } else {
@@ -234,6 +236,7 @@ fun MainSubSettingsMenu(
     onSwitchToAccountTab: () -> Unit,
     onSignOut: () -> Unit = {},
     onExitApp: () -> Unit = {},
+    onOpenDrawer: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -259,10 +262,24 @@ fun MainSubSettingsMenu(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(34.dp)
-                        .padding(horizontal = 8.dp),
+                        .heightIn(min = if (onOpenDrawer != null) 48.dp else 34.dp)
+                        .padding(horizontal = if (onOpenDrawer != null) 4.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (onOpenDrawer != null) {
+                        IconButton(
+                            onClick = onOpenDrawer,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("btn_open_drawer_settings")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = strings.menuDesc
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
                     Text(
                         text = strings.settingsTitle,
                         style = MaterialTheme.typography.titleMedium,

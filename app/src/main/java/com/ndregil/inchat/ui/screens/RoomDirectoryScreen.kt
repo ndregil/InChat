@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -106,7 +107,8 @@ fun RoomDirectoryScreen(
     onDiscoServer: (String, String?) -> Unit = { _, _ -> },
     onJoinDiscoveredRoom: ((com.ndregil.inchat.data.model.DiscoveredRoom) -> Unit)? = null,
     avatarRevision: Int = 0,
-    getRoomAvatar: ((String) -> ByteArray?)? = null
+    getRoomAvatar: ((String) -> ByteArray?)? = null,
+    onOpenDrawer: (() -> Unit)? = null
 ) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var searchQuery by remember { mutableStateOf("") }
@@ -286,6 +288,19 @@ fun RoomDirectoryScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    if (onOpenDrawer != null) {
+                        IconButton(
+                            onClick = onOpenDrawer,
+                            modifier = Modifier.testTag("btn_open_drawer_directory")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = strings.menuDesc
+                            )
+                        }
+                    }
+                },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
