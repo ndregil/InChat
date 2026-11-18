@@ -132,6 +132,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -265,6 +271,9 @@ fun MultiRoomMainScreen(
     var showTopicDetailDialog by remember { mutableStateOf(false) }
     var editTopicText by remember(activeRoom?.topic) { mutableStateOf(activeRoom?.topic ?: "") }
     var isWhisperBubbleExpanded by remember { mutableStateOf(false) }
+    var showOmemoSecurityDialog by remember { mutableStateOf(false) }
+    var omemoSecurityTargetJid by remember { mutableStateOf<String?>(null) }
+    val omemoEnabledJids by viewModel.omemoEnabledJids.collectAsStateWithLifecycle()
 
     val groupRoomsList by viewModel.groupRooms.collectAsStateWithLifecycle()
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
@@ -734,6 +743,26 @@ fun MultiRoomMainScreen(
                                 )
                             }
 
+                            // Quick OMEMO Lock Toggle
+                            val currentRoomJid = activeRoom?.jid ?: ""
+                            val isRoomOmemo = if (currentRoomJid.isNotBlank()) omemoEnabledJids.contains(currentRoomJid.lowercase()) else false
+                            IconButton(
+                                onClick = {
+                                    omemoSecurityTargetJid = currentRoomJid
+                                    showOmemoSecurityDialog = true
+                                },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .testTag("btn_quick_omemo_lock")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Enkripsi OMEMO (XEP-0384)",
+                                    tint = if (isRoomOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
                             // More options
                             Box {
                                 IconButton(
@@ -747,6 +776,21 @@ fun MultiRoomMainScreen(
                                     expanded = showRoomMenu,
                                     onDismissRequest = { showRoomMenu = false }
                                 ) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (isRoomOmemo) "Enkripsi OMEMO: Aktif" else "Enkripsi OMEMO: Nonaktif") },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = null,
+                                                tint = if (isRoomOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            )
+                                        },
+                                        onClick = {
+                                            showRoomMenu = false
+                                            omemoSecurityTargetJid = currentRoomJid
+                                            showOmemoSecurityDialog = true
+                                        }
+                                    )
                                     DropdownMenuItem(
                                         text = { Text(strings.viewTopicRoomInfoMenu) },
                                         leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -1251,7 +1295,18 @@ fun MultiRoomMainScreen(
                                             onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) },
                                             translationPreferences = translationPrefs,
                                             onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
-                                            isUploadingFile = isUploadingFile
+                                            isUploadingFile = isUploadingFile,
+                                            isOmemoEnabled = if (activeRoom != null) omemoEnabledJids.contains(activeRoom!!.jid.lowercase()) else false,
+                                            onToggleOmemo = {
+                                                activeRoom?.let { room ->
+                                                    val on = omemoEnabledJids.contains(room.jid.lowercase())
+                                                    viewModel.setOmemoEnabledFor(room.jid, !on)
+                                                }
+                                            },
+                                            onOpenOmemoDetails = {
+                                                omemoSecurityTargetJid = activeRoom?.jid
+                                                showOmemoSecurityDialog = true
+                                            }
                                         )
                                     }
                                 }
@@ -1648,6 +1703,23 @@ fun MultiRoomMainScreen(
                                             )
                                         }
 
+                                        val directTargetJid = activeRoom?.jid ?: ""
+                                        val isDirectOmemo = if (directTargetJid.isNotBlank()) omemoEnabledJids.contains(directTargetJid.lowercase()) else false
+                                        IconButton(
+                                            onClick = {
+                                                omemoSecurityTargetJid = directTargetJid
+                                                showOmemoSecurityDialog = true
+                                            },
+                                            modifier = Modifier.size(36.dp).testTag("btn_direct_omemo_lock")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Lock,
+                                                contentDescription = "Enkripsi OMEMO (XEP-0384)",
+                                                tint = if (isDirectOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
                                         Box {
                                             IconButton(
                                                 onClick = { showDirectMenu = true },
@@ -1660,6 +1732,21 @@ fun MultiRoomMainScreen(
                                                 expanded = showDirectMenu,
                                                 onDismissRequest = { showDirectMenu = false }
                                             ) {
+                                                DropdownMenuItem(
+                                                    text = { Text(if (isDirectOmemo) "Enkripsi OMEMO: Aktif" else "Enkripsi OMEMO: Nonaktif") },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Lock,
+                                                            contentDescription = null,
+                                                            tint = if (isDirectOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        showDirectMenu = false
+                                                        omemoSecurityTargetJid = directTargetJid
+                                                        showOmemoSecurityDialog = true
+                                                    }
+                                                )
                                                 val isCurrentBookmarked = activeRoom?.isBookmarked == true
                                                 DropdownMenuItem(
                                                     text = { Text(if (isCurrentBookmarked) strings.removeFromFavorites else strings.addToFavoritesMenu) },
@@ -1861,7 +1948,18 @@ fun MultiRoomMainScreen(
                                     },
                                     translationPreferences = translationPrefs,
                                     onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
-                                    isUploadingFile = isUploadingFile
+                                    isUploadingFile = isUploadingFile,
+                                    isOmemoEnabled = if (activeRoom != null) omemoEnabledJids.contains(activeRoom!!.jid.lowercase()) else false,
+                                    onToggleOmemo = {
+                                        activeRoom?.let { room ->
+                                            val on = omemoEnabledJids.contains(room.jid.lowercase())
+                                            viewModel.setOmemoEnabledFor(room.jid, !on)
+                                        }
+                                    },
+                                    onOpenOmemoDetails = {
+                                        omemoSecurityTargetJid = activeRoom?.jid
+                                        showOmemoSecurityDialog = true
+                                    }
                                 )
                             }
                         }
@@ -2636,7 +2734,296 @@ fun MultiRoomMainScreen(
         )
     }
 
+    if (showOmemoSecurityDialog) {
+        val targetJid = omemoSecurityTargetJid ?: activeRoom?.jid ?: ""
+        val roomMatch = allRooms.find { it.jid.equals(targetJid, ignoreCase = true) }
+        val targetName = roomMatch?.name ?: targetJid.substringBefore("@")
+        val isGroup = roomMatch?.isGroupChat ?: isMucJid(targetJid)
+        val isEnabled = if (targetJid.isNotBlank()) omemoEnabledJids.contains(targetJid.lowercase()) else false
+        val autoTrust by viewModel.autoTrustOmemo.collectAsStateWithLifecycle()
+
+        OmemoSecurityDialog(
+            targetJid = targetJid,
+            targetName = targetName,
+            isGroupChat = isGroup,
+            isOmemoEnabled = isEnabled,
+            onToggleOmemo = { enabled ->
+                if (targetJid.isNotBlank()) {
+                    viewModel.setOmemoEnabledFor(targetJid, enabled)
+                }
+            },
+            ownDeviceId = viewModel.getOwnOmemoDeviceId(),
+            ownFingerprint = viewModel.getOwnOmemoFingerprint(),
+            autoTrust = autoTrust,
+            onToggleAutoTrust = { viewModel.setAutoTrustOmemo(it) },
+            onGetFingerprints = { jid -> viewModel.getActiveFingerprints(jid) },
+            onDismiss = { showOmemoSecurityDialog = false }
+        )
+    }
+
     PanggilanOverlay(viewModel = viewModel)
+}
+
+@Composable
+fun OmemoSecurityDialog(
+    targetJid: String,
+    targetName: String,
+    isGroupChat: Boolean,
+    isOmemoEnabled: Boolean,
+    onToggleOmemo: (Boolean) -> Unit,
+    ownDeviceId: Int?,
+    ownFingerprint: String?,
+    autoTrust: Boolean,
+    onToggleAutoTrust: (Boolean) -> Unit,
+    onGetFingerprints: suspend (String) -> Map<org.jivesoftware.smackx.omemo.internal.OmemoDevice, String>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var deviceFingerprints by remember { mutableStateOf<Map<org.jivesoftware.smackx.omemo.internal.OmemoDevice, String>?>(null) }
+    var isLoadingDevices by remember { mutableStateOf(false) }
+
+    LaunchedEffect(targetJid) {
+        if (targetJid.isNotBlank()) {
+            isLoadingDevices = true
+            try {
+                deviceFingerprints = onGetFingerprints(targetJid)
+            } catch (_: Exception) {
+                deviceFingerprints = emptyMap()
+            } finally {
+                isLoadingDevices = false
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = if (isOmemoEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "Enkripsi OMEMO (XEP-0384)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isGroupChat) "Ruangan: $targetName" else "Kontak: $targetName",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Switch Status Card
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isOmemoEnabled) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (isOmemoEnabled) "🔒 Enkripsi OMEMO Aktif" else "🔓 Enkripsi OMEMO Nonaktif",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isOmemoEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (isOmemoEnabled) "Pesan yang Anda kirim dan terima di percakapan ini dilindungi enkripsi kunci ujung-ke-ujung (E2EE)."
+                                else "Pesan dikirim sebagai teks biasa standar XMPP tanpa proteksi OMEMO.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = isOmemoEnabled,
+                            onCheckedChange = { onToggleOmemo(it) }
+                        )
+                    }
+                }
+
+                // Own Identity Card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Sidik Jari Perangkat Anda",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Device ID: ${ownDeviceId ?: "Aktif & Siap"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val ownFpText = ownFingerprint?.chunked(8)?.joinToString(" ") ?: "Sidik jari terpasang di sesi aktif"
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = ownFpText,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontSize = 11.sp
+                                ),
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                        if (!ownFingerprint.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("OMEMO Fingerprint", ownFingerprint)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, "Sidik jari OMEMO disalin.", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Salin Sidik Jari Anda", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Contact/Room Devices Card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Perangkat Lawan Bicara (XEP-0384)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (isLoadingDevices) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Memeriksa daftar kunci dari server...", style = MaterialTheme.typography.bodySmall)
+                            }
+                        } else {
+                            val devices = deviceFingerprints ?: emptyMap()
+                            if (devices.isEmpty()) {
+                                Text(
+                                    text = "Belum ada kunci perangkat lain terdaftar di server untuk JID ini. Kunci akan otomatis disinkronkan saat lawan bicara online.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    devices.forEach { (device, fp) ->
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Text(
+                                                    text = "Device ID: ${device.deviceId}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                                Text(
+                                                    text = fp.chunked(8).joinToString(" "),
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                                        fontSize = 10.sp
+                                                    ),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // OpenPGP & Info Card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Kompatibilitas OMEMO & OpenPGP", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Aplikasi ini memprioritaskan protokol modern OMEMO (Signal Double Ratchet) yang kompatibel dengan Conversations, Dino, dan Gajim. Pesan OpenPGP (XEP-0027/XEP-0373) juga otomatis dideteksi saat diterima.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Auto-trust (BTBV) Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Percayai Perangkat Otomatis (BTBV)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Blind Trust Before Verification: percaya otomatis tanpa menolak pesan.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = autoTrust, onCheckedChange = onToggleAutoTrust)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text(com.ndregil.inchat.ui.i18n.LocalAppStrings.current.close)
+            }
+        }
+    )
 }
 
 @Composable
@@ -2981,7 +3368,10 @@ fun ChatInputBar(
     onSendVoice: ((java.io.File, Int) -> Unit)? = null,
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
     onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null,
-    isUploadingFile: Boolean = false
+    isUploadingFile: Boolean = false,
+    isOmemoEnabled: Boolean = false,
+    onToggleOmemo: (() -> Unit)? = null,
+    onOpenOmemoDetails: (() -> Unit)? = null
 ) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showEmojiKeyboard by remember { mutableStateOf(false) }
@@ -3247,6 +3637,62 @@ fun ChatInputBar(
                 }
             }
 
+            // OMEMO Encryption Active Badge Bar
+            AnimatedVisibility(visible = isOmemoEnabled) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Surface(
+                        onClick = { onOpenOmemoDetails?.invoke() },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Enkripsi OMEMO (E2EE) Aktif",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = { onToggleOmemo?.invoke() },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.disableLabel,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
             // Main Input Row or Recording Active Row
             if (isRecording) {
                 VoiceRecordingActiveBar(
@@ -3367,6 +3813,21 @@ fun ChatInputBar(
                                         tint = if (translationPreferences.translateOutgoing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(19.dp)
                                     )
+                                }
+
+                                // Tombol Enkripsi OMEMO
+                                if (onToggleOmemo != null) {
+                                    IconButton(
+                                        onClick = { onToggleOmemo() },
+                                        modifier = Modifier.size(32.dp).testTag("btn_omemo_input")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Lock,
+                                            contentDescription = "Enkripsi OMEMO (XEP-0384)",
+                                            tint = if (isOmemoEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
                                 }
 
                                 // Lampiran (selalu tersedia baik input kosong maupun sudah terisi)

@@ -84,6 +84,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
     FONT("Pengaturan Font", "Ukuran font pesan, aplikasi & kontak", Icons.Default.TextFields),
     CONNECTION("Pengaturan Koneksi", "Server host, port, TLS, status koneksi & protokol XEP", Icons.Default.Router),
     NOTIFICATION("Pengaturan Notifikasi", "Push notification, stabilitas background & anti-kill", Icons.Default.Notifications),
+    SECURITY("Enkripsi & Keamanan (OMEMO)", "Enkripsi OMEMO (XEP-0384), sidik jari kunci, verifikasi perangkat & OpenPGP", Icons.Default.Lock),
     UPDATE("Pengaturan Pembaruan", "Periksa pembaruan APK, cek harian & izin instalasi", Icons.Default.SystemUpdate),
     MISC("Pengaturan Lainnya", "Konfigurasi tingkat lanjut, stanza stream debug", Icons.Default.Build),
     ABOUT("Tentang Aplikasi", "Informasi versi, lisensi & pengembang", Icons.Default.Info);
@@ -99,6 +100,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
             FONT -> s.settingsFontTitle
             CONNECTION -> s.settingsConnectionTitle
             NOTIFICATION -> s.settingsNotificationTitle
+            SECURITY -> "Enkripsi & Keamanan (OMEMO)"
             UPDATE -> s.settingsUpdateTitle
             MISC -> s.settingsMiscTitle
             ABOUT -> s.settingsAboutTitle
@@ -116,6 +118,7 @@ enum class SubSettingCategory(val title: String, val subtitle: String, val icon:
             FONT -> s.settingsFontSubtitle
             CONNECTION -> s.settingsConnectionSubtitle
             NOTIFICATION -> s.settingsNotificationSubtitle
+            SECURITY -> "Enkripsi OMEMO (XEP-0384), sidik jari perangkat, verifikasi & OpenPGP"
             UPDATE -> s.settingsUpdateSubtitle
             MISC -> s.settingsMiscSubtitle
             ABOUT -> s.settingsAboutSubtitle
@@ -695,6 +698,7 @@ fun SubSettingDetailScreen(
                     onDisconnect = onDisconnect
                 )
                 SubSettingCategory.NOTIFICATION -> NotificationSubSettings()
+                SubSettingCategory.SECURITY -> SecurityEncryptionSubSettings()
                 SubSettingCategory.UPDATE -> UpdateSubSettings(
                     updateUiState = updateUiState,
                     onCheckForUpdates = onCheckForUpdates,
@@ -708,6 +712,192 @@ fun SubSettingDetailScreen(
                     updateUiState = updateUiState,
                     onCheckForUpdates = onCheckForUpdates
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun SecurityEncryptionSubSettings(
+    viewModel: com.ndregil.inchat.ui.XmppViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+) {
+    val context = LocalContext.current
+    val autoTrust by viewModel.autoTrustOmemo.collectAsStateWithLifecycle()
+    val ownFingerprint = remember { viewModel.getOwnOmemoFingerprint() }
+    val ownDeviceId = remember { viewModel.getOwnOmemoDeviceId() }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = "Enkripsi End-to-End OMEMO",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "XEP-0384: Protokol enkripsi mutakhir berbasis Signal Double Ratchet untuk obrolan 1-on-1 dan grup (MUC).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Identitas Perangkat & Sidik Jari Anda",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "ID Perangkat (Device ID): ${ownDeviceId ?: "Aktif & Siap"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Sidik Jari Kunci (Fingerprint):",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val fpText = ownFingerprint?.chunked(8)?.joinToString(" ") ?: "Sidik jari terpasang di sesi aktif"
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = fpText,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            ),
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                    if (!ownFingerprint.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                val clip = android.content.ClipData.newPlainText("OMEMO Fingerprint", ownFingerprint)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Sidik jari OMEMO disalin ke papan klip.", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Salin Sidik Jari Kunci")
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Otomatis Percayai Perangkat Baru (BTBV)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Blind Trust Before Verification: Secara otomatis mempercayai kunci perangkat baru dari lawan bicara agar tidak terputus saat berkirim pesan.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = autoTrust,
+                        onCheckedChange = { viewModel.setAutoTrustOmemo(it) }
+                    )
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Kompatibilitas OMEMO & OpenPGP",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "• OMEMO (XEP-0384): Menggunakan algoritma Signal Protocol dengan Perfect Forward Secrecy (PFS), kompatibel dengan klien XMPP seperti Conversations, Dino, Gajim, Monocles, dan Siskin IM.\n• OpenPGP (XEP-0027 / XEP-0373): Pesan terenkripsi OpenPGP dari klien desktop juga dideteksi otomatis pada riwayat obrolan.\n• Cara Pakai: Di ruang obrolan mana pun atau obrolan langsung, sentuh ikon Gembok di bar atas atau di samping kolom input untuk mengaktifkan/menonaktifkan enkripsi.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
+                }
             }
         }
     }
