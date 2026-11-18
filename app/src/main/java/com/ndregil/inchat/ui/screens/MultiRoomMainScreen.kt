@@ -924,15 +924,7 @@ fun MultiRoomMainScreen(
                                         onOpenRosterClick = { viewModel.isRosterSheetOpen.value = true }
                                     )
 
-                                    if (room.topic.isNotBlank()) {
-                                        com.ndregil.inchat.ui.components.RoomTopicBanner(
-                                            topic = room.topic,
-                                            roomJid = room.jid,
-                                            onTopicChange = { newTopic -> viewModel.updateTopic(newTopic) },
-                                            isBookmarked = room.isBookmarked,
-                                            onBookmarkToggle = { viewModel.toggleSaveRoom(room.jid) }
-                                        )
-                                    }
+                                    
 
                                     // Message Feed
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
