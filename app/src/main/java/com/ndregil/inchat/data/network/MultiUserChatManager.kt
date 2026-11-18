@@ -1763,28 +1763,15 @@ class MultiUserChatManager(
             kotlinx.coroutines.delay(400)
             
             try {
-                val myNickname = roomNicknames[roomJid] ?: ""
+                val myNickname = muc.nickname?.toString()?.takeIf { it.isNotBlank() }
+                    ?: roomNicknames[roomJid]
+                    ?: roomNicknames[roomJid.trim().lowercase()]
+                    ?: ""
                 val occupantsList = mutableListOf<RoomOccupant>()
                 val seenNicknames = mutableSetOf<String>()
                 val myJid = connectionManager.credentials.value.jid
 
-                val occupantJids = muc.occupants.toMutableSet()
-                try {
-                    muc.participants.forEach { occ ->
-                        occ.jid?.let { jid ->
-                            try {
-                                occupantJids.add(org.jxmpp.jid.impl.JidCreate.entityFullFrom(jid.toString()))
-                            } catch (_: Exception) {}
-                        }
-                    }
-                    muc.moderators.forEach { occ ->
-                        occ.jid?.let { jid ->
-                            try {
-                                occupantJids.add(org.jxmpp.jid.impl.JidCreate.entityFullFrom(jid.toString()))
-                            } catch (_: Exception) {}
-                        }
-                    }
-                } catch (_: Exception) {}
+                val occupantJids = muc.occupants
 
                 for (occupantJid in occupantJids) {
                     val occupant: Occupant? = muc.getOccupant(occupantJid)
