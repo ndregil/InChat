@@ -180,6 +180,9 @@ class XmppRepository(
     private val _autoJoinEvents = MutableSharedFlow<String>(extraBufferCapacity = 5)
     val autoJoinEvents: SharedFlow<String> = _autoJoinEvents.asSharedFlow()
 
+    private val _isUploadingFile = MutableStateFlow(false)
+    val isUploadingFile: StateFlow<Boolean> = _isUploadingFile.asStateFlow()
+
     val roomDao = database.roomDao()
     val messageDao = database.messageDao()
     val chatMessageDao = database.chatMessageDao()
@@ -842,10 +845,17 @@ class XmppRepository(
             val hasOmemo = message.hasExtension("encrypted", "urn:xmpp:omemo:2") ||
                     message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
             val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
+            val preParsedOobUrl = if (message.hasExtension("x", "jabber:x:oob")) {
+                val xml = cachedXml ?: ""
+                Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
+                    .find(xml)?.groupValues?.get(1)?.trim()
+            } else null
 
             var bodyText = message.body
             if (bodyText.isNullOrBlank()) {
-                if (hasOmemo) {
+                if (!preParsedOobUrl.isNullOrBlank()) {
+                    bodyText = preParsedOobUrl
+                } else if (hasOmemo) {
                     bodyText = "🔒 [Pesan Terenkripsi OMEMO]"
                 } else if (hasOpenPgp) {
                     bodyText = "🔒 [Pesan Terenkripsi OpenPGP]"
@@ -961,7 +971,17 @@ class XmppRepository(
                 val isFile = isImage || oobUrl != null
 
                 val fileUrl = oobUrl ?: bodyImageUrl ?: if (isVoice) urls.firstOrNull() else null
-                
+                val inferredFileName = if (isFile && !fileUrl.isNullOrBlank()) {
+                    fileUrl.substringAfterLast('/').substringBefore('?').substringBefore('#')
+                        .takeIf { it.isNotBlank() } ?: "Lampiran"
+                } else null
+                val inferredFileMime = when {
+                    isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
+                    isVoice -> "audio/mp4"
+                    isFile -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferFileMimeType(it) } ?: "application/octet-stream"
+                    else -> null
+                }
+
                 val voiceDuration = if (isVoice) {
                     val durationMatch = Regex("\\((\\d+)d\\)").find(bodyText)
                     durationMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 5
@@ -1004,12 +1024,8 @@ class XmppRepository(
                         status = DeliveryStatus.DELIVERED,
                         recipientNickname = myRoomNick,
                         fileUrl = fileUrl,
-                        fileMimeType = when {
-                            isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
-                            isVoice -> "audio/mp4"
-                            else -> if (isFile) "application/octet-stream" else null
-                        },
-                        fileName = if (isFile) "Lampiran" else null,
+                        fileMimeType = inferredFileMime,
+                        fileName = inferredFileName,
                         voiceDurationSeconds = voiceDuration
                     )
 
@@ -1061,12 +1077,8 @@ class XmppRepository(
                     },
                     status = DeliveryStatus.DELIVERED,
                     fileUrl = fileUrl,
-                    fileMimeType = when {
-                        isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
-                        isVoice -> "audio/mp4"
-                        else -> if (isFile) "application/octet-stream" else null
-                    },
-                    fileName = if (isFile) "Lampiran" else null,
+                    fileMimeType = inferredFileMime,
+                    fileName = inferredFileName,
                     voiceDurationSeconds = voiceDuration
                 )
 
@@ -1114,8 +1126,10 @@ class XmppRepository(
 
             // Re-verify whether this MUC reflection is from our live joined nickname
             val liveMucNick = smackMucManager.getMultiUserChat(canonicalRoomJid)?.nickname?.toString()
+            val storedRoomNick = database.roomDao().getRoomByJid(canonicalRoomJid)?.myNickname
             val effectiveIsMine = msg.isMine ||
-                (!liveMucNick.isNullOrBlank() && msg.senderNickname.equals(liveMucNick, ignoreCase = true))
+                (!liveMucNick.isNullOrBlank() && msg.senderNickname.equals(liveMucNick, ignoreCase = true)) ||
+                (!storedRoomNick.isNullOrBlank() && msg.senderNickname.equals(storedRoomNick, ignoreCase = true))
 
             // Enhanced Client Caps Resolution: Try global cache if not identified or is placeholder
             val withCaps = if (msg.senderClientCaps.iconResId == null) {
@@ -1137,6 +1151,17 @@ class XmppRepository(
                         database.messageDao().updateMessageStatus(recentMine.id, DeliveryStatus.SENT)
                     }
                     return@withLock
+                }
+
+                if (!finalMsg.fileUrl.isNullOrBlank()) {
+                    val recentByUrl = database.messageDao().findRecentOutgoingByFileUrl(finalMsg.roomJid, finalMsg.fileUrl)
+                    if (recentByUrl != null && kotlin.math.abs(recentByUrl.timestamp - finalMsg.timestamp) < 120_000L) {
+                        Log.d("XmppRepository", "Deduplicating outgoing file/image echo by fileUrl: ${finalMsg.fileUrl}")
+                        if (recentByUrl.status == DeliveryStatus.SENDING) {
+                            database.messageDao().updateMessageStatus(recentByUrl.id, DeliveryStatus.SENT)
+                        }
+                        return@withLock
+                    }
                 }
 
                 val latestMine = database.messageDao().findLatestMineMessage(finalMsg.roomJid)
@@ -1509,6 +1534,12 @@ class XmppRepository(
                 val recentMine = database.messageDao().findRecentOutgoingMessage(canonicalRoomJid, msg.body)
                 if (recentMine != null && kotlin.math.abs(recentMine.timestamp - msg.timestamp) < 120_000L) {
                     continue
+                }
+                if (!msg.fileUrl.isNullOrBlank()) {
+                    val recentByUrl = database.messageDao().findRecentOutgoingByFileUrl(canonicalRoomJid, msg.fileUrl)
+                    if (recentByUrl != null && kotlin.math.abs(recentByUrl.timestamp - msg.timestamp) < 120_000L) {
+                        continue
+                    }
                 }
             }
             val recentSame = database.messageDao().findRecentMessage(canonicalRoomJid, msg.body, msg.isMine)
@@ -2108,7 +2139,12 @@ class XmppRepository(
 
         // 3. Send via Smack MUC if joined room
         if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
-            val sendRes = smackMucManager.sendMessage(cleanJid, textToSend, stanzaId = stanzaId)
+            val sendRes = smackMucManager.sendMessage(
+                roomJid = cleanJid,
+                body = textToSend,
+                stanzaId = stanzaId,
+                oobUrl = if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null
+            )
             isSentSuccessfully = sendRes.isSuccess
             if (!isSentSuccessfully) {
                 Log.w("XmppRepository", "Failed to send MUC message to $cleanJid: ${sendRes.exceptionOrNull()?.message}")
@@ -2276,59 +2312,154 @@ class XmppRepository(
         fileName: String,
         fileSize: Long,
         mimeType: String,
-        myNickname: String
+        myNickname: String,
+        description: String = ""
     ) = withContext(Dispatchers.IO) {
-        // 1. Upload via XEP-0363 if connected
+        val rawCleanJid = roomJid.trim()
+        if (rawCleanJid.isBlank()) return@withContext
+        val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
+
         if (!smackConnectionManager.isConnected()) {
-             android.util.Log.e("XmppRepository", "Gagal upload: Tidak terhubung ke server XMPP")
-             return@withContext
+            Log.e("XmppRepository", "Gagal upload: Tidak terhubung ke server XMPP")
+            _autoJoinEvents.emit("Gagal mengirim berkas: tidak terhubung ke server XMPP.")
+            return@withContext
         }
 
-        val connection = smackConnectionManager.getRawConnection() ?: return@withContext
-        
-        // Use real XEP-0363 upload
-        val uploadResult = smackFileUploadManager.uploadFile(connection, uri, fileName, fileSize, mimeType)
-        
-        uploadResult.fold(
-            onSuccess = { url ->
-                val stanzaId = "file_${java.util.UUID.randomUUID()}"
-                val msg = engine.sendGroupFile(roomJid, url, fileName, mimeType, fileSize, myNickname).copy(
-                    id = stanzaId,
-                    senderJid = connection.user.asBareJid().toString(),
-                    messageType = MessageType.FILE
-                )
-                database.messageDao().insertMessage(msg.toEntity())
+        val connection = smackConnectionManager.getRawConnection()
+        if (connection == null || !connection.isAuthenticated) {
+            _autoJoinEvents.emit("Gagal mengirim berkas: sesi XMPP belum terautentikasi.")
+            return@withContext
+        }
 
-                if (smackMucManager.isRoomJoined(roomJid)) {
-                    try {
-                        smackMucManager.sendMessage(roomJid, url)
-                    } catch (e: Exception) {
-                        android.util.Log.e("XmppRepository", "Gagal mengirim URL file ke MUC: ${e.message}")
+        _isUploadingFile.value = true
+        try {
+            val uploadResult = smackFileUploadManager.uploadFileDetailed(
+                connection = connection,
+                uri = uri,
+                fileName = fileName,
+                fileSize = fileSize,
+                mimeType = mimeType
+            )
+
+            uploadResult.fold(
+                onSuccess = { uploaded ->
+                    val url = uploaded.url
+                    val trimmedDesc = description.trim()
+                    val bodyText = if (trimmedDesc.isNotBlank()) "$trimmedDesc\n$url" else url
+                    val stanzaId = "file_${java.util.UUID.randomUUID()}"
+                    val now = System.currentTimeMillis()
+                    val myJid = connection.user?.asBareJid()?.toString() ?: currentAccount.value.jid
+                    val displayNick = myNickname.ifBlank {
+                        currentAccount.value.nickname.ifBlank { currentAccount.value.username }
                     }
-                } else if (!isMucJid(roomJid)) {
-                    try {
-                        val targetJid = org.jxmpp.jid.impl.JidCreate.from(roomJid.trim())
-                        val directMsg = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
-                            body = url
-                            setStanzaId(stanzaId)
-                            addExtension(
-                                org.jivesoftware.smack.packet.StandardExtensionElement
-                                    .builder("x", "jabber:x:oob")
-                                    .addElement("url", url)
-                                    .build()
+                    val isGroup = isMucJid(cleanJid) || smackMucManager.isRoomJoined(cleanJid)
+
+                    val msg = XmppMessage(
+                        id = stanzaId,
+                        roomJid = cleanJid,
+                        senderJid = myJid,
+                        senderNickname = displayNick,
+                        avatarKey = myJid,
+                        body = bodyText,
+                        timestamp = now,
+                        isMine = true,
+                        messageType = MessageType.FILE,
+                        status = DeliveryStatus.SENDING,
+                        fileUrl = url,
+                        fileName = uploaded.fileName,
+                        fileMimeType = uploaded.mimeType,
+                        fileSize = uploaded.fileSize
+                    )
+
+                    val previewText = if (trimmedDesc.isNotBlank()) {
+                        "[Berkas] ${uploaded.fileName}: $trimmedDesc"
+                    } else {
+                        "[Berkas] ${uploaded.fileName}"
+                    }
+
+                    incomingMessageMutex.withLock {
+                        database.messageDao().insertMessage(msg.toEntity())
+                        val existingRoom = database.roomDao().getRoomByJid(cleanJid)
+                        if (existingRoom != null) {
+                            database.roomDao().updateLastMessage(cleanJid, previewText, now, 0)
+                        } else {
+                            database.roomDao().insertOrUpdateRoom(
+                                RoomEntity(
+                                    jid = cleanJid,
+                                    name = cleanJid.substringBefore("@"),
+                                    topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
+                                    myNickname = displayNick,
+                                    occupantCount = if (isGroup) 1 else 2,
+                                    unreadCount = 0,
+                                    lastMessageText = previewText,
+                                    lastMessageTime = now,
+                                    isJoined = isGroup,
+                                    isBookmarked = false,
+                                    myRole = if (isGroup) OccupantRole.PARTICIPANT else OccupantRole.MEMBER,
+                                    myAffiliation = OccupantAffiliation.MEMBER,
+                                    colorHex = randomColorForRoom(cleanJid),
+                                    isAutoJoin = isGroup,
+                                    isGroupChat = isGroup
+                                )
                             )
-                            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
                         }
-                        connection.sendStanza(directMsg)
-                    } catch (e: Exception) {
-                        android.util.Log.e("XmppRepository", "Gagal mengirim URL file ke kontak: ${e.message}")
                     }
+
+                    var sentSuccessfully = false
+                    if (smackMucManager.isRoomJoined(cleanJid)) {
+                        val sendRes = smackMucManager.sendMessage(
+                            roomJid = cleanJid,
+                            body = bodyText,
+                            stanzaId = stanzaId,
+                            oobUrl = url
+                        )
+                        sentSuccessfully = sendRes.isSuccess
+                        if (!sentSuccessfully) {
+                            val errMsg = sendRes.exceptionOrNull()?.message ?: "Gagal mengirim ke room"
+                            Log.e("XmppRepository", "Gagal mengirim URL file ke MUC: $errMsg")
+                            _autoJoinEvents.emit("Berkas terunggah, namun gagal dikirim ke room: $errMsg")
+                        }
+                    } else if (!isMucJid(cleanJid)) {
+                        try {
+                            val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                            val directMsg = org.jivesoftware.smack.packet.Message(
+                                targetJid,
+                                org.jivesoftware.smack.packet.Message.Type.chat
+                            ).apply {
+                                body = bodyText
+                                setStanzaId(stanzaId)
+                                addExtension(
+                                    org.jivesoftware.smack.packet.StandardExtensionElement
+                                        .builder("x", "jabber:x:oob")
+                                        .addElement("url", url)
+                                        .build()
+                                )
+                                org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
+                            }
+                            connection.sendStanza(directMsg)
+                            sentSuccessfully = true
+                        } catch (e: Exception) {
+                            Log.e("XmppRepository", "Gagal mengirim URL file ke kontak: ${e.message}")
+                            _autoJoinEvents.emit("Gagal mengirim berkas ke kontak: ${e.localizedMessage}")
+                        }
+                    } else {
+                        _autoJoinEvents.emit("Berkas terunggah, tetapi Anda belum bergabung ke room $cleanJid.")
+                    }
+
+                    database.messageDao().updateMessageStatusIfSending(
+                        stanzaId,
+                        if (sentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED
+                    )
+                },
+                onFailure = { error ->
+                    val errMsg = error.localizedMessage ?: "Kesalahan tidak diketahui"
+                    Log.e("XmppRepository", "XEP-0363 Upload failed: $errMsg", error)
+                    _autoJoinEvents.emit("Gagal mengunggah berkas: $errMsg")
                 }
-            },
-            onFailure = { error ->
-                android.util.Log.e("XmppRepository", "XEP-0363 Upload failed: ${error.message}", error)
-            }
-        )
+            )
+        } finally {
+            _isUploadingFile.value = false
+        }
     }
 
     suspend fun sendVoiceMessage(
@@ -2337,11 +2468,12 @@ class XmppRepository(
         durationSeconds: Int,
         myNickname: String
     ) = withContext(Dispatchers.IO) {
+        val rawCleanJid = roomJid.trim()
+        val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
         val fileName = audioFile.name
         val fileSize = audioFile.length()
         val mimeType = "audio/mp4"
 
-        // 1. Try uploading via XEP-0363 if connected
         var finalUrl = "file://${audioFile.absolutePath}"
         val connection = if (smackConnectionManager.isConnected()) smackConnectionManager.getRawConnection() else null
         if (connection != null) {
@@ -2355,25 +2487,26 @@ class XmppRepository(
             uploadResult.onSuccess { uploadedUrl ->
                 finalUrl = uploadedUrl
             }.onFailure {
-                android.util.Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
+                Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
             }
         }
 
-        // 2. Build XmppMessage
         val msgId = "voice_${java.util.UUID.randomUUID()}"
         val body = "🎤 Pesan Suara (${durationSeconds}d)\n$finalUrl"
-        val myJid = connection?.user?.asBareJid()?.toString() ?: "$roomJid/$myNickname"
+        val now = System.currentTimeMillis()
+        val myJid = connection?.user?.asBareJid()?.toString() ?: "$cleanJid/$myNickname"
 
         val msg = XmppMessage(
             id = msgId,
-            roomJid = roomJid,
+            roomJid = cleanJid,
             senderJid = myJid,
             senderNickname = myNickname,
+            avatarKey = myJid,
             body = body,
-            timestamp = System.currentTimeMillis(),
+            timestamp = now,
             isMine = true,
             messageType = MessageType.VOICE,
-            status = DeliveryStatus.SENT,
+            status = DeliveryStatus.SENDING,
             fileUrl = finalUrl,
             fileName = fileName,
             fileMimeType = mimeType,
@@ -2381,37 +2514,47 @@ class XmppRepository(
             voiceDurationSeconds = durationSeconds
         )
 
-        // Save to local database
-        database.messageDao().insertMessage(msg.toEntity())
+        incomingMessageMutex.withLock {
+            database.messageDao().insertMessage(msg.toEntity())
+            database.roomDao().updateLastMessage(cleanJid, "[Pesan Suara]", now, 0)
+        }
 
-        // 3. Send via Smack MUC or 1-on-1 direct chat
-        if (smackMucManager.isRoomJoined(roomJid)) {
+        var sentOk = false
+        val oobHttpUrl = finalUrl.takeIf { it.startsWith("http", ignoreCase = true) }
+        if (smackMucManager.isRoomJoined(cleanJid)) {
+            val res = smackMucManager.sendMessage(
+                roomJid = cleanJid,
+                body = body,
+                stanzaId = msgId,
+                oobUrl = oobHttpUrl
+            )
+            sentOk = res.isSuccess
+        } else if (!isMucJid(cleanJid) && connection != null && connection.isAuthenticated) {
             try {
-                smackMucManager.sendMessage(roomJid, body)
-            } catch (e: Exception) {
-                android.util.Log.e("XmppRepository", "Gagal mengirim voice message ke MUC: ${e.message}")
-            }
-        } else if (!isMucJid(roomJid) && connection != null && connection.isAuthenticated) {
-            try {
-                val targetJid = org.jxmpp.jid.impl.JidCreate.from(roomJid.trim())
+                val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
                 val directMsg = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
                     this.body = body
                     setStanzaId(msgId)
-                    if (finalUrl.startsWith("http")) {
+                    if (oobHttpUrl != null) {
                         addExtension(
                             org.jivesoftware.smack.packet.StandardExtensionElement
                                 .builder("x", "jabber:x:oob")
-                                .addElement("url", finalUrl)
+                                .addElement("url", oobHttpUrl)
                                 .build()
                         )
                     }
                     org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
                 }
                 connection.sendStanza(directMsg)
+                sentOk = true
             } catch (e: Exception) {
-                android.util.Log.e("XmppRepository", "Gagal mengirim voice message ke kontak: ${e.message}")
+                Log.e("XmppRepository", "Gagal mengirim voice message ke kontak: ${e.message}")
             }
         }
+        database.messageDao().updateMessageStatusIfSending(
+            msgId,
+            if (sentOk) DeliveryStatus.SENT else DeliveryStatus.FAILED
+        )
     }
 
     suspend fun initiateCall(
@@ -2455,23 +2598,44 @@ class XmppRepository(
         return smackCallManager.initiateCall(targetJid, nickname, callType)
     }
 
-    suspend fun sendFileToContact(targetJid: String, uri: android.net.Uri) {
-        if (smackConnectionManager.isConnected()) {
-            val connection = smackConnectionManager.getRawConnection() ?: return
-            
-            // In a real app we'd get file details from content resolver
-            val fileName = "file_${System.currentTimeMillis()}"
-            val fileSize = 1024L // Placeholder
-            val mimeType = "application/octet-stream"
-
-            val uploadResult = smackFileUploadManager.uploadFile(connection, uri, fileName, fileSize, mimeType)
-            val url = uploadResult.getOrNull() ?: return
-            
-            // Send URL as message to contact
-            val message = org.jivesoftware.smack.packet.Message(JidCreate.from(targetJid), org.jivesoftware.smack.packet.Message.Type.chat)
-            message.body = "Membagikan file: $url"
-            connection.sendStanza(message)
+    suspend fun sendFileToContact(
+        targetJid: String,
+        uri: android.net.Uri,
+        fileName: String? = null,
+        fileSize: Long = 0L,
+        mimeType: String? = null,
+        description: String = ""
+    ) = withContext(Dispatchers.IO) {
+        val cleanTarget = targetJid.trim().substringBefore("/")
+        if (cleanTarget.isBlank()) return@withContext
+        val myNick = currentAccount.value.nickname.ifBlank {
+            currentAccount.value.username.ifBlank { "User" }
         }
+        val contactName = rosterContacts.value.find {
+            it.jid.equals(cleanTarget, ignoreCase = true)
+        }?.displayName ?: cleanTarget.substringBefore("@")
+
+        ensureDirectChatRoom(
+            contactJid = cleanTarget,
+            displayName = contactName,
+            myNickname = myNick
+        )
+
+        val meta = smackFileUploadManager.resolveUriMetadata(
+            uri = uri,
+            suggestedName = fileName,
+            suggestedSize = fileSize,
+            suggestedMimeType = mimeType
+        )
+        sendFile(
+            roomJid = cleanTarget,
+            uri = uri,
+            fileName = meta.fileName,
+            fileSize = meta.fileSize,
+            mimeType = meta.mimeType,
+            myNickname = myNick,
+            description = description
+        )
     }
 
     suspend fun exportBackup(targetUri: android.net.Uri? = null, passphrase: String = ""): Result<String> {

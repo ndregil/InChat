@@ -592,7 +592,12 @@ class MultiUserChatManager(
     /**
      * Sends a groupchat message to all participants in the MUC room.
      */
-    suspend fun sendMessage(roomJid: String, body: String, stanzaId: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(
+        roomJid: String,
+        body: String,
+        stanzaId: String? = null,
+        oobUrl: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(
             IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
@@ -601,6 +606,14 @@ class MultiUserChatManager(
                 this.body = body
                 if (!stanzaId.isNullOrBlank()) {
                     this.stanzaId = stanzaId
+                }
+                if (!oobUrl.isNullOrBlank()) {
+                    addExtension(
+                        org.jivesoftware.smack.packet.StandardExtensionElement
+                            .builder("x", "jabber:x:oob")
+                            .addElement("url", oobUrl.trim())
+                            .build()
+                    )
                 }
                 org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(this)
             }

@@ -109,6 +109,8 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val autoJoinToastStatus = MutableStateFlow<String?>(null)
     fun clearAutoJoinToastStatus() { autoJoinToastStatus.value = null }
 
+    val isUploadingFile: StateFlow<Boolean> = repository.isUploadingFile
+
     val isSyncingBookmarks = MutableStateFlow(false)
     fun syncBookmarks() {
         viewModelScope.launch {
@@ -705,11 +707,17 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendFile(uri: android.net.Uri, fileName: String, fileSize: Long, mimeType: String) {
+    fun sendFile(
+        uri: android.net.Uri,
+        fileName: String,
+        fileSize: Long,
+        mimeType: String,
+        description: String = ""
+    ) {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         viewModelScope.launch {
-            repository.sendFile(room.jid, uri, fileName, fileSize, mimeType, myNick)
+            repository.sendFile(room.jid, uri, fileName, fileSize, mimeType, myNick, description)
         }
     }
 
@@ -756,9 +764,16 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendFileToContact(targetJid: String, uri: android.net.Uri) {
+    fun sendFileToContact(
+        targetJid: String,
+        uri: android.net.Uri,
+        fileName: String? = null,
+        fileSize: Long = 0L,
+        mimeType: String? = null,
+        description: String = ""
+    ) {
         viewModelScope.launch {
-            repository.sendFileToContact(targetJid, uri)
+            repository.sendFileToContact(targetJid, uri, fileName, fileSize, mimeType, description)
         }
     }
 

@@ -280,21 +280,17 @@ fun MultiRoomMainScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    val isUploadingFile by viewModel.isUploadingFile.collectAsStateWithLifecycle()
+    var pendingAttachment by remember { mutableStateOf<com.ndregil.inchat.ui.components.PendingAttachment?>(null) }
+
     val filePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            val cursor = context.contentResolver.query(it, null, null, null, null)
-            cursor?.use { c ->
-                if (c.moveToFirst()) {
-                    val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    val sizeIndex = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
-                    val name = if (nameIndex >= 0) c.getString(nameIndex) else "file"
-                    val size = if (sizeIndex >= 0) c.getLong(sizeIndex) else 0L
-                    val mimeType = context.contentResolver.getType(it) ?: "application/octet-stream"
-                    viewModel.sendFile(it, name, size, mimeType)
-                }
-            }
+            pendingAttachment = com.ndregil.inchat.ui.components.resolvePendingAttachment(
+                context = context,
+                uri = it
+            )
         }
     }
 
@@ -1095,16 +1091,25 @@ fun MultiRoomMainScreen(
                                             inputText = currentInput,
                                             onInputChange = { viewModel.currentInputText.value = it },
                                             onSendMessage = { viewModel.sendMessage(it) },
-                                            onAttachClick = { filePicker.launch("*/*") },
+                                            onAttachClick = { filePicker.launch(arrayOf("*/*")) },
                                             onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
-                                            onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                            onAttachPhoto = { uri, name, size ->
+                                                pendingAttachment = com.ndregil.inchat.ui.components.resolvePendingAttachment(
+                                                    context = context,
+                                                    uri = uri,
+                                                    fallbackName = name,
+                                                    fallbackSize = size,
+                                                    fallbackMime = "image/jpeg"
+                                                )
+                                            },
                                             onCallClick = { viewModel.initiateCall(it) },
                                             whisperTarget = null,
                                             replyingToMessage = replyingToMessage,
                                             onCancelReply = { viewModel.clearReplyMessage() },
                                             onSendVoice = { audioFile, durationSeconds -> viewModel.sendVoiceMessage(audioFile, durationSeconds) },
                                             translationPreferences = translationPrefs,
-                                            onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) }
+                                            onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
+                                            isUploadingFile = isUploadingFile
                                         )
                                     }
                                 }
@@ -1677,9 +1682,17 @@ fun MultiRoomMainScreen(
                                     inputText = currentInput,
                                     onInputChange = { viewModel.currentInputText.value = it },
                                     onSendMessage = { viewModel.sendMessage(it) },
-                                    onAttachClick = { filePicker.launch("*/*") },
+                                    onAttachClick = { filePicker.launch(arrayOf("*/*")) },
                                     onShareLocation = { lat, lng, label -> viewModel.shareLocation(lat, lng, label) },
-                                    onAttachPhoto = { uri, name, size -> viewModel.sendFile(uri, name, size, "image/jpeg") },
+                                    onAttachPhoto = { uri, name, size ->
+                                        pendingAttachment = com.ndregil.inchat.ui.components.resolvePendingAttachment(
+                                            context = context,
+                                            uri = uri,
+                                            fallbackName = name,
+                                            fallbackSize = size,
+                                            fallbackMime = "image/jpeg"
+                                        )
+                                    },
                                     onCallClick = { viewModel.initiateCall(it) },
                                     whisperTarget = null,
                                     replyingToMessage = replyingToMessage,
@@ -1688,7 +1701,8 @@ fun MultiRoomMainScreen(
                                         viewModel.sendVoiceMessage(audioFile, durationSeconds)
                                     },
                                     translationPreferences = translationPrefs,
-                                    onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) }
+                                    onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
+                                    isUploadingFile = isUploadingFile
                                 )
                             }
                         }
@@ -2254,6 +2268,27 @@ fun MultiRoomMainScreen(
                 }
             },
             onDismiss = { viewModel.isThemeWallpaperDialogOpen.value = false }
+        )
+    }
+
+    pendingAttachment?.let { pending ->
+        com.ndregil.inchat.ui.components.AttachmentSendDialog(
+            attachment = pending,
+            initialDescription = currentInput,
+            onDismiss = { pendingAttachment = null },
+            onConfirm = { description ->
+                viewModel.sendFile(
+                    uri = pending.uri,
+                    fileName = pending.fileName,
+                    fileSize = pending.fileSize,
+                    mimeType = pending.mimeType,
+                    description = description
+                )
+                if (currentInput.isNotBlank()) {
+                    viewModel.currentInputText.value = ""
+                }
+                pendingAttachment = null
+            }
         )
     }
 
@@ -2841,7 +2876,8 @@ fun ChatInputBar(
     onCancelReply: () -> Unit = {},
     onSendVoice: ((java.io.File, Int) -> Unit)? = null,
     translationPreferences: com.ndregil.inchat.data.model.TranslationPreferences = com.ndregil.inchat.data.model.TranslationPreferences(),
-    onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null
+    onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null,
+    isUploadingFile: Boolean = false
 ) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     var showEmojiKeyboard by remember { mutableStateOf(false) }
@@ -2986,6 +3022,14 @@ fun ChatInputBar(
         tonalElevation = 3.dp
     ) {
         Column {
+            if (isUploadingFile) {
+                androidx.compose.material3.LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .testTag("file_upload_progress")
+                )
+            }
             // Reply Preview Header
             if (replyingToMessage != null) {
                 Surface(
@@ -3221,21 +3265,51 @@ fun ChatInputBar(
                                     )
                                 }
 
+                                // Lampiran (selalu tersedia baik input kosong maupun sudah terisi)
+                                Box {
+                                    IconButton(
+                                        onClick = { showAttachMenu = true },
+                                        modifier = Modifier.size(32.dp).testTag("btn_attach")
+                                    ) {
+                                        Icon(Icons.Default.AttachFile, contentDescription = "Lampirkan berkas atau foto", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showAttachMenu,
+                                        onDismissRequest = { showAttachMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Pilih Berkas / Gambar") },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            },
+                                            modifier = Modifier.testTag("menu_attach_file"),
+                                            onClick = {
+                                                showAttachMenu = false
+                                                onAttachClick()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Ambil Foto (Kamera)") },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            },
+                                            modifier = Modifier.testTag("menu_attach_camera"),
+                                            onClick = {
+                                                showAttachMenu = false
+                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
+                                        )
+                                    }
+                                }
+
                                 if (inputText.isBlank()) {
                                     // Lokasi
                                     IconButton(
                                         onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
                                         modifier = Modifier.size(32.dp).testTag("btn_loc")
                                     ) {
-                                        Icon(Icons.Default.LocationOn, null, tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))
-                                    }
-
-                                    // Lampiran
-                                    IconButton(
-                                        onClick = onAttachClick,
-                                        modifier = Modifier.size(32.dp).testTag("btn_attach")
-                                    ) {
-                                        Icon(Icons.Default.AttachFile, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
+                                        Icon(Icons.Default.LocationOn, contentDescription = "Bagikan lokasi", tint = Color(0xFFEF4444), modifier = Modifier.size(19.dp))
                                     }
 
                                     // Tombol Suara (Mic)
@@ -3245,7 +3319,7 @@ fun ChatInputBar(
                                         },
                                         modifier = Modifier.size(32.dp).testTag("btn_voice")
                                     ) {
-                                        Icon(Icons.Default.Mic, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                        Icon(Icons.Default.Mic, contentDescription = "Rekam pesan suara", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                     }
                                 }
                             }

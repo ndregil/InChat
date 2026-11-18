@@ -69,9 +69,16 @@ class MucMessageListener(
                     message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
             val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
 
+            val xml = if (onRawStanzaReceived != null || message.hasExtension("x", "jabber:x:oob")) {
+                try { message.toXML().toString() } catch (_: Exception) { "" }
+            } else ""
+            val oobUrl = if (xml.isNotEmpty()) OOB_REGEX.find(xml)?.groupValues?.get(1)?.trim() else null
+
             var body = message.body
             if (body.isNullOrBlank()) {
-                if (hasOmemo) {
+                if (!oobUrl.isNullOrBlank()) {
+                    body = oobUrl
+                } else if (hasOmemo) {
                     body = "🔒 [Pesan Terenkripsi OMEMO]"
                 } else if (hasOpenPgp) {
                     body = "🔒 [Pesan Terenkripsi OpenPGP]"
@@ -91,10 +98,6 @@ class MucMessageListener(
             val bodyUrls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(body)
             val bodyImageUrl = bodyUrls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
 
-            val xml = if (onRawStanzaReceived != null || message.hasExtension("x", "jabber:x:oob")) {
-                try { message.toXML().toString() } catch (_: Exception) { "" }
-            } else ""
-            val oobUrl = if (xml.isNotEmpty()) OOB_REGEX.find(xml)?.groupValues?.get(1)?.trim() else null
             val isOobImage = oobUrl != null && com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(oobUrl)
 
             val isImage = isOobImage || bodyImageUrl != null
@@ -113,6 +116,11 @@ class MucMessageListener(
                 bodyUrls.firstOrNull()
                     ?: body.lines().firstOrNull { it.startsWith("http") || it.startsWith("file://") }
                     ?: body.trim().takeIf { it.startsWith("http") }
+            } else null
+
+            val inferredFileName = if (isFile && !fileUrl.isNullOrBlank()) {
+                fileUrl.substringAfterLast('/').substringBefore('?').substringBefore('#')
+                    .takeIf { it.isNotBlank() } ?: "Lampiran"
             } else null
 
             val voiceDuration = if (isVoice) {
@@ -140,9 +148,10 @@ class MucMessageListener(
                 fileMimeType = when {
                     isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
                     isVoice -> "audio/mp4"
+                    isFile -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferFileMimeType(it) } ?: "application/octet-stream"
                     else -> null
                 },
-                fileName = if (isFile) "Lampiran" else null,
+                fileName = inferredFileName,
                 voiceDurationSeconds = voiceDuration,
                 isHistory = delayInfo != null
             )

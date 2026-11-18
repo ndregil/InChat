@@ -49,10 +49,13 @@ object MediaUrlUtils {
 
     private val KNOWN_NON_IMAGE_EXTENSIONS = KNOWN_AUDIO_EXTENSIONS + setOf(
         "mp4", "m4v", "mkv", "webm", "avi", "mov", "wmv", "flv", "3gp",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-        "txt", "csv", "json", "xml", "html", "htm", "md",
-        "zip", "rar", "7z", "tar", "gz", "bz2", "xz",
-        "apk", "aab", "exe", "msi", "dmg", "iso", "deb", "rpm"
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "epub",
+        "txt", "csv", "tsv", "json", "xml", "html", "htm", "md", "log", "ini", "cfg", "conf", "yaml", "yml", "toml",
+        "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst",
+        "apk", "aab", "exe", "msi", "dmg", "iso", "deb", "rpm", "appimage",
+        "bin", "dat", "db", "sqlite", "sql", "jar", "dex", "so",
+        "py", "kt", "java", "js", "ts", "c", "cpp", "h", "sh", "bat", "ps1",
+        "vcf", "ics", "torrent"
     )
 
     private val IMAGE_FORMAT_QUERY_REGEX = Regex(
@@ -129,7 +132,7 @@ object MediaUrlUtils {
         val clean = url.trim().substringBefore('#').substringBefore('?')
         val lastSegment = clean.substringAfterLast('/', "")
         val ext = lastSegment.substringAfterLast('.', "")
-        return if (ext.isNotBlank() && ext.length <= 10 && lastSegment.contains('.')) {
+        return if (ext.isNotBlank() && ext.length <= 15 && lastSegment.contains('.')) {
             ext.lowercase(Locale.ROOT)
         } else {
             ""
@@ -210,6 +213,18 @@ object MediaUrlUtils {
             "ico", "cur" -> "image/x-icon"
             else -> "image/*"
         }
+    }
+
+    fun inferFileMimeType(url: String): String {
+        val ext = extractFileExtension(url)
+        if (ext.isNotBlank()) {
+            try {
+                val mapped = android.webkit.MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(ext)
+                if (!mapped.isNullOrBlank()) return mapped
+            } catch (_: Throwable) {
+            }
+        }
+        return "application/octet-stream"
     }
 
     fun openExternalUrl(

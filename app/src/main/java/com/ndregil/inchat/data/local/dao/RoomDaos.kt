@@ -174,6 +174,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 AND (body = :text OR translatedBody = :text) ORDER BY timestamp DESC LIMIT 1")
     suspend fun findRecentOutgoingMessage(roomJid: String, text: String): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 AND fileUrl = :fileUrl ORDER BY timestamp DESC LIMIT 1")
+    suspend fun findRecentOutgoingByFileUrl(roomJid: String, fileUrl: String): MessageEntity?
+
     @Query("SELECT * FROM messages WHERE LOWER(roomJid) = LOWER(:roomJid) AND isMine = 1 ORDER BY timestamp DESC LIMIT 1")
     suspend fun findLatestMineMessage(roomJid: String): MessageEntity?
 

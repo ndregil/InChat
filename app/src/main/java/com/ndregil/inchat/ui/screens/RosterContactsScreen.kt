@@ -144,14 +144,20 @@ fun RosterContactsScreen(
     val isPublishingStory by viewModel.isPublishingStory.collectAsStateWithLifecycle()
     val myAvatar by viewModel.myAvatar.collectAsStateWithLifecycle()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     var selectedFileTargetJid by remember { mutableStateOf<String?>(null) }
-    
+    var pendingContactAttachment by remember { mutableStateOf<com.ndregil.inchat.ui.components.PendingAttachment?>(null) }
+
     val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
     ) { uri: android.net.Uri? ->
-        uri?.let {
-            // In a real app, we'd need more info, but for this demo:
-            viewModel.sendFileToContact(selectedFileTargetJid ?: return@let, it)
+        val targetJid = selectedFileTargetJid ?: return@rememberLauncherForActivityResult
+        if (uri != null) {
+            pendingContactAttachment = com.ndregil.inchat.ui.components.resolvePendingAttachment(
+                context = context,
+                uri = uri,
+                targetJid = targetJid
+            )
         }
     }
 
@@ -542,7 +548,7 @@ fun RosterContactsScreen(
                                         onVideoCallClick = { viewModel.initiate1on1Call(contact.jid, contact.displayName, "Video") },
                                         onSendFileClick = {
                                             selectedFileTargetJid = contact.jid
-                                            filePickerLauncher.launch("*/*")
+                                            filePickerLauncher.launch(arrayOf("*/*"))
                                         },
                                         onResendSubscribeClick = { viewModel.resendSubscriptionRequest(contact.jid) },
                                         themePrefs = themePrefs
@@ -641,6 +647,27 @@ fun RosterContactsScreen(
                 OutlinedButton(onClick = { contactToDelete = null }) {
                     Text(strings.cancel)
                 }
+            }
+        )
+    }
+
+    pendingContactAttachment?.let { pending ->
+        com.ndregil.inchat.ui.components.AttachmentSendDialog(
+            attachment = pending,
+            onDismiss = { pendingContactAttachment = null },
+            onConfirm = { description ->
+                val targetJid = pending.targetJid ?: selectedFileTargetJid
+                if (!targetJid.isNullOrBlank()) {
+                    viewModel.sendFileToContact(
+                        targetJid = targetJid,
+                        uri = pending.uri,
+                        fileName = pending.fileName,
+                        fileSize = pending.fileSize,
+                        mimeType = pending.mimeType,
+                        description = description
+                    )
+                }
+                pendingContactAttachment = null
             }
         )
     }
@@ -1004,7 +1031,6 @@ fun RosterContactListItem(
                                         tint = MaterialTheme.colorScheme.primary
                                     )
                                 },
-                                enabled = contact.presence != UserPresence.OFFLINE,
                                 onClick = {
                                     menuExpanded = false
                                     onSendFileClick()
