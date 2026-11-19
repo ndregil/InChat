@@ -1053,20 +1053,32 @@ class XmppRepository(
                 scope.launch(Dispatchers.IO) {
                     try {
                         val json = org.json.JSONObject(jsonStr)
-                        val storyId = json.getString("storyId")
-                        val viewerJid = json.getString("viewerJid")
-                        val viewerName = json.optString("viewerName", viewerJid.substringBefore("@"))
+                        val storyId = json.optString("storyId", "").trim()
+                        if (storyId.isBlank()) return@launch
+                        val rawViewerJid = json.optString("viewerJid", "").ifBlank { fromBareJid }
+                        val normalizedViewerJid = rawViewerJid.trim().substringBefore("/").lowercase()
+                        if (normalizedViewerJid.isBlank() ||
+                            (myBareJid.isNotBlank() && normalizedViewerJid.equals(myBareJid, ignoreCase = true))
+                        ) {
+                            return@launch
+                        }
+                        val contactMatch = rosterContacts.value.find {
+                            it.jid.trim().substringBefore("/").equals(normalizedViewerJid, ignoreCase = true)
+                        }
+                        val viewerName = contactMatch?.displayName?.takeIf { it.isNotBlank() }
+                            ?: json.optString("viewerName", "").takeIf { it.isNotBlank() }
+                            ?: normalizedViewerJid.substringBefore("@")
                         val timestamp = json.optLong("timestamp", System.currentTimeMillis())
 
                         val viewerEntity = com.ndregil.inchat.data.local.entity.StoryViewerEntity(
-                            id = java.util.UUID.randomUUID().toString(),
+                            id = "${storyId}_${normalizedViewerJid}",
                             storyId = storyId,
-                            viewerJid = viewerJid,
+                            viewerJid = normalizedViewerJid,
                             viewerName = viewerName,
                             viewedAt = timestamp
                         )
                         database.storyDao().insertOrUpdateViewer(viewerEntity)
-                        Log.i("XmppRepository", "Saved incoming story view notification for story $storyId from $viewerJid")
+                        Log.i("XmppRepository", "Saved incoming story view notification for story $storyId from $normalizedViewerJid")
                     } catch (e: Exception) {
                         Log.w("XmppRepository", "Failed to parse incoming story view notification: ${e.message}")
                     }
@@ -3223,9 +3235,28 @@ class XmppRepository(
         database.storyDao().getAllStoryViewers(),
         smackAvatarManager.avatarUpdates.onStart { emit("") }
     ) { entities, allViewers, _ ->
+        val contacts = rosterContacts.value
         entities.map { entity ->
             val avatar = smackAvatarManager.getAvatar(entity.senderJid)
-            val viewers = allViewers.filter { it.storyId == entity.id }.map { it.toModel() }
+            val viewers = allViewers
+                .asSequence()
+                .filter { it.storyId == entity.id }
+                .distinctBy { it.viewerJid.trim().substringBefore("/").lowercase() }
+                .map { viewerEntity ->
+                    val cleanJid = viewerEntity.viewerJid.trim().substringBefore("/").lowercase()
+                    val viewerAvatar = smackAvatarManager.getAvatar(cleanJid)
+                    val contact = contacts.find {
+                        it.jid.trim().substringBefore("/").equals(cleanJid, ignoreCase = true)
+                    }
+                    val resolvedName = contact?.displayName?.takeIf { it.isNotBlank() }
+                        ?: viewerEntity.viewerName.ifBlank { cleanJid.substringBefore("@") }
+                    viewerEntity.toModel(viewerAvatar).copy(
+                        viewerJid = cleanJid,
+                        viewerName = resolvedName
+                    )
+                }
+                .sortedByDescending { it.viewedAt }
+                .toList()
             entity.toModel(avatar, viewers)
         }
     }.flowOn(Dispatchers.IO)
@@ -3239,6 +3270,14 @@ class XmppRepository(
             if (!smackConnectionManager.isConnected()) return@withContext
 
             val myJid = currentAccount.value.jid
+                .ifBlank { conn.user?.asBareJid()?.toString() ?: "" }
+                .trim()
+                .substringBefore("/")
+                .lowercase()
+            if (myJid.isBlank()) return@withContext
+            val targetBareJid = story.senderJid.trim().substringBefore("/")
+            if (targetBareJid.isBlank() || targetBareJid.equals(myJid, ignoreCase = true)) return@withContext
+
             val myNick = currentAccount.value.nickname.ifBlank { myJid.substringBefore("@") }
 
             val viewJson = org.json.JSONObject().apply {
@@ -3249,14 +3288,14 @@ class XmppRepository(
             }.toString()
 
             val msg = org.jivesoftware.smack.packet.Message(
-                org.jxmpp.jid.impl.JidCreate.from(story.senderJid),
+                org.jxmpp.jid.impl.JidCreate.from(targetBareJid),
                 org.jivesoftware.smack.packet.Message.Type.chat
             ).apply {
                 subject = "INCHAT_STORY_VIEW"
                 body = "[STORY_VIEWED] $viewJson"
             }
             conn.sendStanza(msg)
-            Log.i("XmppRepository", "Sent story viewed notification to ${story.senderJid} for story ${story.id}")
+            Log.i("XmppRepository", "Sent story viewed notification to $targetBareJid for story ${story.id}")
         } catch (e: Exception) {
             Log.w("XmppRepository", "Failed to send story viewed notification: ${e.message}")
         }
@@ -3385,6 +3424,7 @@ class XmppRepository(
 
     suspend fun deleteStory(storyId: String) {
         database.storyDao().deleteStory(storyId)
+        database.storyDao().deleteViewersForStory(storyId)
     }
 
     suspend fun rejectSubscriptionRequest(jid: String): Result<Unit> {

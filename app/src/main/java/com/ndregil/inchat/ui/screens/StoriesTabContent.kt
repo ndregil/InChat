@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,8 +48,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -125,7 +128,7 @@ fun StoriesTabContent(
     var showCreateTextDialog by remember { mutableStateOf(false) }
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
     var showCreateMediaDialog by remember { mutableStateOf(false) }
-    var viewingStoryGroup by remember { mutableStateOf<ContactStoryGroup?>(null) }
+    var viewingGroupTarget by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -140,6 +143,12 @@ fun StoriesTabContent(
     val myStories = remember(stories, myJid) {
         stories.filter { it.isMine || it.senderJid.equals(myJid, ignoreCase = true) }
             .sortedByDescending { it.timestamp }
+    }
+
+    val totalMyUniqueViewers = remember(myStories) {
+        myStories.flatMap { it.viewers }
+            .distinctBy { it.viewerJid.trim().substringBefore("/").lowercase() }
+            .size
     }
 
     // Group contacts stories by senderJid
@@ -157,6 +166,21 @@ fun StoriesTabContent(
                 stories = storyList.sortedBy { it.timestamp }
             )
         }.sortedByDescending { it.lastUpdated }
+    }
+
+    val activeViewingGroup = remember(viewingGroupTarget, myStories, contactStoryGroups, myAvatar, myJid, strings.myStatus) {
+        val target = viewingGroupTarget ?: return@remember null
+        if (target.second) {
+            if (myStories.isEmpty()) null
+            else ContactStoryGroup(
+                jid = myJid,
+                name = strings.myStatus,
+                avatar = myAvatar,
+                stories = myStories
+            )
+        } else {
+            contactStoryGroups.find { it.jid.equals(target.first, ignoreCase = true) }
+        }
     }
 
     val recentUpdates = remember(contactStoryGroups) {
@@ -200,12 +224,7 @@ fun StoriesTabContent(
                                 .size(56.dp)
                                 .clickable {
                                     if (myStories.isNotEmpty()) {
-                                        viewingStoryGroup = ContactStoryGroup(
-                                            jid = myJid,
-                                            name = strings.myStatus,
-                                            avatar = myAvatar,
-                                            stories = myStories
-                                        )
+                                        viewingGroupTarget = myJid to true
                                     } else {
                                         showCreateTextDialog = true
                                     }
@@ -270,12 +289,7 @@ fun StoriesTabContent(
                                 .weight(1f)
                                 .clickable {
                                     if (myStories.isNotEmpty()) {
-                                        viewingStoryGroup = ContactStoryGroup(
-                                            jid = myJid,
-                                            name = strings.myStatus,
-                                            avatar = myAvatar,
-                                            stories = myStories
-                                        )
+                                        viewingGroupTarget = myJid to true
                                     } else {
                                         showCreateTextDialog = true
                                     }
@@ -287,17 +301,52 @@ fun StoriesTabContent(
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (myStories.isNotEmpty()) {
-                                    val count = myStories.size
-                                    val timeStr = formatStoryTime(myStories.first().timestamp)
-                                    "$count • $timeStr"
-                                } else {
-                                    strings.tapToAddStatus
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            if (myStories.isNotEmpty()) {
+                                val count = myStories.size
+                                val timeStr = formatStoryTime(myStories.first().timestamp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "$count • $timeStr",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                        modifier = Modifier.testTag("badge_my_story_viewers")
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Visibility,
+                                                contentDescription = strings.viewedByLabel,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = "$totalMyUniqueViewers",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = strings.tapToAddStatus,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
 
                         // Action buttons: Text story and Camera/Gallery story
@@ -353,7 +402,7 @@ fun StoriesTabContent(
                 items(recentUpdates, key = { it.jid }) { group ->
                     ContactStoryRowItem(
                         group = group,
-                        onClick = { viewingStoryGroup = group }
+                        onClick = { viewingGroupTarget = group.jid to false }
                     )
                 }
             }
@@ -373,7 +422,7 @@ fun StoriesTabContent(
                 items(viewedUpdates, key = { it.jid }) { group ->
                     ContactStoryRowItem(
                         group = group,
-                        onClick = { viewingStoryGroup = group }
+                        onClick = { viewingGroupTarget = group.jid to false }
                     )
                 }
             }
@@ -464,14 +513,14 @@ fun StoriesTabContent(
     }
 
     // Full-screen Story Viewer (WhatsApp style with animated progress bars)
-    if (viewingStoryGroup != null) {
+    if (activeViewingGroup != null) {
         StoryViewerDialog(
-            storyGroup = viewingStoryGroup!!,
-            onDismiss = { viewingStoryGroup = null },
+            storyGroup = activeViewingGroup,
+            onDismiss = { viewingGroupTarget = null },
             onMarkViewed = onMarkViewed,
             onDeleteStory = onDeleteStory,
             onReplyClick = { jid, name ->
-                viewingStoryGroup = null
+                viewingGroupTarget = null
                 onStartDirectChat?.invoke(jid, name)
             }
         )
@@ -901,7 +950,8 @@ fun StoryViewerDialog(
 
     // Auto-advance timer (5 seconds per story)
     var progress by remember(currentIndex) { mutableFloatStateOf(0f) }
-    var isPaused by remember { mutableStateOf(false) }
+    var isViewersSheetOpen by remember { mutableStateOf(false) }
+    val isPaused = isViewersSheetOpen
 
     LaunchedEffect(currentIndex, isPaused) {
         if (!isPaused) {
@@ -948,30 +998,6 @@ fun StoryViewerDialog(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
                     )
-
-                    // Optional Caption on photo
-                    if (currentStory.text.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                                    )
-                                )
-                                .padding(horizontal = 20.dp, vertical = 24.dp)
-                        ) {
-                            Text(
-                                text = currentStory.text,
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
                 } else {
                     // Full Screen Text Story
                     Box(
@@ -992,7 +1018,7 @@ fun StoryViewerDialog(
                     }
                 }
 
-                // Invisible touch zones for previous / next navigation & pause on hold
+                // Invisible touch zones for previous / next navigation
                 Row(modifier = Modifier.fillMaxSize()) {
                     Box(
                         modifier = Modifier
@@ -1136,51 +1162,72 @@ fun StoryViewerDialog(
                     }
                 }
 
-                // Bottom Reply Bar (if viewing a contact's story) OR "Seen by" info (if viewing own story)
-                Box(
+                // Bottom Section: Optional Photo Caption stacked cleanly ABOVE Viewers / Reply bar
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
-                        .padding(16.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                            )
+                        )
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    if (currentStory.mediaType == StoryMediaType.IMAGE && currentStory.text.isNotBlank()) {
+                        Text(
+                            text = currentStory.text,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
                     if (currentStory.isMine) {
-                        // "Seen by" info
+                        // Interactive viewer count bar ("Dilihat oleh X orang")
                         Surface(
                             shape = RoundedCornerShape(24.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
+                            color = Color.Black.copy(alpha = 0.72f),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(24.dp))
+                                .clickable { isViewersSheetOpen = true }
+                                .testTag("btn_story_viewers_bar")
                         ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Visibility,
+                                    contentDescription = strings.viewedByLabel,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "${strings.viewedByLabel} ${currentStory.viewers.size} ${strings.viewersUnit}",
                                     color = Color.White,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 6.dp)
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
-                                currentStory.viewers.forEach { viewer ->
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = viewer.viewerName,
-                                            color = Color.White.copy(alpha = 0.9f),
-                                            fontSize = 12.sp
-                                        )
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Text(
-                                            text = formatStoryTime(viewer.viewedAt),
-                                            color = Color.White.copy(alpha = 0.6f),
-                                            fontSize = 10.sp
-                                        )
-                                    }
-                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = null,
+                                    tint = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     } else if (onReplyClick != null) {
-                        // Reply bar
                         Button(
                             onClick = { onReplyClick(storyGroup.jid, storyGroup.name) },
                             modifier = Modifier
@@ -1196,6 +1243,137 @@ fun StoryViewerDialog(
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("${strings.replyStatusTo} ${storyGroup.name}", fontSize = 13.sp)
+                        }
+                    }
+                }
+
+                // Expandable Viewers List Sheet inside the Story Viewer
+                if (isViewersSheetOpen && currentStory.isMine) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.55f))
+                            .clickable { isViewersSheetOpen = false }
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .clickable(enabled = false) {},
+                            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Visibility,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "${strings.viewedByLabel} ${currentStory.viewers.size} ${strings.viewersUnit}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    IconButton(onClick = { isViewersSheetOpen = false }) {
+                                        Icon(Icons.Default.Close, contentDescription = strings.close)
+                                    }
+                                }
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                                if (currentStory.viewers.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 24.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Belum ada yang melihat status ini.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(260.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        items(currentStory.viewers, key = { it.viewerJid }) { viewer ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    val viewerBmp = remember(viewer.viewerAvatar) {
+                                                        viewer.viewerAvatar?.takeIf { it.isNotEmpty() }?.let {
+                                                            try {
+                                                                BitmapFactory.decodeByteArray(it, 0, it.size)
+                                                            } catch (_: Exception) {
+                                                                null
+                                                            }
+                                                        }
+                                                    }
+                                                    if (viewerBmp != null) {
+                                                        Image(
+                                                            bitmap = viewerBmp.asImageBitmap(),
+                                                            contentDescription = viewer.viewerName,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentScale = ContentScale.Crop
+                                                        )
+                                                    } else {
+                                                        DefaultAvatar(name = viewer.viewerName, hasStories = false)
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = viewer.viewerName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = viewer.viewerJid,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Text(
+                                                    text = formatStoryTime(viewer.viewedAt),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
