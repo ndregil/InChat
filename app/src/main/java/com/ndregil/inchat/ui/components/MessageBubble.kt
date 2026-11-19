@@ -327,7 +327,7 @@ fun MessageBubble(
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Text(
-                                    text = if (isMine) "${strings.whisperBubbleToPrefix} @${message.recipientNickname ?: strings.userFallbackLabel}" else "${strings.whisperBubbleFromPrefix} ${message.senderNickname}",
+                                    text = if (isMine) "${strings.whisperBubbleToPrefix} @${message.recipientNickname ?: strings.userFallbackLabel}" else "${strings.whisperBubbleFromPrefix} ${message.senderNickname.substringBefore("/")}",
                                     fontSize = (themePrefs.contactFontSizeSp - 2f).coerceAtLeast(10f).sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF38BDF8)

@@ -743,27 +743,7 @@ fun MultiRoomMainScreen(
                                 )
                             }
 
-                            // Quick OMEMO Lock Toggle
-                            val currentRoomJid = activeRoom?.jid ?: ""
-                            val isRoomOmemo = if (currentRoomJid.isNotBlank()) omemoEnabledJids.contains(currentRoomJid.lowercase()) else false
-                            IconButton(
-                                onClick = {
-                                    omemoSecurityTargetJid = currentRoomJid
-                                    showOmemoSecurityDialog = true
-                                },
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .testTag("btn_quick_omemo_lock")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lock,
-                                    contentDescription = "Enkripsi OMEMO (XEP-0384)",
-                                    tint = if (isRoomOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(19.dp)
-                                )
-                            }
 
-                            // More options
                             Box {
                                 IconButton(
                                     onClick = { showRoomMenu = true },
@@ -776,21 +756,6 @@ fun MultiRoomMainScreen(
                                     expanded = showRoomMenu,
                                     onDismissRequest = { showRoomMenu = false }
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text(if (isRoomOmemo) "Enkripsi OMEMO: Aktif" else "Enkripsi OMEMO: Nonaktif") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Lock,
-                                                contentDescription = null,
-                                                tint = if (isRoomOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                            )
-                                        },
-                                        onClick = {
-                                            showRoomMenu = false
-                                            omemoSecurityTargetJid = currentRoomJid
-                                            showOmemoSecurityDialog = true
-                                        }
-                                    )
                                     DropdownMenuItem(
                                         text = { Text(strings.viewTopicRoomInfoMenu) },
                                         leadingIcon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },

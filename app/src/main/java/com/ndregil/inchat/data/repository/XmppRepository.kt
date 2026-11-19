@@ -1003,7 +1003,7 @@ class XmppRepository(
                 val isMucContext = smackMucManager.isRoomJoined(fromBareJid) ||
                         fromBareJid.contains("conference.", ignoreCase = true) ||
                         fromBareJid.contains("muc.", ignoreCase = true) ||
-                        roomEntity != null ||
+                        (roomEntity?.isGroupChat == true) ||
                         message.type == org.jivesoftware.smack.packet.Message.Type.groupchat
 
                 // CASE 1: Private WHISPER Message in MUC Room or MUC context
@@ -1058,11 +1058,17 @@ class XmppRepository(
                     return@launch
                 }
 
-                val contactMatch = rosterContacts.value.find { it.jid.equals(targetRoomJid, ignoreCase = true) }
+                val cleanTargetBareJid = targetRoomJid.substringBefore("/").trim()
+                val contactMatch = rosterContacts.value.find { 
+                    it.jid.equals(cleanTargetBareJid, ignoreCase = true) || 
+                    it.jid.substringBefore("@").equals(cleanTargetBareJid.substringBefore("@"), ignoreCase = true) 
+                }
                 val senderNick = if (isSentByMe) {
                     currentAccount.value.nickname.ifBlank { currentAccount.value.username }
                 } else {
-                    contactMatch?.name?.takeIf { it.isNotBlank() } ?: targetRoomJid.substringBefore("@")
+                    contactMatch?.name?.takeIf { it.isNotBlank() } 
+                        ?: contactMatch?.nickname?.takeIf { it.isNotBlank() } 
+                        ?: cleanTargetBareJid.substringBefore("@")
                 }
 
                 val avatar = smackAvatarManager.getAvatar(targetRoomJid)
@@ -2152,25 +2158,14 @@ class XmppRepository(
         val isUrlFinal = textToSend.trim().startsWith("http")
         var isSentSuccessfully = false
 
-        // 3. Send via OMEMO Encryption if enabled
-        if (isOmemoActive && smackConnectionManager.isConnected()) {
+        // 3. Send via OMEMO Encryption if enabled (1-on-1 chat only for Stage 1)
+        if (isOmemoActive && !isGroup && smackConnectionManager.isConnected()) {
             val connection = smackConnectionManager.getRawConnection()
             if (connection != null) {
-                if (isGroup && smackMucManager.isRoomJoined(cleanJid)) {
-                    val muc = smackMucManager.getMultiUserChat(cleanJid)
-                    if (muc != null) {
-                        val encRes = omemoEncryptionManager.encryptMucMessage(muc, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
-                        if (encRes.isSuccess) {
-                            connection.sendStanza(encRes.getOrNull()!!)
-                            isSentSuccessfully = true
-                        }
-                    }
-                } else if (!isGroup) {
-                    val encRes = omemoEncryptionManager.encryptDirectMessage(cleanJid, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
-                    if (encRes.isSuccess) {
-                        connection.sendStanza(encRes.getOrNull()!!)
-                        isSentSuccessfully = true
-                    }
+                val encRes = omemoEncryptionManager.encryptDirectMessage(cleanJid, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
+                if (encRes.isSuccess) {
+                    connection.sendStanza(encRes.getOrNull()!!)
+                    isSentSuccessfully = true
                 }
             }
         }

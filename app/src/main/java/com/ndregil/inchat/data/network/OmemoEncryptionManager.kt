@@ -14,24 +14,16 @@ import kotlinx.coroutines.withContext
 import org.jivesoftware.smack.XMPPConnection
 import org.jivesoftware.smack.packet.Message
 import org.jivesoftware.smack.tcp.XMPPTCPConnection
-import org.jivesoftware.smackx.mam.MamManager
-import org.jivesoftware.smackx.muc.MultiUserChat
 import org.jivesoftware.smackx.omemo.OmemoConfiguration
 import org.jivesoftware.smackx.omemo.OmemoManager
 import org.jivesoftware.smackx.omemo.OmemoMessage
 import org.jivesoftware.smackx.omemo.internal.OmemoDevice
 import org.jivesoftware.smackx.omemo.listener.OmemoMessageListener
-import org.jivesoftware.smackx.omemo.listener.OmemoMucMessageListener
-import org.jivesoftware.smackx.omemo.signal.SignalCachingOmemoStore
-import org.jivesoftware.smackx.omemo.signal.SignalFileBasedOmemoStore
 import org.jivesoftware.smackx.omemo.signal.SignalOmemoService
 import org.jivesoftware.smackx.omemo.trust.OmemoFingerprint
 import org.jivesoftware.smackx.omemo.trust.OmemoTrustCallback
 import org.jivesoftware.smackx.omemo.trust.TrustState
-import org.jxmpp.jid.BareJid
 import org.jxmpp.jid.impl.JidCreate
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 
 class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback {
 
@@ -99,11 +91,11 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
         try {
             activeConnection = connection
             val manager = OmemoManager.getInstanceFor(connection)
-            manager.initialize()
             manager.setTrustCallback(this@OmemoEncryptionManager)
+            manager.initialize()
             omemoManager = manager
 
-            // Register incoming OMEMO message listener
+            // Register incoming OMEMO message listener for 1-on-1 direct chats
             manager.addOmemoMessageListener(object : OmemoMessageListener {
                 override fun onOmemoMessageReceived(stanza: org.jivesoftware.smack.packet.Stanza, decryptedMessage: OmemoMessage.Received) {
                     handleIncomingOmemoMessage(stanza, decryptedMessage, false)
@@ -119,25 +111,13 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
                 }
             })
 
-            // Register incoming MUC OMEMO listener
-            manager.addOmemoMucMessageListener(object : OmemoMucMessageListener {
-                override fun onOmemoMucMessageReceived(muc: MultiUserChat, stanza: org.jivesoftware.smack.packet.Stanza, decryptedMessage: OmemoMessage.Received) {
-                    handleIncomingOmemoMucMessage(muc, stanza, decryptedMessage)
-                }
-            })
-
-            Log.i(TAG, "OMEMO Manager initialized and listeners attached for $currentAccountJid")
+            Log.i(TAG, "OMEMO Manager initialized and 1-on-1 listener attached for $currentAccountJid")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize OMEMO Manager on connection ready: ${e.message}", e)
         }
     }
 
     fun cleanup() {
-        try {
-            omemoManager?.let { mgr ->
-                // Clean up listeners if needed
-            }
-        } catch (_: Exception) {}
         omemoManager = null
         activeConnection = null
     }
@@ -153,7 +133,6 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
                 TrustState.undecided
             }
         }
-        // If Auto-trust (BTBV) is enabled, automatically trust undecided identities
         if (_autoTrustDevices.value) {
             setTrust(device, fingerprint, TrustState.trusted)
             return TrustState.trusted
@@ -224,22 +203,37 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
 
             val sentMsg = try {
                 mgr.encrypt(bareJid, plaintext)
-            } catch (e: org.jivesoftware.smackx.omemo.exceptions.UndecidedOmemoIdentityException) {
+            } catch (e: Exception) {
                 if (_autoTrustDevices.value) {
-                    // Auto-trust undecided devices and retry
-                    val undecided = e.undecidedDevices
-                    for (dev in undecided) {
-                        try {
-                            val fps = mgr.getActiveFingerprints(dev.jid)
-                            val fp = fps[dev]
-                            if (fp != null) {
-                                setTrust(dev, fp, TrustState.trusted)
-                            }
-                        } catch (_: Exception) {}
+                    try {
+                        val fps = mgr.getActiveFingerprints(bareJid)
+                        for ((dev, fp) in fps) {
+                            setTrust(dev, fp, TrustState.trusted)
+                        }
+                        mgr.encrypt(bareJid, plaintext)
+                    } catch (retryEx: Exception) {
+                        return@withContext Result.failure(Exception("Gagal mengenkripsi OMEMO: ${retryEx.message}"))
                     }
-                    mgr.encrypt(bareJid, plaintext)
                 } else {
-                    return@withContext Result.failure(Exception("Perangkat baru belum dipercaya (Undecided OMEMO Identity). Aktifkan BTBV atau percayai perangkat kontak di menu OMEMO."))
+                    if (e is org.jivesoftware.smackx.omemo.exceptions.UndecidedOmemoIdentityException) {
+                        val undecided = e.undecidedDevices
+                        for (dev in undecided) {
+                            try {
+                                val fps = mgr.getActiveFingerprints(dev.jid)
+                                val fp = fps[dev]
+                                if (fp != null) {
+                                    setTrust(dev, fp, TrustState.trusted)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        try {
+                            mgr.encrypt(bareJid, plaintext)
+                        } catch (retryEx: Exception) {
+                            return@withContext Result.failure(Exception("Perangkat baru belum dipercaya (Undecided OMEMO Identity). Aktifkan BTBV."))
+                        }
+                    } else {
+                        return@withContext Result.failure(Exception("Gagal mengenkripsi OMEMO: ${e.message}"))
+                    }
                 }
             }
 
@@ -267,65 +261,11 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
         }
     }
 
-    suspend fun encryptMucMessage(
-        muc: MultiUserChat,
-        plaintext: String,
-        stanzaId: String? = null,
-        oobUrl: String? = null
-    ): Result<Message> = withContext(Dispatchers.IO) {
-        try {
-            val mgr = omemoManager ?: return@withContext Result.failure(IllegalStateException("OMEMO belum diinisialisasi."))
-            
-            val sentMsg = try {
-                mgr.encrypt(muc, plaintext)
-            } catch (e: org.jivesoftware.smackx.omemo.exceptions.UndecidedOmemoIdentityException) {
-                if (_autoTrustDevices.value) {
-                    val undecided = e.undecidedDevices
-                    for (dev in undecided) {
-                        try {
-                            val fps = mgr.getActiveFingerprints(dev.jid)
-                            val fp = fps[dev]
-                            if (fp != null) {
-                                setTrust(dev, fp, TrustState.trusted)
-                            }
-                        } catch (_: Exception) {}
-                    }
-                    mgr.encrypt(muc, plaintext)
-                } else {
-                    return@withContext Result.failure(Exception("Perangkat baru di room belum dipercaya (Undecided OMEMO Identity)."))
-                }
-            }
-
-            val builtMsg = sentMsg.buildMessage(org.jivesoftware.smack.packet.MessageBuilder.buildMessage(), muc.room) as Message
-            if (!stanzaId.isNullOrBlank()) {
-                builtMsg.stanzaId = stanzaId
-            }
-            builtMsg.to = muc.room
-            builtMsg.type = Message.Type.groupchat
-
-            if (!oobUrl.isNullOrBlank()) {
-                builtMsg.addExtension(
-                    org.jivesoftware.smack.packet.StandardExtensionElement
-                        .builder("x", "jabber:x:oob")
-                        .addElement("url", oobUrl.trim())
-                        .build()
-                )
-            }
-            org.jivesoftware.smackx.receipts.DeliveryReceiptRequest.addTo(builtMsg)
-
-            Result.success(builtMsg)
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal mengenkripsi pesan OMEMO MUC: ${e.message}", e)
-            Result.failure(e)
-        }
-    }
-
     var onDecryptedMessageReceived: ((XmppMessage, Boolean) -> Unit)? = null
 
     private fun handleIncomingOmemoMessage(stanza: org.jivesoftware.smack.packet.Stanza, decrypted: OmemoMessage.Received, isCarbon: Boolean) {
         try {
             if (decrypted.isKeyTransportMessage()) {
-                // Key transport stanzas contain ratchet key updates without user text, ignore display
                 return
             }
             val body = decrypted.body
@@ -394,77 +334,6 @@ class OmemoEncryptionManager(private val context: Context) : OmemoTrustCallback 
             onDecryptedMessageReceived?.invoke(xmppMsg, false)
         } catch (e: Exception) {
             Log.e(TAG, "Gagal memproses pesan OMEMO masuk: ${e.message}", e)
-        }
-    }
-
-    private fun handleIncomingOmemoMucMessage(muc: MultiUserChat, stanza: org.jivesoftware.smack.packet.Stanza, decrypted: OmemoMessage.Received) {
-        try {
-            if (decrypted.isKeyTransportMessage()) return
-            val body = decrypted.body
-            if (body.isNullOrBlank()) return
-
-            val roomJid = muc.room.toString()
-            val fromJid = stanza.from ?: return
-            val senderNick = fromJid.resourceOrNull?.toString() ?: fromJid.asBareJid().toString().substringBefore("@")
-
-            val urls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(body)
-            val bodyImageUrl = urls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
-            val preParsedOobUrl = if (stanza.hasExtension("x", "jabber:x:oob")) {
-                val xml = stanza.toXML().toString()
-                Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
-                    .find(xml)?.groupValues?.get(1)?.trim()
-            } else null
-
-            val isOobImage = preParsedOobUrl != null && com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(preParsedOobUrl)
-            val isVoice = body.contains("🎤 Pesan Suara", ignoreCase = true) ||
-                urls.any { com.ndregil.inchat.util.MediaUrlUtils.isVoiceOrAudioUrl(it) }
-            val isImage = isOobImage || bodyImageUrl != null
-            val isFile = isImage || preParsedOobUrl != null
-
-            val fileUrl = preParsedOobUrl ?: bodyImageUrl ?: if (isVoice) urls.firstOrNull() else null
-            val inferredFileName = if (isFile && !fileUrl.isNullOrBlank()) {
-                fileUrl.substringAfterLast('/').substringBefore('?').substringBefore('#')
-                    .takeIf { it.isNotBlank() } ?: "Lampiran"
-            } else null
-
-            val voiceDuration = if (isVoice) {
-                Regex("\\((\\d+)d\\)").find(body)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 5
-            } else null
-
-            val messageType = when {
-                isVoice -> MessageType.VOICE
-                isFile -> MessageType.FILE
-                else -> MessageType.GROUPCHAT
-            }
-
-            val timestamp = org.jivesoftware.smackx.delay.DelayInformationManager.getDelayInformation(stanza)?.stamp?.time ?: System.currentTimeMillis()
-            val stanzaId = stanza.stanzaId?.ifBlank { null } ?: "omemo_muc_${timestamp}_${senderNick.hashCode()}"
-
-            val xmppMsg = XmppMessage(
-                id = stanzaId,
-                roomJid = roomJid,
-                senderJid = fromJid.toString(),
-                senderNickname = senderNick,
-                body = body,
-                timestamp = timestamp,
-                isMine = false,
-                messageType = messageType,
-                status = DeliveryStatus.DELIVERED,
-                fileUrl = fileUrl,
-                fileMimeType = when {
-                    isImage -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferImageMimeType(it) } ?: "image/*"
-                    isVoice -> "audio/mp4"
-                    isFile -> fileUrl?.let { com.ndregil.inchat.util.MediaUrlUtils.inferFileMimeType(it) } ?: "application/octet-stream"
-                    else -> null
-                },
-                fileName = inferredFileName,
-                voiceDurationSeconds = voiceDuration,
-                isEncrypted = true
-            )
-
-            onDecryptedMessageReceived?.invoke(xmppMsg, true)
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal memproses pesan MUC OMEMO masuk: ${e.message}", e)
         }
     }
 
