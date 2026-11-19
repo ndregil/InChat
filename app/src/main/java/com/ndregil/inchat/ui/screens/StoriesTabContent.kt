@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -89,11 +91,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,11 +109,13 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.ndregil.inchat.data.model.ContactStoryGroup
 import com.ndregil.inchat.data.model.RosterContact
 import com.ndregil.inchat.data.model.StoryMediaType
 import com.ndregil.inchat.data.model.UserStory
+import com.ndregil.inchat.ui.XmppViewModel
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -132,6 +139,8 @@ fun StoriesTabContent(
     onDeleteStory: (storyId: String) -> Unit,
     onMarkViewed: (storyId: String) -> Unit,
     onStartDirectChat: ((jid: String, name: String) -> Unit)? = null,
+    onOpenTextComposer: (() -> Unit)? = null,
+    onOpenMediaComposer: ((Uri) -> Unit)? = null,
     isPublishing: Boolean = false,
     paddingValues: PaddingValues = PaddingValues(0.dp)
 ) {
@@ -148,12 +157,28 @@ fun StoriesTabContent(
         selectedMediaUriString?.let { runCatching { Uri.parse(it) }.getOrNull() }
     }
 
+    val openTextEditor: () -> Unit = {
+        if (onOpenTextComposer != null) {
+            onOpenTextComposer()
+        } else {
+            showCreateTextDialog = true
+        }
+    }
+
+    val openMediaEditor: (Uri) -> Unit = { uri ->
+        if (onOpenMediaComposer != null) {
+            onOpenMediaComposer(uri)
+        } else {
+            selectedMediaUriString = uri.toString()
+            showCreateMediaDialog = true
+        }
+    }
+
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            selectedMediaUriString = uri.toString()
-            showCreateMediaDialog = true
+            openMediaEditor(uri)
         }
     }
 
@@ -173,8 +198,7 @@ fun StoriesTabContent(
             } catch (_: Exception) {
                 Uri.fromFile(capturedFile)
             }
-            selectedMediaUriString = contentUri.toString()
-            showCreateMediaDialog = true
+            openMediaEditor(contentUri)
         } else {
             if (capturedFile != null && capturedFile.exists() && capturedFile.length() == 0L) {
                 runCatching { capturedFile.delete() }
@@ -296,7 +320,7 @@ fun StoriesTabContent(
                                     if (myStories.isNotEmpty()) {
                                         viewingGroupTarget = myJid to true
                                     } else {
-                                        showCreateTextDialog = true
+                                        openTextEditor()
                                     }
                                 }
                         ) {
@@ -361,7 +385,7 @@ fun StoriesTabContent(
                                     if (myStories.isNotEmpty()) {
                                         viewingGroupTarget = myJid to true
                                     } else {
-                                        showCreateTextDialog = true
+                                        openTextEditor()
                                     }
                                 }
                         ) {
@@ -422,7 +446,7 @@ fun StoriesTabContent(
                         // Action buttons: Text story and Camera/Gallery story
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             IconButton(
-                                onClick = { showCreateTextDialog = true },
+                                onClick = openTextEditor,
                                 modifier = Modifier
                                     .size(38.dp)
                                     .clip(CircleShape)
@@ -586,7 +610,7 @@ fun StoriesTabContent(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Button(
-                                onClick = { showCreateTextDialog = true },
+                                onClick = openTextEditor,
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -774,11 +798,81 @@ private fun DefaultAvatar(name: String, hasStories: Boolean) {
     }
 }
 
+@Composable
+fun StoryComposerOverlay(viewModel: XmppViewModel) {
+    val composerState by viewModel.storyComposerState.collectAsStateWithLifecycle()
+    val isPublishing by viewModel.isPublishingStory.collectAsStateWithLifecycle()
+
+    AnimatedVisibility(
+        visible = composerState !is XmppViewModel.StoryComposerState.None,
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        when (val state = composerState) {
+            is XmppViewModel.StoryComposerState.TextStory -> {
+                CreateTextStoryContent(
+                    onDismiss = { viewModel.closeStoryComposer() },
+                    onPublish = { text, bgColor ->
+                        viewModel.publishStory(text, null, bgColor)
+                        viewModel.closeStoryComposer()
+                    },
+                    isPublishing = isPublishing
+                )
+            }
+            is XmppViewModel.StoryComposerState.MediaStory -> {
+                CreateMediaStoryContent(
+                    imageUri = state.imageUri,
+                    onDismiss = { viewModel.closeStoryComposer() },
+                    onPublish = { caption ->
+                        viewModel.publishStory(caption, state.imageUri, "#0284C7")
+                        viewModel.closeStoryComposer()
+                    },
+                    isPublishing = isPublishing
+                )
+            }
+            is XmppViewModel.StoryComposerState.None -> Unit
+        }
+    }
+}
+
 /**
  * Text Story Creation Screen (color selector, big text input)
  */
 @Composable
 fun CreateTextStoryDialog(
+    onDismiss: () -> Unit,
+    onPublish: (text: String, bgColor: String) -> Unit,
+    isPublishing: Boolean
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        val dialogView = LocalView.current
+        SideEffect {
+            (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                window.setLayout(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT
+                )
+                @Suppress("DEPRECATION")
+                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            }
+        }
+        CreateTextStoryContent(
+            onDismiss = onDismiss,
+            onPublish = onPublish,
+            isPublishing = isPublishing
+        )
+    }
+}
+
+@Composable
+fun CreateTextStoryContent(
     onDismiss: () -> Unit,
     onPublish: (text: String, bgColor: String) -> Unit,
     isPublishing: Boolean
@@ -791,6 +885,8 @@ fun CreateTextStoryDialog(
     var selectedColorIndex by remember { mutableIntStateOf(0) }
     var textContent by remember { mutableStateOf("") }
 
+    BackHandler(onBack = onDismiss)
+
     val currentColorHex = presetColors[selectedColorIndex]
     val currentColor = try {
         Color(android.graphics.Color.parseColor(currentColorHex))
@@ -798,122 +894,107 @@ fun CreateTextStoryDialog(
         MaterialTheme.colorScheme.primary
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {},
+        color = currentColor
     ) {
-        val dialogView = LocalView.current
-        SideEffect {
-            (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                @Suppress("DEPRECATION")
-                window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = currentColor
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                .padding(16.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                    .padding(16.dp)
+            // Top bar: Close & Color picker cycle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Top bar: Close & Color picker cycle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
-                    }
-
-                    // Cycle color button
-                    IconButton(
-                        onClick = {
-                            selectedColorIndex = (selectedColorIndex + 1) % presetColors.size
-                        }
-                    ) {
-                        Icon(Icons.Default.Palette, contentDescription = strings.changeColor, tint = Color.White)
-                    }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
                 }
 
-                // Center big text (scrollable when keyboard reduces height)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    contentAlignment = Alignment.Center
+                // Cycle color button
+                IconButton(
+                    onClick = {
+                        selectedColorIndex = (selectedColorIndex + 1) % presetColors.size
+                    }
                 ) {
-                    OutlinedTextField(
-                        value = textContent,
-                        onValueChange = { if (it.length <= 300) textContent = it },
-                        placeholder = {
-                            Text(
-                                strings.typeStatusPlaceholder,
-                                color = Color.White.copy(alpha = 0.6f),
-                                fontSize = 24.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        },
-                        textStyle = MaterialTheme.typography.headlineSmall.copy(
-                            color = Color.White,
+                    Icon(Icons.Default.Palette, contentDescription = strings.changeColor, tint = Color.White)
+                }
+            }
+
+            // Center big text (scrollable when keyboard reduces height)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                contentAlignment = Alignment.Center
+            ) {
+                OutlinedTextField(
+                    value = textContent,
+                    onValueChange = { if (it.length <= 300) textContent = it },
+                    placeholder = {
+                        Text(
+                            strings.typeStatusPlaceholder,
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 24.sp,
                             textAlign = TextAlign.Center,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .testTag("input_story_text"),
-                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            cursorColor = Color.White
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    )
-                }
-
-                // Bottom bar: character count and publish FAB
-                Row(
+                    },
+                    textStyle = MaterialTheme.typography.headlineSmall.copy(
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp, start = 8.dp, end = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${textContent.length}/300",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 12.sp
+                        .padding(horizontal = 16.dp)
+                        .testTag("input_story_text"),
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = Color.White
                     )
+                )
+            }
 
-                    FloatingActionButton(
-                        onClick = {
-                            if (textContent.isNotBlank() && !isPublishing) {
-                                onPublish(textContent.trim(), currentColorHex)
-                            }
-                        },
-                        containerColor = Color.White,
-                        contentColor = currentColor,
-                        modifier = Modifier.testTag("btn_publish_text_story")
-                    ) {
-                        if (isPublishing) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = currentColor)
-                        } else {
-                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.sendStatus)
+            // Bottom bar: character count and publish FAB
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp, start = 8.dp, end = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${textContent.length}/300",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp
+                )
+
+                FloatingActionButton(
+                    onClick = {
+                        if (textContent.isNotBlank() && !isPublishing) {
+                            onPublish(textContent.trim(), currentColorHex)
                         }
+                    },
+                    containerColor = Color.White,
+                    contentColor = currentColor,
+                    modifier = Modifier.testTag("btn_publish_text_story")
+                ) {
+                    if (isPublishing) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = currentColor)
+                    } else {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = strings.sendStatus)
                     }
                 }
             }
@@ -931,9 +1012,6 @@ fun CreateMediaStoryDialog(
     onPublish: (caption: String) -> Unit,
     isPublishing: Boolean
 ) {
-    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
-    var caption by remember { mutableStateOf("") }
-
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -945,78 +1023,117 @@ fun CreateMediaStoryDialog(
         SideEffect {
             (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
                 WindowCompat.setDecorFitsSystemWindows(window, false)
+                window.setLayout(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT
+                )
                 @Suppress("DEPRECATION")
                 window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             }
         }
+        CreateMediaStoryContent(
+            imageUri = imageUri,
+            onDismiss = onDismiss,
+            onPublish = onPublish,
+            isPublishing = isPublishing
+        )
+    }
+}
 
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = Color.Black
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Photo Preview & Top Bar share the upper flexible space above the caption bar
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    AsyncImage(
-                        model = imageUri,
-                        contentDescription = "Preview Status",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
+@Composable
+fun CreateMediaStoryContent(
+    imageUri: Uri,
+    onDismiss: () -> Unit,
+    onPublish: (caption: String) -> Unit,
+    isPublishing: Boolean
+) {
+    val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+    var caption by remember(imageUri) { mutableStateOf("") }
 
-                    // Top Bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.5f))
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
-                        }
-                    }
-                }
+    BackHandler(onBack = onDismiss)
 
-                // Bottom Caption & Send Bar stays pinned above keyboard & navigation bar
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {},
+        color = Color.Black
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Photo Preview & Top Bar share the upper flexible space above the caption bar
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                AsyncImage(
+                    model = imageUri,
+                    contentDescription = "Preview Status",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+
+                // Top Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(Color.Black.copy(alpha = 0.65f), Color.Black.copy(alpha = 0.92f))
-                            )
+                        .statusBarsPadding()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = strings.cancel, tint = Color.White)
+                    }
+                }
+            }
+
+            // Bottom Caption & Send Bar stays pinned above keyboard & navigation bar
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Black.copy(alpha = 0.72f), Color.Black.copy(alpha = 0.96f))
                         )
-                        .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    )
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedTextField(
                         value = caption,
-                        onValueChange = { caption = it },
-                        placeholder = { Text(strings.addCaptionPlaceholder, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp) },
+                        onValueChange = { if (it.length <= 500) caption = it },
+                        placeholder = {
+                            Text(
+                                strings.addCaptionPlaceholder,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 14.sp
+                            )
+                        },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("input_story_caption"),
                         shape = RoundedCornerShape(24.dp),
-                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White.copy(alpha = 0.2f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.15f),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Default
+                        ),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1F2937).copy(alpha = 0.92f),
+                            unfocusedContainerColor = Color(0xFF1F2937).copy(alpha = 0.85f),
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedBorderColor = Color.White.copy(alpha = 0.45f),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
                             cursorColor = Color.White
                         ),
                         maxLines = 4

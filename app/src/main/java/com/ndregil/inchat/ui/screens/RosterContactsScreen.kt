@@ -419,6 +419,8 @@ fun RosterContactsScreen(
                             viewModel.markStoryViewed(storyId)
                         },
                         onStartDirectChat = onStartDirectChat,
+                        onOpenTextComposer = { viewModel.openTextStoryComposer() },
+                        onOpenMediaComposer = { uri -> viewModel.openMediaStoryComposer(uri) },
                         isPublishing = isPublishingStory,
                         paddingValues = paddingValues
                     )

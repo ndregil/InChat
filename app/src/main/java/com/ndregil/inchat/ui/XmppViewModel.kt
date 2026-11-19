@@ -1933,8 +1933,27 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = emptyList()
     )
 
+    sealed interface StoryComposerState {
+        data object None : StoryComposerState
+        data object TextStory : StoryComposerState
+        data class MediaStory(val imageUri: android.net.Uri) : StoryComposerState
+    }
+
+    val storyComposerState = MutableStateFlow<StoryComposerState>(StoryComposerState.None)
     val isPublishingStory = MutableStateFlow(false)
     val storyPublishError = MutableStateFlow<String?>(null)
+
+    fun openTextStoryComposer() {
+        storyComposerState.value = StoryComposerState.TextStory
+    }
+
+    fun openMediaStoryComposer(imageUri: android.net.Uri) {
+        storyComposerState.value = StoryComposerState.MediaStory(imageUri)
+    }
+
+    fun closeStoryComposer() {
+        storyComposerState.value = StoryComposerState.None
+    }
 
     fun publishStory(text: String, mediaUri: android.net.Uri? = null, backgroundColorHex: String = "#0284C7") {
         viewModelScope.launch {

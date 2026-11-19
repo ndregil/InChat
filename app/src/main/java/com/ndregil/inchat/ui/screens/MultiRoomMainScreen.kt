@@ -2825,6 +2825,7 @@ fun MultiRoomMainScreen(
         )
     }
 
+    StoryComposerOverlay(viewModel = viewModel)
     PanggilanOverlay(viewModel = viewModel)
 }
 
