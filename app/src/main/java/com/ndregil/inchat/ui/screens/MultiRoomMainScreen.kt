@@ -3891,74 +3891,45 @@ fun ChatInputBar(
                                     )
                                 }
 
-                                // Tombol Enkripsi OMEMO (gembok tertutup hanya jika kontak punya perangkat OMEMO; warna peringatan bila tidak didukung)
-                                if (onToggleOmemo != null) {
-                                    val isVerifiedSupported = isOmemoEnabled && isOmemoSupportedByContact == true
-                                    val isKnownUnsupported = isOmemoEnabled && isOmemoSupportedByContact == false
-                                    IconButton(
-                                        onClick = { onToggleOmemo() },
-                                        modifier = Modifier.size(32.dp).testTag("btn_omemo_input")
-                                    ) {
-                                        Icon(
-                                            imageVector = if (isVerifiedSupported) {
-                                                Icons.Default.Lock
-                                            } else {
-                                                Icons.Default.LockOpen
-                                            },
-                                            contentDescription = when {
-                                                isKnownUnsupported -> "Tidak didukung kontak"
-                                                isVerifiedSupported -> "Enkripsi OMEMO Aktif"
-                                                else -> "Enkripsi OMEMO (XEP-0384)"
-                                            },
-                                            tint = when {
-                                                isKnownUnsupported -> Color(0xFFF59E0B)
-                                                isVerifiedSupported -> MaterialTheme.colorScheme.primary
-                                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                            },
-                                            modifier = Modifier.size(19.dp)
-                                        )
-                                    }
-                                }
-
-                                // Lampiran (selalu tersedia baik input kosong maupun sudah terisi)
-                                Box {
-                                    IconButton(
-                                        onClick = { showAttachMenu = true },
-                                        modifier = Modifier.size(32.dp).testTag("btn_attach")
-                                    ) {
-                                        Icon(Icons.Default.AttachFile, contentDescription = "Lampirkan berkas atau foto", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
-                                    }
-
-                                    DropdownMenu(
-                                        expanded = showAttachMenu,
-                                        onDismissRequest = { showAttachMenu = false }
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Pilih Berkas / Gambar") },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                            },
-                                            modifier = Modifier.testTag("menu_attach_file"),
-                                            onClick = {
-                                                showAttachMenu = false
-                                                onAttachClick()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Ambil Foto (Kamera)") },
-                                            leadingIcon = {
-                                                Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                            },
-                                            modifier = Modifier.testTag("menu_attach_camera"),
-                                            onClick = {
-                                                showAttachMenu = false
-                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                            }
-                                        )
-                                    }
-                                }
-
                                 if (inputText.isBlank()) {
+                                    // Lampiran (ditampilkan saat input kosong; saat mengetik hanya tombol translate)
+                                    Box {
+                                        IconButton(
+                                            onClick = { showAttachMenu = true },
+                                            modifier = Modifier.size(32.dp).testTag("btn_attach")
+                                        ) {
+                                            Icon(Icons.Default.AttachFile, contentDescription = "Lampirkan berkas atau foto", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(19.dp))
+                                        }
+
+                                        DropdownMenu(
+                                            expanded = showAttachMenu,
+                                            onDismissRequest = { showAttachMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Pilih Berkas / Gambar") },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.AttachFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                },
+                                                modifier = Modifier.testTag("menu_attach_file"),
+                                                onClick = {
+                                                    showAttachMenu = false
+                                                    onAttachClick()
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Ambil Foto (Kamera)") },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                                },
+                                                modifier = Modifier.testTag("menu_attach_camera"),
+                                                onClick = {
+                                                    showAttachMenu = false
+                                                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                                }
+                                            )
+                                        }
+                                    }
+
                                     // Lokasi
                                     IconButton(
                                         onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
