@@ -21,6 +21,7 @@ import com.ndregil.inchat.data.model.UserPresence
 import com.ndregil.inchat.data.model.XmppAccount
 import com.ndregil.inchat.data.model.XmppMessage
 import com.ndregil.inchat.data.model.XmppRoom
+import com.ndregil.inchat.data.repository.SendMessageOutcome
 import com.ndregil.inchat.data.repository.XmppRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -106,11 +107,137 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    sealed class PendingOmemoBypassAction {
+        abstract val targetJid: String
+        abstract val failedMessageId: String
+        abstract val reason: String
+
+        data class TextOrLocation(
+            override val targetJid: String,
+            override val failedMessageId: String,
+            override val reason: String,
+            val text: String,
+            val myNickname: String,
+            val replyToMessageId: String? = null,
+            val replyToSender: String? = null,
+            val replyToText: String? = null
+        ) : PendingOmemoBypassAction()
+
+        data class FileAttachment(
+            override val targetJid: String,
+            override val failedMessageId: String,
+            override val reason: String,
+            val uri: android.net.Uri,
+            val fileName: String,
+            val fileSize: Long,
+            val mimeType: String,
+            val myNickname: String,
+            val description: String,
+            val fromRosterContact: Boolean = false
+        ) : PendingOmemoBypassAction()
+
+        data class VoiceNote(
+            override val targetJid: String,
+            override val failedMessageId: String,
+            override val reason: String,
+            val audioFile: java.io.File,
+            val durationSeconds: Int,
+            val myNickname: String
+        ) : PendingOmemoBypassAction()
+    }
+
     val omemoEnabledJids: StateFlow<Set<String>> = repository.omemoEncryptionManager.omemoEnabledJids
+    val contactOmemoSupport: StateFlow<Map<String, Boolean?>> = repository.omemoEncryptionManager.contactOmemoSupport
     val autoTrustOmemo: StateFlow<Boolean> = repository.omemoEncryptionManager.autoTrustDevices
 
+    private val _pendingOmemoBypass = MutableStateFlow<PendingOmemoBypassAction?>(null)
+    val pendingOmemoBypass: StateFlow<PendingOmemoBypassAction?> = _pendingOmemoBypass.asStateFlow()
+
     fun isOmemoEnabledFor(jid: String): Boolean = repository.omemoEncryptionManager.isOmemoEnabledFor(jid)
-    fun setOmemoEnabledFor(jid: String, enabled: Boolean) = repository.omemoEncryptionManager.setOmemoEnabledFor(jid, enabled)
+
+    fun setOmemoEnabledFor(jid: String, enabled: Boolean) {
+        repository.omemoEncryptionManager.setOmemoEnabledFor(jid, enabled)
+        if (enabled) {
+            refreshOmemoSupportFor(jid)
+        }
+    }
+
+    fun refreshOmemoSupportFor(jid: String) {
+        val bare = repository.omemoEncryptionManager.toBareJid(jid)
+        if (bare.isBlank() || repository.isMucJid(bare)) return
+        viewModelScope.launch {
+            repository.omemoEncryptionManager.checkOmemoSupport(bare, forceRefresh = true)
+        }
+    }
+
+    fun dismissOmemoBypassPrompt() {
+        _pendingOmemoBypass.value = null
+    }
+
+    fun confirmSendWithoutEncryptionOnce() {
+        val pending = _pendingOmemoBypass.value ?: return
+        _pendingOmemoBypass.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            // Hapus record gagal sementara agar digantikan satu pengiriman plaintext untuk pesan ini saja (saklar tetap ON)
+            repository.deleteMessageById(pending.failedMessageId)
+            when (pending) {
+                is PendingOmemoBypassAction.TextOrLocation -> {
+                    val outcome = repository.sendMessage(
+                        roomJid = pending.targetJid,
+                        text = pending.text,
+                        myNickname = pending.myNickname,
+                        replyToMessageId = pending.replyToMessageId,
+                        replyToSender = pending.replyToSender,
+                        replyToText = pending.replyToText,
+                        allowPlaintextOnce = true
+                    )
+                    if (outcome is SendMessageOutcome.Failed) {
+                        autoJoinToastStatus.value = "Gagal mengirim pesan: ${outcome.reason}"
+                    }
+                }
+                is PendingOmemoBypassAction.FileAttachment -> {
+                    val outcome = if (pending.fromRosterContact) {
+                        repository.sendFileToContact(
+                            targetJid = pending.targetJid,
+                            uri = pending.uri,
+                            fileName = pending.fileName,
+                            fileSize = pending.fileSize,
+                            mimeType = pending.mimeType,
+                            description = pending.description,
+                            allowPlaintextOnce = true
+                        )
+                    } else {
+                        repository.sendFile(
+                            roomJid = pending.targetJid,
+                            uri = pending.uri,
+                            fileName = pending.fileName,
+                            fileSize = pending.fileSize,
+                            mimeType = pending.mimeType,
+                            myNickname = pending.myNickname,
+                            description = pending.description,
+                            allowPlaintextOnce = true
+                        )
+                    }
+                    if (outcome is SendMessageOutcome.Failed) {
+                        autoJoinToastStatus.value = "Gagal mengirim berkas: ${outcome.reason}"
+                    }
+                }
+                is PendingOmemoBypassAction.VoiceNote -> {
+                    val outcome = repository.sendVoiceMessage(
+                        roomJid = pending.targetJid,
+                        audioFile = pending.audioFile,
+                        durationSeconds = pending.durationSeconds,
+                        myNickname = pending.myNickname,
+                        allowPlaintextOnce = true
+                    )
+                    if (outcome is SendMessageOutcome.Failed) {
+                        autoJoinToastStatus.value = "Gagal mengirim pesan suara: ${outcome.reason}"
+                    }
+                }
+            }
+        }
+    }
+
     fun setAutoTrustOmemo(enabled: Boolean) = repository.omemoEncryptionManager.setAutoTrustDevices(enabled)
     fun getOwnOmemoFingerprint(): String? = repository.omemoEncryptionManager.getOwnFingerprint()
     fun getOwnOmemoDeviceId(): Int? = repository.omemoEncryptionManager.getOwnDeviceId()
@@ -701,7 +828,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         currentInputText.value = ""
 
         viewModelScope.launch(Dispatchers.IO) {
-            repository.sendMessage(
+            val outcome = repository.sendMessage(
                 roomJid = room.jid,
                 text = trimmed,
                 myNickname = myNick,
@@ -709,6 +836,26 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                 replyToSender = replyTarget?.senderNickname,
                 replyToText = replyTarget?.body
             )
+            when (outcome) {
+                is SendMessageOutcome.OmemoUnsupported -> {
+                    _pendingOmemoBypass.value = PendingOmemoBypassAction.TextOrLocation(
+                        targetJid = room.jid,
+                        failedMessageId = outcome.failedMessageId,
+                        reason = outcome.reason,
+                        text = trimmed,
+                        myNickname = myNick,
+                        replyToMessageId = replyTarget?.id,
+                        replyToSender = replyTarget?.senderNickname,
+                        replyToText = replyTarget?.body
+                    )
+                }
+                is SendMessageOutcome.Failed -> {
+                    if (!room.isGroupChat && isOmemoEnabledFor(room.jid)) {
+                        autoJoinToastStatus.value = "Pesan tidak dikirim (OMEMO): ${outcome.reason}"
+                    }
+                }
+                SendMessageOutcome.Sent -> Unit
+            }
         }
     }
 
@@ -732,7 +879,29 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         viewModelScope.launch {
-            repository.sendFile(room.jid, uri, fileName, fileSize, mimeType, myNick, description)
+            val outcome = repository.sendFile(room.jid, uri, fileName, fileSize, mimeType, myNick, description)
+            when (outcome) {
+                is SendMessageOutcome.OmemoUnsupported -> {
+                    _pendingOmemoBypass.value = PendingOmemoBypassAction.FileAttachment(
+                        targetJid = room.jid,
+                        failedMessageId = outcome.failedMessageId,
+                        reason = outcome.reason,
+                        uri = uri,
+                        fileName = fileName,
+                        fileSize = fileSize,
+                        mimeType = mimeType,
+                        myNickname = myNick,
+                        description = description,
+                        fromRosterContact = false
+                    )
+                }
+                is SendMessageOutcome.Failed -> {
+                    if (!room.isGroupChat && isOmemoEnabledFor(room.jid)) {
+                        autoJoinToastStatus.value = "Berkas tidak dikirim (OMEMO): ${outcome.reason}"
+                    }
+                }
+                SendMessageOutcome.Sent -> Unit
+            }
         }
     }
 
@@ -740,7 +909,25 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val room = activeRoom.value ?: return
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         viewModelScope.launch {
-            repository.sendVoiceMessage(room.jid, audioFile, durationSeconds, myNick)
+            val outcome = repository.sendVoiceMessage(room.jid, audioFile, durationSeconds, myNick)
+            when (outcome) {
+                is SendMessageOutcome.OmemoUnsupported -> {
+                    _pendingOmemoBypass.value = PendingOmemoBypassAction.VoiceNote(
+                        targetJid = room.jid,
+                        failedMessageId = outcome.failedMessageId,
+                        reason = outcome.reason,
+                        audioFile = audioFile,
+                        durationSeconds = durationSeconds,
+                        myNickname = myNick
+                    )
+                }
+                is SendMessageOutcome.Failed -> {
+                    if (!room.isGroupChat && isOmemoEnabledFor(room.jid)) {
+                        autoJoinToastStatus.value = "Pesan suara tidak dikirim (OMEMO): ${outcome.reason}"
+                    }
+                }
+                SendMessageOutcome.Sent -> Unit
+            }
         }
     }
 
@@ -749,11 +936,28 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         val myNick = room.myNickname.ifBlank { currentAccount.value.nickname }
         val locationText = "📍 $label\nhttps://maps.google.com/?q=$latitude,$longitude\ngeo:$latitude,$longitude?z=16"
         viewModelScope.launch {
-            repository.sendMessage(
+            val outcome = repository.sendMessage(
                 roomJid = room.jid,
                 text = locationText,
                 myNickname = myNick
             )
+            when (outcome) {
+                is SendMessageOutcome.OmemoUnsupported -> {
+                    _pendingOmemoBypass.value = PendingOmemoBypassAction.TextOrLocation(
+                        targetJid = room.jid,
+                        failedMessageId = outcome.failedMessageId,
+                        reason = outcome.reason,
+                        text = locationText,
+                        myNickname = myNick
+                    )
+                }
+                is SendMessageOutcome.Failed -> {
+                    if (!room.isGroupChat && isOmemoEnabledFor(room.jid)) {
+                        autoJoinToastStatus.value = "Lokasi tidak dikirim (OMEMO): ${outcome.reason}"
+                    }
+                }
+                SendMessageOutcome.Sent -> Unit
+            }
         }
     }
 
@@ -788,7 +992,30 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         description: String = ""
     ) {
         viewModelScope.launch {
-            repository.sendFileToContact(targetJid, uri, fileName, fileSize, mimeType, description)
+            val outcome = repository.sendFileToContact(targetJid, uri, fileName, fileSize, mimeType, description)
+            when (outcome) {
+                is SendMessageOutcome.OmemoUnsupported -> {
+                    val myNick = currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } }
+                    _pendingOmemoBypass.value = PendingOmemoBypassAction.FileAttachment(
+                        targetJid = targetJid.trim().substringBefore("/"),
+                        failedMessageId = outcome.failedMessageId,
+                        reason = outcome.reason,
+                        uri = uri,
+                        fileName = fileName ?: "Lampiran",
+                        fileSize = fileSize,
+                        mimeType = mimeType ?: "application/octet-stream",
+                        myNickname = myNick,
+                        description = description,
+                        fromRosterContact = true
+                    )
+                }
+                is SendMessageOutcome.Failed -> {
+                    if (isOmemoEnabledFor(targetJid)) {
+                        autoJoinToastStatus.value = "Berkas tidak dikirim (OMEMO): ${outcome.reason}"
+                    }
+                }
+                SendMessageOutcome.Sent -> Unit
+            }
         }
     }
 

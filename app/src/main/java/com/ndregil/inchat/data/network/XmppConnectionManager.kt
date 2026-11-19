@@ -177,6 +177,12 @@ class XmppConnectionManager(
     @Volatile
     private var chatManager: org.jivesoftware.smack.chat2.ChatManager? = null
 
+    @Volatile
+    private var connectInProgress: Boolean = false
+
+    var onBeforeConnectPrepared: ((XMPPTCPConnection) -> Unit)? = null
+    var onReconnectedAuthenticated: ((XMPPTCPConnection) -> Unit)? = null
+
     private val smackConnectionListener = object : ConnectionListener {
         override fun connected(connection: XMPPConnection) {
             Log.d(TAG, "Smack: Connected to ${connection.host}:${connection.port}")
@@ -187,6 +193,9 @@ class XmppConnectionManager(
             Log.d(TAG, "Smack: Authenticated as ${connection.user} (resumed=$resumed)")
             _connectionStatus.value = ConnectionStatus.CONNECTED
             _lastError.value = null
+            if (!connectInProgress && connection is XMPPTCPConnection) {
+                onReconnectedAuthenticated?.invoke(connection)
+            }
         }
 
         override fun connectionClosed() {
@@ -269,6 +278,7 @@ class XmppConnectionManager(
         val cleanHost = sanitizeHost(creds.host)
 
         try {
+            connectInProgress = true
             _connectionStatus.value = ConnectionStatus.CONNECTING
             _lastError.value = null
 
@@ -286,7 +296,7 @@ class XmppConnectionManager(
                 .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(30000) // 30 seconds
                 .setSecurityMode(if (creds.useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.ifpossible)
-                .setSendPresence(true)
+                .setSendPresence(false)
                 .setCompressionEnabled(false)
 
             if (cleanHost.isNotBlank() && !cleanHost.equals(cleanDomain, ignoreCase = true)) {
@@ -352,6 +362,12 @@ class XmppConnectionManager(
                 Log.w(TAG, "VersionManager setup failed: ${e.message}")
             }
 
+            try {
+                onBeforeConnectPrepared?.invoke(connection)
+            } catch (e: Exception) {
+                Log.w(TAG, "onBeforeConnectPrepared warning: ${e.message}")
+            }
+
             connection.connect()
             Log.i(TAG, "TCP connection established.")
 
@@ -414,6 +430,8 @@ class XmppConnectionManager(
             _lastError.value = friendlyMsg
             safeDisconnectInternal()
             Result.failure(e)
+        } finally {
+            connectInProgress = false
         }
     }
 

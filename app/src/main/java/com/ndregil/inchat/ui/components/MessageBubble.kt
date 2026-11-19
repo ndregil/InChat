@@ -682,7 +682,7 @@ fun MessageBubble(
                         modifier = Modifier.align(Alignment.End),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (message.isEncrypted) {
+                        if (message.isEncrypted && message.status != DeliveryStatus.FAILED) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "OMEMO Encrypted",

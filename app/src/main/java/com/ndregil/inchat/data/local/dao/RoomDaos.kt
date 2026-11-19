@@ -186,6 +186,12 @@ interface MessageDao {
     @Query("UPDATE messages SET status = :status WHERE id = :id AND status = 'SENDING'")
     suspend fun updateMessageStatusIfSending(id: String, status: DeliveryStatus)
 
+    @Query("UPDATE messages SET status = :status, isEncrypted = :isEncrypted WHERE id = :id")
+    suspend fun updateMessageStatusAndEncrypted(id: String, status: DeliveryStatus, isEncrypted: Boolean)
+
+    @Query("UPDATE messages SET status = :status, isEncrypted = :isEncrypted, body = :body WHERE id = :id")
+    suspend fun updateMessageFailure(id: String, status: DeliveryStatus, isEncrypted: Boolean, body: String)
+
     @Query("UPDATE messages SET translatedBody = :translatedBody, translationLanguage = :language WHERE id = :id")
     suspend fun updateMessageTranslation(id: String, translatedBody: String, language: String)
 

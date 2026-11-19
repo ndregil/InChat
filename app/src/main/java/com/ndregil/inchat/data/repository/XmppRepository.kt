@@ -37,6 +37,8 @@ import com.ndregil.inchat.data.network.XmppConnectionService
 import com.ndregil.inchat.data.network.XmppProtocolEngine
 import com.ndregil.inchat.data.network.fcm.FcmPushManager
 import com.ndregil.inchat.data.network.fcm.PushMessagePayload
+import com.ndregil.inchat.data.network.OmemoSupportResult
+import com.ndregil.inchat.data.network.OmemoUnsupportedContactException
 import org.jxmpp.jid.impl.JidCreate
 import org.jivesoftware.smackx.delay.DelayInformationManager
 
@@ -66,6 +68,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+
+sealed class SendMessageOutcome {
+    object Sent : SendMessageOutcome()
+    data class OmemoUnsupported(val reason: String, val failedMessageId: String) : SendMessageOutcome()
+    data class Failed(val reason: String, val failedMessageId: String?) : SendMessageOutcome()
+}
 
 class XmppRepository(
     private val context: android.content.Context,
@@ -199,9 +207,50 @@ class XmppRepository(
 
     init {
         connectionService.start()
+        smackConnectionManager.onBeforeConnectPrepared = { conn ->
+            omemoEncryptionManager.prepareForConnection(conn)
+        }
+        smackConnectionManager.onReconnectedAuthenticated = { conn ->
+            scope.launch(Dispatchers.IO) {
+                try {
+                    smackAvatarManager.onConnectionReady(conn)
+                    setupReceiptListener(conn)
+                    setupIncomingStanzaListener()
+                    kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                        val acctJid = currentAccount.value.jid.ifBlank { conn.user?.asBareJid()?.toString().orEmpty() }
+                        omemoEncryptionManager.onConnectionReady(conn, acctJid)
+                    }
+                    smackConnectionManager.updatePresence(_userPresence.value, _userStatusMessage.value)
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Reconnect OMEMO/presence setup warning: ${e.message}")
+                }
+            }
+        }
         omemoEncryptionManager.onDecryptedMessageReceived = { xmppMsg, _ ->
             scope.launch(Dispatchers.IO) {
-                processIncomingMessage(xmppMsg)
+                val bareRoom = omemoEncryptionManager.toBareJid(xmppMsg.roomJid)
+                val contactMatch = rosterContacts.value.find {
+                    it.jid.substringBefore("/").equals(bareRoom, ignoreCase = true) ||
+                        it.jid.substringBefore("@").equals(bareRoom.substringBefore("@"), ignoreCase = true)
+                }
+                val resolvedNick = if (xmppMsg.isMine) {
+                    currentAccount.value.nickname.ifBlank { currentAccount.value.username }
+                } else {
+                    contactMatch?.name?.takeIf { it.isNotBlank() }
+                        ?: contactMatch?.nickname?.takeIf { it.isNotBlank() }
+                        ?: xmppMsg.senderNickname.ifBlank { bareRoom.substringBefore("@") }
+                }
+                val resolvedCaps = if (xmppMsg.isMine) {
+                    xmppMsg.senderClientCaps
+                } else {
+                    contactMatch?.clientCaps ?: xmppMsg.senderClientCaps
+                }
+                processIncomingMessage(
+                    xmppMsg.copy(
+                        senderNickname = resolvedNick,
+                        senderClientCaps = resolvedCaps
+                    )
+                )
             }
         }
         // Collect theme preferences to sync current language
@@ -531,8 +580,17 @@ class XmppRepository(
                 smackAvatarManager.onConnectionReady(conn)
                 setupReceiptListener(conn)
                 setupIncomingStanzaListener()
-                scope.launch(Dispatchers.IO) {
-                    omemoEncryptionManager.onConnectionReady(conn, sanitizedAccount.jid)
+                try {
+                    kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                        omemoEncryptionManager.onConnectionReady(conn, sanitizedAccount.jid)
+                    }
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "OMEMO init warning before initial presence: ${e.message}")
+                }
+                try {
+                    smackConnectionManager.updatePresence(_userPresence.value, _userStatusMessage.value)
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "Initial presence warning: ${e.message}")
                 }
             }
 
@@ -854,14 +912,25 @@ class XmppRepository(
                 }
             }
 
-            val hasOmemo = message.hasExtension("encrypted", "urn:xmpp:omemo:2") ||
-                    message.hasExtension("encrypted", "eu.siacs.conversations.axolotl")
+            val omemoLegacyExt = message.getExtension<org.jivesoftware.smack.packet.ExtensionElement>(
+                "encrypted",
+                "eu.siacs.conversations.axolotl"
+            )
+            val hasOmemoLegacy = omemoLegacyExt != null
+            val hasOmemo2 = message.hasExtension("encrypted", "urn:xmpp:omemo:2")
+            val hasOmemo = hasOmemoLegacy || hasOmemo2
+            val isOmemoKeyTransport = (omemoLegacyExt as? org.jivesoftware.smackx.omemo.element.OmemoElement)?.isKeyTransportElement == true
             val hasOpenPgp = message.hasExtension("openpgp", "urn:xmpp:openpgp:0")
             val preParsedOobUrl = if (message.hasExtension("x", "jabber:x:oob")) {
                 val xml = cachedXml ?: ""
                 Regex("""<x[^>]*xmlns=['"]jabber:x:oob['"][^>]*>\s*<url>([^<]+)</url>""", RegexOption.IGNORE_CASE)
                     .find(xml)?.groupValues?.get(1)?.trim()
             } else null
+
+            // Jangan buat gelembung palsu untuk pesan key-transport / ratchet-repair OMEMO tanpa isi
+            if (hasOmemo && isOmemoKeyTransport && message.body.isNullOrBlank()) {
+                return@addAsyncStanzaListener
+            }
 
             var bodyText = message.body
             if (bodyText.isNullOrBlank()) {
@@ -874,13 +943,6 @@ class XmppRepository(
                 } else {
                     return@addAsyncStanzaListener
                 }
-            }
-
-            val stanzaId = message.stanzaId
-            if (!stanzaId.isNullOrBlank()) {
-                if (processedStanzaIds.contains(stanzaId)) return@addAsyncStanzaListener
-                if (processedStanzaIds.size > 500) processedStanzaIds.clear()
-                processedStanzaIds.add(stanzaId)
             }
 
             val fromJid = message.from ?: return@addAsyncStanzaListener
@@ -897,6 +959,54 @@ class XmppRepository(
             // Skip standard MUC groupchat stanzas (handled by MultiUserChat listeners)
             if (message.type == org.jivesoftware.smack.packet.Message.Type.groupchat) {
                 return@addAsyncStanzaListener
+            }
+
+            val stanzaId = message.stanzaId
+
+            // Untuk pesan 1-on-1 OMEMO, biarkan OmemoManager mendekripsi terlebih dahulu via OmemoMessageListener.
+            // Jangan langsung menyimpan fallback body / placeholder dengan stanzaId yang sama, karena akan
+            // membuat processIncomingMessage menduplikasi & membuang hasil dekripsi asli!
+            if (hasOmemoLegacy && !fromBareJid.contains("conference.", ignoreCase = true) && !fromBareJid.contains("muc.", ignoreCase = true)) {
+                if (!isOmemoKeyTransport && !stanzaId.isNullOrBlank() && !fromBareJid.equals(myBareJid, ignoreCase = true)) {
+                    scope.launch(Dispatchers.IO) {
+                        kotlinx.coroutines.delay(3500L)
+                        if (database.messageDao().getMessageByIdSync(stanzaId) == null) {
+                            val cleanBare = fromBareJid.substringBefore("/").trim()
+                            val contactMatch = rosterContacts.value.find {
+                                it.jid.equals(cleanBare, ignoreCase = true) ||
+                                    it.jid.substringBefore("@").equals(cleanBare.substringBefore("@"), ignoreCase = true)
+                            }
+                            val fallbackNick = contactMatch?.name?.takeIf { it.isNotBlank() }
+                                ?: contactMatch?.nickname?.takeIf { it.isNotBlank() }
+                                ?: cleanBare.substringBefore("@")
+                            val fallbackMsg = XmppMessage(
+                                id = stanzaId,
+                                roomJid = fromBareJid,
+                                senderNickname = fallbackNick,
+                                senderJid = fromStr,
+                                avatarKey = fromStr,
+                                senderClientCaps = contactMatch?.clientCaps
+                                    ?: com.ndregil.inchat.data.model.ClientCaps.resolveFor(fallbackNick, fromStr),
+                                body = "🔒 [Pesan Terenkripsi OMEMO - tidak dapat didekripsi]",
+                                timestamp = org.jivesoftware.smackx.delay.DelayInformationManager.getDelayInformation(message)?.stamp?.time
+                                    ?: System.currentTimeMillis(),
+                                isMine = false,
+                                messageType = MessageType.CHAT,
+                                status = DeliveryStatus.DELIVERED,
+                                isEncrypted = false
+                            )
+                            Log.w("XmppRepository", "OMEMO decryption timeout/failure for stanza $stanzaId from $fromBareJid; inserting fallback notice.")
+                            processIncomingMessage(fallbackMsg)
+                        }
+                    }
+                }
+                return@addAsyncStanzaListener
+            }
+
+            if (!stanzaId.isNullOrBlank()) {
+                if (processedStanzaIds.contains(stanzaId)) return@addAsyncStanzaListener
+                if (processedStanzaIds.size > 500) processedStanzaIds.clear()
+                processedStanzaIds.add(stanzaId)
             }
 
             // Intercept Story updates from contacts
@@ -1134,6 +1244,13 @@ class XmppRepository(
             if (msg.id.isNotBlank()) {
                 val byId = database.messageDao().getMessageByIdSync(msg.id)
                 if (byId != null) {
+                    if (!byId.isEncrypted && msg.isEncrypted && !byId.isMine) {
+                        val updatedEntity = msg.copy(roomJid = canonicalRoomJid).toEntity()
+                        database.messageDao().insertMessage(updatedEntity)
+                        database.roomDao().updateLastMessage(canonicalRoomJid, updatedEntity.body, updatedEntity.timestamp, 0)
+                        Log.i("XmppRepository", "Updated placeholder OMEMO message ${msg.id} with decrypted plaintext")
+                        return@withLock
+                    }
                     Log.d("XmppRepository", "Deduplicating message by ID: ${msg.id}")
                     if (byId.isMine && byId.status == DeliveryStatus.SENDING) {
                         database.messageDao().updateMessageStatus(byId.id, DeliveryStatus.SENT)
@@ -1607,11 +1724,14 @@ class XmppRepository(
                     val xmppMessages = mutableListOf<XmppMessage>()
                     messages.forEach { smackMsg ->
                         try {
-                            val body = smackMsg.body ?: return@forEach
                             val fromJid = smackMsg.from
-                            val senderNick = fromJid?.resourceOrNull?.toString()
-                                ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
-                                ?: "User"
+                            val senderNick = if (isMucJid(canonicalJid)) {
+                                fromJid?.resourceOrNull?.toString()
+                                    ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
+                                    ?: "User"
+                            } else {
+                                fromJid?.asBareJid()?.toString()?.substringBefore("@") ?: "User"
+                            }
 
                             val isMine = if (isMucJid(canonicalJid)) {
                                 senderNick.equals(myNickname, ignoreCase = true)
@@ -1621,7 +1741,32 @@ class XmppRepository(
 
                             val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                             val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                            val stanzaId = smackMsg.stanzaId?.ifBlank { null }
+
+                            val omemoExt = smackMsg.getExtension("encrypted", "eu.siacs.conversations.axolotl")
+                                as? org.jivesoftware.smackx.omemo.element.OmemoElement
+                            if (omemoExt != null && omemoExt.isKeyTransportElement) {
+                                return@forEach
+                            }
+
+                            val existingId = smackMsg.stanzaId?.ifBlank { null }
+                            if (omemoExt != null && existingId != null && database.messageDao().getMessageByIdSync(existingId) != null) {
+                                return@forEach
+                            }
+
+                            var isEncryptedMsg = false
+                            val body = if (omemoExt != null && !isMucJid(canonicalJid)) {
+                                val decrypted = omemoEncryptionManager.tryDecryptStanza(smackMsg)
+                                if (decrypted.isSuccess) {
+                                    isEncryptedMsg = true
+                                    decrypted.getOrThrow()
+                                } else {
+                                    "🔒 [Pesan Terenkripsi OMEMO]"
+                                }
+                            } else {
+                                smackMsg.body ?: return@forEach
+                            }
+
+                            val stanzaId = existingId
                                 ?: "${canonicalJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                             val xmppMsg = XmppMessage(
@@ -1634,7 +1779,8 @@ class XmppRepository(
                                 isMine = isMine,
                                 messageType = if (smackMsg.type == org.jivesoftware.smack.packet.Message.Type.groupchat) MessageType.GROUPCHAT else MessageType.CHAT,
                                 status = DeliveryStatus.DELIVERED,
-                                isHistory = true
+                                isHistory = true,
+                                isEncrypted = isEncryptedMsg
                             )
                             xmppMessages.add(xmppMsg)
                         } catch (e: Exception) {
@@ -1684,11 +1830,14 @@ class XmppRepository(
             val xmppMessages = mutableListOf<XmppMessage>()
             messages.forEach { smackMsg ->
                 try {
-                    val body = smackMsg.body ?: return@forEach
                     val fromJid = smackMsg.from
-                    val senderNick = fromJid?.resourceOrNull?.toString()
-                        ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
-                        ?: "User"
+                    val senderNick = if (isMucJid(canonicalJid)) {
+                        fromJid?.resourceOrNull?.toString()
+                            ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
+                            ?: "User"
+                    } else {
+                        fromJid?.asBareJid()?.toString()?.substringBefore("@") ?: "User"
+                    }
 
                     val isMine = if (isMucJid(canonicalJid)) {
                         senderNick.equals(myNickname, ignoreCase = true)
@@ -1698,7 +1847,32 @@ class XmppRepository(
 
                     val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
                     val timestamp = delayInfo?.stamp?.time ?: System.currentTimeMillis()
-                    val stanzaId = smackMsg.stanzaId?.ifBlank { null }
+
+                    val omemoExt = smackMsg.getExtension("encrypted", "eu.siacs.conversations.axolotl")
+                        as? org.jivesoftware.smackx.omemo.element.OmemoElement
+                    if (omemoExt != null && omemoExt.isKeyTransportElement) {
+                        return@forEach
+                    }
+
+                    val existingId = smackMsg.stanzaId?.ifBlank { null }
+                    if (omemoExt != null && existingId != null && database.messageDao().getMessageByIdSync(existingId) != null) {
+                        return@forEach
+                    }
+
+                    var isEncryptedMsg = false
+                    val body = if (omemoExt != null && !isMucJid(canonicalJid)) {
+                        val decrypted = omemoEncryptionManager.tryDecryptStanza(smackMsg)
+                        if (decrypted.isSuccess) {
+                            isEncryptedMsg = true
+                            decrypted.getOrThrow()
+                        } else {
+                            "🔒 [Pesan Terenkripsi OMEMO]"
+                        }
+                    } else {
+                        smackMsg.body ?: return@forEach
+                    }
+
+                    val stanzaId = existingId
                         ?: "${canonicalJid}_${timestamp}_${senderNick.hashCode()}_${body.hashCode()}"
 
                     val xmppMsg = XmppMessage(
@@ -1711,7 +1885,8 @@ class XmppRepository(
                         isMine = isMine,
                         messageType = if (smackMsg.type == org.jivesoftware.smack.packet.Message.Type.groupchat) MessageType.GROUPCHAT else MessageType.CHAT,
                         status = DeliveryStatus.DELIVERED,
-                        isHistory = true
+                        isHistory = true,
+                        isEncrypted = isEncryptedMsg
                     )
                     xmppMessages.add(xmppMsg)
                 } catch (e: Exception) {
@@ -2042,20 +2217,31 @@ class XmppRepository(
     }
 
 
+    suspend fun deleteMessageById(id: String) = withContext(Dispatchers.IO) {
+        try {
+            database.messageDao().deleteMessage(id)
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "Failed to delete message $id: ${e.message}")
+        }
+    }
+
     suspend fun sendMessage(
         roomJid: String,
         text: String,
         myNickname: String,
         replyToMessageId: String? = null,
         replyToSender: String? = null,
-        replyToText: String? = null
-    ) = withContext(Dispatchers.IO) {
+        replyToText: String? = null,
+        allowPlaintextOnce: Boolean = false
+    ): SendMessageOutcome = withContext(Dispatchers.IO) {
         val rawCleanJid = roomJid.trim()
-        if (rawCleanJid.isBlank() || text.isBlank()) return@withContext
+        if (rawCleanJid.isBlank() || text.isBlank()) return@withContext SendMessageOutcome.Failed("Pesan kosong.", null)
         val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
 
         val myJid = currentAccount.value.jid
         val isGroup = isMucJid(cleanJid)
+        // Catatan OMEMO: chat 1-on-1 selalu beroperasi pada bare JID (tanpa /resource)
+        val bareTargetJid = if (!isGroup) omemoEncryptionManager.toBareJid(cleanJid) else cleanJid
         val urls = com.ndregil.inchat.util.MediaUrlUtils.extractUrls(text)
         val standaloneImageUrl = urls.firstOrNull { com.ndregil.inchat.util.MediaUrlUtils.isKnownImageUrl(it) }
         val isStandaloneUrl = text.trim().startsWith("http", ignoreCase = true) && urls.size == 1 && !text.trim().contains(" ")
@@ -2063,9 +2249,9 @@ class XmppRepository(
         val timestamp = System.currentTimeMillis()
         val isImage = standaloneImageUrl != null
 
-        val isOmemoActive = omemoEncryptionManager.isOmemoEnabledFor(cleanJid)
+        val isOmemoActive = !isGroup && !allowPlaintextOnce && omemoEncryptionManager.isOmemoEnabledFor(bareTargetJid)
 
-        // 1. Optimistic local DB insert immediately so UI shows the outgoing message without waiting on network/translation
+        // 1. Simpan ke Room terlebih dahulu dengan isEncrypted = false (hanya diubah true bila stanza OMEMO benar-benar terkirim)
         val initialMsg = XmppMessage(
             id = stanzaId,
             roomJid = cleanJid,
@@ -2090,7 +2276,7 @@ class XmppRepository(
                 else -> null
             },
             fileName = if (isStandaloneUrl) "Lampiran" else null,
-            isEncrypted = isOmemoActive
+            isEncrypted = false
         )
 
         incomingMessageMutex.withLock {
@@ -2156,21 +2342,73 @@ class XmppRepository(
         }
 
         val isUrlFinal = textToSend.trim().startsWith("http")
-        var isSentSuccessfully = false
 
-        // 3. Send via OMEMO Encryption if enabled (1-on-1 chat only for Stage 1)
-        if (isOmemoActive && !isGroup && smackConnectionManager.isConnected()) {
-            val connection = smackConnectionManager.getRawConnection()
-            if (connection != null) {
-                val encRes = omemoEncryptionManager.encryptDirectMessage(cleanJid, textToSend, stanzaId, if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null)
-                if (encRes.isSuccess) {
+        // 3. Jalur ketat OMEMO 1-on-1: bila saklar OMEMO aktif, DILARANG keras fallback ke plaintext dalam kondisi apa pun!
+        if (isOmemoActive && !isGroup) {
+            val connection = if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+                smackConnectionManager.getRawConnection()
+            } else null
+
+            if (connection == null) {
+                val reason = "Koneksi XMPP terputus. Pesan OMEMO tidak dikirim dalam teks biasa."
+                database.messageDao().updateMessageFailure(
+                    stanzaId,
+                    DeliveryStatus.FAILED,
+                    false,
+                    "$text\n⚠️ Gagal OMEMO: $reason"
+                )
+                database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: $text", timestamp, 0)
+                if (!currentAccount.value.isDemoMode) checkAndReconnectIfNeeded()
+                return@withContext SendMessageOutcome.Failed(reason, stanzaId)
+            }
+
+            val encRes = omemoEncryptionManager.encryptDirectMessage(
+                targetBareJidStr = bareTargetJid,
+                plaintext = textToSend,
+                stanzaId = stanzaId,
+                oobUrl = if (isUrlFinal && isStandaloneUrl) textToSend.trim() else null
+            )
+
+            if (encRes.isSuccess) {
+                return@withContext try {
                     connection.sendStanza(encRes.getOrNull()!!)
-                    isSentSuccessfully = true
+                    database.messageDao().updateMessageStatusAndEncrypted(stanzaId, DeliveryStatus.SENT, true)
+                    Log.i("XmppRepository", "Sent 1-on-1 OMEMO encrypted stanza to $bareTargetJid (id=$stanzaId)")
+                    SendMessageOutcome.Sent
+                } catch (e: Exception) {
+                    val reason = "Gagal mengirim stanza OMEMO: ${e.message ?: "kesalahan jaringan"}"
+                    Log.e("XmppRepository", "Failed sending OMEMO stanza to $bareTargetJid: $reason", e)
+                    database.messageDao().updateMessageFailure(
+                        stanzaId,
+                        DeliveryStatus.FAILED,
+                        false,
+                        "$text\n⚠️ Gagal OMEMO: $reason"
+                    )
+                    database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: $text", timestamp, 0)
+                    SendMessageOutcome.Failed(reason, stanzaId)
+                }
+            } else {
+                val ex = encRes.exceptionOrNull()
+                val reason = ex?.message ?: "Gagal mengenkripsi pesan OMEMO."
+                Log.w("XmppRepository", "OMEMO encryption blocked/failed for $bareTargetJid (NO plaintext fallback): $reason")
+                database.messageDao().updateMessageFailure(
+                    stanzaId,
+                    DeliveryStatus.FAILED,
+                    false,
+                    "$text\n⚠️ Gagal OMEMO: $reason"
+                )
+                database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: $text", timestamp, 0)
+                return@withContext if (ex is OmemoUnsupportedContactException) {
+                    SendMessageOutcome.OmemoUnsupported(reason, stanzaId)
+                } else {
+                    SendMessageOutcome.Failed(reason, stanzaId)
                 }
             }
         }
 
-        // 4. Send via Smack MUC if joined room and not encrypted via OMEMO
+        var isSentSuccessfully = false
+
+        // 4. Send via Smack MUC if joined room
         if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(cleanJid)) {
             val sendRes = smackMucManager.sendMessage(
                 roomJid = cleanJid,
@@ -2184,12 +2422,12 @@ class XmppRepository(
             }
         }
 
-        // 4. Direct 1-on-1 XMPP Chat Stanza (RFC 6121)
+        // 4. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) — hanya bila OMEMO tidak aktif atau pengguna eksplisit memilih kirim tanpa enkripsi untuk pesan ini
         if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             try {
                 val conn = smackConnectionManager.getRawConnection()
                 if (conn != null) {
-                    val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                    val targetJid = org.jxmpp.jid.impl.JidCreate.from(bareTargetJid)
                     val msgStanza = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
                         body = textToSend
                         setStanzaId(stanzaId)
@@ -2210,14 +2448,14 @@ class XmppRepository(
                     }
                     conn.sendStanza(msgStanza)
                     isSentSuccessfully = true
-                    Log.i("XmppRepository", "Sent 1-on-1 direct XMPP stanza to $cleanJid (id=$stanzaId)")
+                    Log.i("XmppRepository", "Sent 1-on-1 direct XMPP stanza to $bareTargetJid (id=$stanzaId, allowPlaintextOnce=$allowPlaintextOnce)")
                 }
             } catch (e: Exception) {
-                Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $cleanJid: ${e.message}")
+                Log.w("XmppRepository", "Failed to send 1-on-1 direct stanza to $bareTargetJid: ${e.message}")
             }
         }
 
-        // 5. Fallback to raw engine ONLY in demo mode
+        // 5. Fallback to raw engine ONLY in demo mode (bila OMEMO tidak aktif)
         if (!isSentSuccessfully && currentAccount.value.isDemoMode) {
             try {
                 if (isUrlFinal && !isGroup) {
@@ -2242,6 +2480,12 @@ class XmppRepository(
             }
         } catch (e: Exception) {
             Log.e("XmppRepository", "Failed updating status for $stanzaId: ${e.message}")
+        }
+
+        return@withContext if (isSentSuccessfully) {
+            SendMessageOutcome.Sent
+        } else {
+            SendMessageOutcome.Failed("Gagal mengirim pesan ke $cleanJid", stanzaId)
         }
     }
 
@@ -2346,22 +2590,87 @@ class XmppRepository(
         fileSize: Long,
         mimeType: String,
         myNickname: String,
-        description: String = ""
-    ) = withContext(Dispatchers.IO) {
+        description: String = "",
+        allowPlaintextOnce: Boolean = false
+    ): SendMessageOutcome = withContext(Dispatchers.IO) {
         val rawCleanJid = roomJid.trim()
-        if (rawCleanJid.isBlank()) return@withContext
+        if (rawCleanJid.isBlank()) return@withContext SendMessageOutcome.Failed("JID tujuan kosong.", null)
         val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
+        val isGroup = isMucJid(cleanJid) || smackMucManager.isRoomJoined(cleanJid)
+        val bareTargetJid = if (!isGroup) omemoEncryptionManager.toBareJid(cleanJid) else cleanJid
+        val isOmemoActive = !isGroup && !allowPlaintextOnce && omemoEncryptionManager.isOmemoEnabledFor(bareTargetJid)
+
+        val stanzaId = "file_${java.util.UUID.randomUUID()}"
+        val now = System.currentTimeMillis()
+        val myJidFallback = currentAccount.value.jid
+        val displayNickFallback = myNickname.ifBlank {
+            currentAccount.value.nickname.ifBlank { currentAccount.value.username }
+        }
+
+        suspend fun recordFailedFileMessage(reason: String) {
+            val trimmedDesc = description.trim()
+            val label = if (trimmedDesc.isNotBlank()) "[Berkas] $fileName: $trimmedDesc" else "[Berkas] $fileName"
+            val failedMsg = XmppMessage(
+                id = stanzaId,
+                roomJid = cleanJid,
+                senderJid = myJidFallback,
+                senderNickname = displayNickFallback,
+                avatarKey = myJidFallback,
+                body = "$label\n⚠️ Gagal OMEMO: $reason",
+                timestamp = now,
+                isMine = true,
+                messageType = MessageType.FILE,
+                status = DeliveryStatus.FAILED,
+                fileName = fileName,
+                fileMimeType = mimeType,
+                fileSize = fileSize,
+                isEncrypted = false
+            )
+            incomingMessageMutex.withLock {
+                database.messageDao().insertMessage(failedMsg.toEntity())
+                val existingRoom = database.roomDao().getRoomByJid(cleanJid)
+                if (existingRoom != null) {
+                    database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: [Berkas] $fileName", now, 0)
+                }
+            }
+        }
 
         if (!smackConnectionManager.isConnected()) {
-            Log.e("XmppRepository", "Gagal upload: Tidak terhubung ke server XMPP")
-            _autoJoinEvents.emit("Gagal mengirim berkas: tidak terhubung ke server XMPP.")
-            return@withContext
+            val reason = "Tidak terhubung ke server XMPP."
+            Log.e("XmppRepository", "Gagal upload: $reason")
+            if (isOmemoActive) {
+                recordFailedFileMessage(reason)
+            } else {
+                _autoJoinEvents.emit("Gagal mengirim berkas: tidak terhubung ke server XMPP.")
+            }
+            return@withContext SendMessageOutcome.Failed(reason, if (isOmemoActive) stanzaId else null)
         }
 
         val connection = smackConnectionManager.getRawConnection()
         if (connection == null || !connection.isAuthenticated) {
-            _autoJoinEvents.emit("Gagal mengirim berkas: sesi XMPP belum terautentikasi.")
-            return@withContext
+            val reason = "Sesi XMPP belum terautentikasi."
+            if (isOmemoActive) {
+                recordFailedFileMessage(reason)
+            } else {
+                _autoJoinEvents.emit("Gagal mengirim berkas: sesi XMPP belum terautentikasi.")
+            }
+            return@withContext SendMessageOutcome.Failed(reason, if (isOmemoActive) stanzaId else null)
+        }
+
+        // Jalur ketat OMEMO: periksa perangkat OMEMO kontak SEBELUM mengunggah berkas agar berkas tidak diunggah/dikirim polos
+        if (isOmemoActive) {
+            when (val support = omemoEncryptionManager.checkOmemoSupport(bareTargetJid, forceRefresh = true)) {
+                is OmemoSupportResult.Unsupported -> {
+                    recordFailedFileMessage(support.reason)
+                    return@withContext SendMessageOutcome.OmemoUnsupported(support.reason, stanzaId)
+                }
+                is OmemoSupportResult.Error -> {
+                    recordFailedFileMessage(support.reason)
+                    _autoJoinEvents.emit("Berkas tidak dikirim (OMEMO): ${support.reason}")
+                    return@withContext SendMessageOutcome.Failed(support.reason, stanzaId)
+                }
+                is OmemoSupportResult.Supported -> Unit
+            }
         }
 
         _isUploadingFile.value = true
@@ -2379,13 +2688,8 @@ class XmppRepository(
                     val url = uploaded.url
                     val trimmedDesc = description.trim()
                     val bodyText = if (trimmedDesc.isNotBlank()) "$trimmedDesc\n$url" else url
-                    val stanzaId = "file_${java.util.UUID.randomUUID()}"
-                    val now = System.currentTimeMillis()
-                    val myJid = connection.user?.asBareJid()?.toString() ?: currentAccount.value.jid
-                    val displayNick = myNickname.ifBlank {
-                        currentAccount.value.nickname.ifBlank { currentAccount.value.username }
-                    }
-                    val isGroup = isMucJid(cleanJid) || smackMucManager.isRoomJoined(cleanJid)
+                    val myJid = connection.user?.asBareJid()?.toString() ?: myJidFallback
+                    val displayNick = displayNickFallback
 
                     val msg = XmppMessage(
                         id = stanzaId,
@@ -2401,7 +2705,8 @@ class XmppRepository(
                         fileUrl = url,
                         fileName = uploaded.fileName,
                         fileMimeType = uploaded.mimeType,
-                        fileSize = uploaded.fileSize
+                        fileSize = uploaded.fileSize,
+                        isEncrypted = false
                     )
 
                     val previewText = if (trimmedDesc.isNotBlank()) {
@@ -2438,7 +2743,48 @@ class XmppRepository(
                         }
                     }
 
+                    if (isOmemoActive && !isGroup) {
+                        val encRes = omemoEncryptionManager.encryptDirectMessage(
+                            targetBareJidStr = bareTargetJid,
+                            plaintext = bodyText,
+                            stanzaId = stanzaId,
+                            oobUrl = null
+                        )
+                        if (encRes.isSuccess) {
+                            try {
+                                connection.sendStanza(encRes.getOrNull()!!)
+                                database.messageDao().updateMessageStatusAndEncrypted(stanzaId, DeliveryStatus.SENT, true)
+                                return@fold SendMessageOutcome.Sent
+                            } catch (e: Exception) {
+                                val reason = "Gagal mengirim berkas OMEMO: ${e.message ?: "kesalahan jaringan"}"
+                                database.messageDao().updateMessageFailure(
+                                    stanzaId,
+                                    DeliveryStatus.FAILED,
+                                    false,
+                                    "$bodyText\n⚠️ Gagal OMEMO: $reason"
+                                )
+                                return@fold SendMessageOutcome.Failed(reason, stanzaId)
+                            }
+                        } else {
+                            val ex = encRes.exceptionOrNull()
+                            val reason = ex?.message ?: "Gagal mengenkripsi berkas dengan OMEMO."
+                            database.messageDao().updateMessageFailure(
+                                stanzaId,
+                                DeliveryStatus.FAILED,
+                                false,
+                                "$bodyText\n⚠️ Gagal OMEMO: $reason"
+                            )
+                            return@fold if (ex is OmemoUnsupportedContactException) {
+                                SendMessageOutcome.OmemoUnsupported(reason, stanzaId)
+                            } else {
+                                _autoJoinEvents.emit("Gagal OMEMO: $reason")
+                                SendMessageOutcome.Failed(reason, stanzaId)
+                            }
+                        }
+                    }
+
                     var sentSuccessfully = false
+                    var failureReason = "Gagal mengirim berkas."
                     if (smackMucManager.isRoomJoined(cleanJid)) {
                         val sendRes = smackMucManager.sendMessage(
                             roomJid = cleanJid,
@@ -2448,13 +2794,13 @@ class XmppRepository(
                         )
                         sentSuccessfully = sendRes.isSuccess
                         if (!sentSuccessfully) {
-                            val errMsg = sendRes.exceptionOrNull()?.message ?: "Gagal mengirim ke room"
-                            Log.e("XmppRepository", "Gagal mengirim URL file ke MUC: $errMsg")
-                            _autoJoinEvents.emit("Berkas terunggah, namun gagal dikirim ke room: $errMsg")
+                            failureReason = sendRes.exceptionOrNull()?.message ?: "Gagal mengirim ke room"
+                            Log.e("XmppRepository", "Gagal mengirim URL file ke MUC: $failureReason")
+                            _autoJoinEvents.emit("Berkas terunggah, namun gagal dikirim ke room: $failureReason")
                         }
                     } else if (!isMucJid(cleanJid)) {
                         try {
-                            val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                            val targetJid = org.jxmpp.jid.impl.JidCreate.from(bareTargetJid)
                             val directMsg = org.jivesoftware.smack.packet.Message(
                                 targetJid,
                                 org.jivesoftware.smack.packet.Message.Type.chat
@@ -2472,10 +2818,12 @@ class XmppRepository(
                             connection.sendStanza(directMsg)
                             sentSuccessfully = true
                         } catch (e: Exception) {
+                            failureReason = e.localizedMessage ?: "Kesalahan tidak diketahui"
                             Log.e("XmppRepository", "Gagal mengirim URL file ke kontak: ${e.message}")
-                            _autoJoinEvents.emit("Gagal mengirim berkas ke kontak: ${e.localizedMessage}")
+                            _autoJoinEvents.emit("Gagal mengirim berkas ke kontak: $failureReason")
                         }
                     } else {
+                        failureReason = "Anda belum bergabung ke room $cleanJid."
                         _autoJoinEvents.emit("Berkas terunggah, tetapi Anda belum bergabung ke room $cleanJid.")
                     }
 
@@ -2483,11 +2831,17 @@ class XmppRepository(
                         stanzaId,
                         if (sentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED
                     )
+                    if (sentSuccessfully) SendMessageOutcome.Sent else SendMessageOutcome.Failed(failureReason, stanzaId)
                 },
                 onFailure = { error ->
                     val errMsg = error.localizedMessage ?: "Kesalahan tidak diketahui"
                     Log.e("XmppRepository", "XEP-0363 Upload failed: $errMsg", error)
-                    _autoJoinEvents.emit("Gagal mengunggah berkas: $errMsg")
+                    if (isOmemoActive) {
+                        recordFailedFileMessage("Gagal mengunggah berkas: $errMsg")
+                    } else {
+                        _autoJoinEvents.emit("Gagal mengunggah berkas: $errMsg")
+                    }
+                    SendMessageOutcome.Failed("Gagal mengunggah berkas: $errMsg", if (isOmemoActive) stanzaId else null)
                 }
             )
         } finally {
@@ -2499,16 +2853,74 @@ class XmppRepository(
         roomJid: String,
         audioFile: java.io.File,
         durationSeconds: Int,
-        myNickname: String
-    ) = withContext(Dispatchers.IO) {
+        myNickname: String,
+        allowPlaintextOnce: Boolean = false
+    ): SendMessageOutcome = withContext(Dispatchers.IO) {
         val rawCleanJid = roomJid.trim()
         val cleanJid = database.roomDao().getRoomByJid(rawCleanJid)?.jid ?: rawCleanJid
+        val isGroup = isMucJid(cleanJid) || smackMucManager.isRoomJoined(cleanJid)
+        val bareTargetJid = if (!isGroup) omemoEncryptionManager.toBareJid(cleanJid) else cleanJid
+        val isOmemoActive = !isGroup && !allowPlaintextOnce && omemoEncryptionManager.isOmemoEnabledFor(bareTargetJid)
+
         val fileName = audioFile.name
         val fileSize = audioFile.length()
         val mimeType = "audio/mp4"
+        val msgId = "voice_${java.util.UUID.randomUUID()}"
+        val now = System.currentTimeMillis()
+        val myJidFallback = currentAccount.value.jid
+
+        suspend fun insertFailedVoice(reason: String, url: String = "file://${audioFile.absolutePath}") {
+            val baseLabel = "🎤 Pesan Suara (${durationSeconds}d)"
+            val failedMsg = XmppMessage(
+                id = msgId,
+                roomJid = cleanJid,
+                senderJid = myJidFallback,
+                senderNickname = myNickname,
+                avatarKey = myJidFallback,
+                body = "$baseLabel\n⚠️ Gagal OMEMO: $reason",
+                timestamp = now,
+                isMine = true,
+                messageType = MessageType.VOICE,
+                status = DeliveryStatus.FAILED,
+                fileUrl = url,
+                fileName = fileName,
+                fileMimeType = mimeType,
+                fileSize = fileSize,
+                voiceDurationSeconds = durationSeconds,
+                isEncrypted = false
+            )
+            incomingMessageMutex.withLock {
+                database.messageDao().insertMessage(failedMsg.toEntity())
+                database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: [Pesan Suara]", now, 0)
+            }
+        }
+
+        val connection = if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+            smackConnectionManager.getRawConnection()
+        } else null
+
+        if (isOmemoActive) {
+            if (connection == null) {
+                val reason = "Koneksi XMPP terputus. Pesan suara OMEMO tidak dikirim."
+                insertFailedVoice(reason)
+                return@withContext SendMessageOutcome.Failed(reason, msgId)
+            }
+            when (val support = omemoEncryptionManager.checkOmemoSupport(bareTargetJid, forceRefresh = true)) {
+                is OmemoSupportResult.Unsupported -> {
+                    insertFailedVoice(support.reason)
+                    return@withContext SendMessageOutcome.OmemoUnsupported(support.reason, msgId)
+                }
+                is OmemoSupportResult.Error -> {
+                    insertFailedVoice(support.reason)
+                    _autoJoinEvents.emit("Pesan suara tidak dikirim (OMEMO): ${support.reason}")
+                    return@withContext SendMessageOutcome.Failed(support.reason, msgId)
+                }
+                is OmemoSupportResult.Supported -> Unit
+            }
+        }
 
         var finalUrl = "file://${audioFile.absolutePath}"
-        val connection = if (smackConnectionManager.isConnected()) smackConnectionManager.getRawConnection() else null
+        var uploadFailedReason: String? = null
         if (connection != null) {
             val uploadResult = smackFileUploadManager.uploadFile(
                 connection,
@@ -2520,13 +2932,19 @@ class XmppRepository(
             uploadResult.onSuccess { uploadedUrl ->
                 finalUrl = uploadedUrl
             }.onFailure {
+                uploadFailedReason = it.message ?: "Gagal mengunggah pesan suara"
                 Log.w("XmppRepository", "XEP-0363 voice upload fallback to local URI: ${it.message}")
             }
         }
 
-        val msgId = "voice_${java.util.UUID.randomUUID()}"
+        if (isOmemoActive && !finalUrl.startsWith("http", ignoreCase = true)) {
+            val reason = uploadFailedReason ?: "Gagal mengunggah pesan suara ke server XEP-0363."
+            insertFailedVoice(reason)
+            _autoJoinEvents.emit("Pesan suara tidak dikirim (OMEMO): $reason")
+            return@withContext SendMessageOutcome.Failed(reason, msgId)
+        }
+
         val body = "🎤 Pesan Suara (${durationSeconds}d)\n$finalUrl"
-        val now = System.currentTimeMillis()
         val myJid = connection?.user?.asBareJid()?.toString() ?: "$cleanJid/$myNickname"
 
         val msg = XmppMessage(
@@ -2544,12 +2962,48 @@ class XmppRepository(
             fileName = fileName,
             fileMimeType = mimeType,
             fileSize = fileSize,
-            voiceDurationSeconds = durationSeconds
+            voiceDurationSeconds = durationSeconds,
+            isEncrypted = false
         )
 
         incomingMessageMutex.withLock {
             database.messageDao().insertMessage(msg.toEntity())
             database.roomDao().updateLastMessage(cleanJid, "[Pesan Suara]", now, 0)
+        }
+
+        if (isOmemoActive && !isGroup) {
+            if (connection == null || !connection.isAuthenticated) {
+                val reason = "Koneksi XMPP terputus. Pesan suara OMEMO tidak dikirim."
+                database.messageDao().updateMessageFailure(msgId, DeliveryStatus.FAILED, false, "$body\n⚠️ Gagal OMEMO: $reason")
+                return@withContext SendMessageOutcome.Failed(reason, msgId)
+            }
+            val encRes = omemoEncryptionManager.encryptDirectMessage(
+                targetBareJidStr = bareTargetJid,
+                plaintext = body,
+                stanzaId = msgId,
+                oobUrl = null
+            )
+            return@withContext if (encRes.isSuccess) {
+                try {
+                    connection.sendStanza(encRes.getOrNull()!!)
+                    database.messageDao().updateMessageStatusAndEncrypted(msgId, DeliveryStatus.SENT, true)
+                    SendMessageOutcome.Sent
+                } catch (e: Exception) {
+                    val reason = "Gagal mengirim pesan suara OMEMO: ${e.message ?: "kesalahan jaringan"}"
+                    database.messageDao().updateMessageFailure(msgId, DeliveryStatus.FAILED, false, "$body\n⚠️ Gagal OMEMO: $reason")
+                    SendMessageOutcome.Failed(reason, msgId)
+                }
+            } else {
+                val ex = encRes.exceptionOrNull()
+                val reason = ex?.message ?: "Gagal mengenkripsi pesan suara OMEMO."
+                database.messageDao().updateMessageFailure(msgId, DeliveryStatus.FAILED, false, "$body\n⚠️ Gagal OMEMO: $reason")
+                if (ex is OmemoUnsupportedContactException) {
+                    SendMessageOutcome.OmemoUnsupported(reason, msgId)
+                } else {
+                    _autoJoinEvents.emit("Gagal OMEMO: $reason")
+                    SendMessageOutcome.Failed(reason, msgId)
+                }
+            }
         }
 
         var sentOk = false
@@ -2564,7 +3018,7 @@ class XmppRepository(
             sentOk = res.isSuccess
         } else if (!isMucJid(cleanJid) && connection != null && connection.isAuthenticated) {
             try {
-                val targetJid = org.jxmpp.jid.impl.JidCreate.from(cleanJid)
+                val targetJid = org.jxmpp.jid.impl.JidCreate.from(bareTargetJid)
                 val directMsg = org.jivesoftware.smack.packet.Message(targetJid, org.jivesoftware.smack.packet.Message.Type.chat).apply {
                     this.body = body
                     setStanzaId(msgId)
@@ -2588,6 +3042,11 @@ class XmppRepository(
             msgId,
             if (sentOk) DeliveryStatus.SENT else DeliveryStatus.FAILED
         )
+        return@withContext if (sentOk) {
+            SendMessageOutcome.Sent
+        } else {
+            SendMessageOutcome.Failed("Gagal mengirim pesan suara", msgId)
+        }
     }
 
     suspend fun initiateCall(
@@ -2637,10 +3096,11 @@ class XmppRepository(
         fileName: String? = null,
         fileSize: Long = 0L,
         mimeType: String? = null,
-        description: String = ""
-    ) = withContext(Dispatchers.IO) {
+        description: String = "",
+        allowPlaintextOnce: Boolean = false
+    ): SendMessageOutcome = withContext(Dispatchers.IO) {
         val cleanTarget = targetJid.trim().substringBefore("/")
-        if (cleanTarget.isBlank()) return@withContext
+        if (cleanTarget.isBlank()) return@withContext SendMessageOutcome.Failed("JID kontak kosong.", null)
         val myNick = currentAccount.value.nickname.ifBlank {
             currentAccount.value.username.ifBlank { "User" }
         }
@@ -2667,7 +3127,8 @@ class XmppRepository(
             fileSize = meta.fileSize,
             mimeType = meta.mimeType,
             myNickname = myNick,
-            description = description
+            description = description,
+            allowPlaintextOnce = allowPlaintextOnce
         )
     }
 
@@ -3012,7 +3473,7 @@ class XmppRepository(
     suspend fun getMembers(roomJid: String) = smackMucManager.getMembers(roomJid)
     suspend fun getOutcasts(roomJid: String) = smackMucManager.getOutcasts(roomJid)
 
-    private fun isMucJid(jid: String): Boolean {
+    fun isMucJid(jid: String): Boolean {
         val domain = jid.substringAfter("@", "")
         return domain.contains("conference", true) || 
                domain.contains("muc.", true) || 

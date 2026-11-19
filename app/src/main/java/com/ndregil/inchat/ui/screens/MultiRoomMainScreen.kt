@@ -64,7 +64,9 @@ import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.LocationOn
@@ -274,6 +276,8 @@ fun MultiRoomMainScreen(
     var showOmemoSecurityDialog by remember { mutableStateOf(false) }
     var omemoSecurityTargetJid by remember { mutableStateOf<String?>(null) }
     val omemoEnabledJids by viewModel.omemoEnabledJids.collectAsStateWithLifecycle()
+    val contactOmemoSupport by viewModel.contactOmemoSupport.collectAsStateWithLifecycle()
+    val pendingOmemoBypass by viewModel.pendingOmemoBypass.collectAsStateWithLifecycle()
 
     val groupRoomsList by viewModel.groupRooms.collectAsStateWithLifecycle()
     val displayedRooms = if (showOnlySavedRooms) savedRooms else filteredRooms
@@ -1669,18 +1673,40 @@ fun MultiRoomMainScreen(
                                         }
 
                                         val directTargetJid = activeRoom?.jid ?: ""
-                                        val isDirectOmemo = if (directTargetJid.isNotBlank()) omemoEnabledJids.contains(directTargetJid.lowercase()) else false
+                                        val bareDirectJid = directTargetJid.trim().substringBefore("/").lowercase()
+                                        LaunchedEffect(bareDirectJid) {
+                                            if (bareDirectJid.isNotBlank()) {
+                                                viewModel.refreshOmemoSupportFor(bareDirectJid)
+                                            }
+                                        }
+                                        val isDirectOmemo = bareDirectJid.isNotBlank() && omemoEnabledJids.contains(bareDirectJid)
+                                        val directOmemoSupport = if (bareDirectJid.isNotBlank()) contactOmemoSupport[bareDirectJid] else null
+                                        val isDirectOmemoSupported = directOmemoSupport == true
+                                        val isDirectOmemoUnsupported = isDirectOmemo && directOmemoSupport == false
+                                        val warningLockColor = Color(0xFFF59E0B)
                                         IconButton(
                                             onClick = {
-                                                omemoSecurityTargetJid = directTargetJid
+                                                omemoSecurityTargetJid = bareDirectJid.ifBlank { directTargetJid }
                                                 showOmemoSecurityDialog = true
                                             },
                                             modifier = Modifier.size(36.dp).testTag("btn_direct_omemo_lock")
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Lock,
-                                                contentDescription = "Enkripsi OMEMO (XEP-0384)",
-                                                tint = if (isDirectOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                imageVector = if (isDirectOmemo && isDirectOmemoSupported) {
+                                                    Icons.Default.Lock
+                                                } else {
+                                                    Icons.Default.LockOpen
+                                                },
+                                                contentDescription = when {
+                                                    isDirectOmemoUnsupported -> "OMEMO tidak didukung kontak"
+                                                    isDirectOmemo && isDirectOmemoSupported -> "Enkripsi OMEMO Aktif"
+                                                    else -> "Enkripsi OMEMO (XEP-0384)"
+                                                },
+                                                tint = when {
+                                                    isDirectOmemoUnsupported -> warningLockColor
+                                                    isDirectOmemo && isDirectOmemoSupported -> MaterialTheme.colorScheme.primary
+                                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                },
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
@@ -1698,17 +1724,34 @@ fun MultiRoomMainScreen(
                                                 onDismissRequest = { showDirectMenu = false }
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text(if (isDirectOmemo) "Enkripsi OMEMO: Aktif" else "Enkripsi OMEMO: Nonaktif") },
+                                                    text = {
+                                                        Text(
+                                                            when {
+                                                                isDirectOmemoUnsupported -> "Enkripsi OMEMO: Tidak didukung kontak"
+                                                                isDirectOmemo && isDirectOmemoSupported -> "Enkripsi OMEMO: Aktif"
+                                                                isDirectOmemo -> "Enkripsi OMEMO: Memeriksa perangkat..."
+                                                                else -> "Enkripsi OMEMO: Nonaktif"
+                                                            }
+                                                        )
+                                                    },
                                                     leadingIcon = {
                                                         Icon(
-                                                            imageVector = Icons.Default.Lock,
+                                                            imageVector = if (isDirectOmemo && isDirectOmemoSupported) {
+                                                                Icons.Default.Lock
+                                                            } else {
+                                                                Icons.Default.LockOpen
+                                                            },
                                                             contentDescription = null,
-                                                            tint = if (isDirectOmemo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                            tint = when {
+                                                                isDirectOmemoUnsupported -> warningLockColor
+                                                                isDirectOmemo && isDirectOmemoSupported -> MaterialTheme.colorScheme.primary
+                                                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                                            }
                                                         )
                                                     },
                                                     onClick = {
                                                         showDirectMenu = false
-                                                        omemoSecurityTargetJid = directTargetJid
+                                                        omemoSecurityTargetJid = bareDirectJid.ifBlank { directTargetJid }
                                                         showOmemoSecurityDialog = true
                                                     }
                                                 )
@@ -1914,15 +1957,17 @@ fun MultiRoomMainScreen(
                                     translationPreferences = translationPrefs,
                                     onUpdateTranslationPreferences = { viewModel.updateTranslationPreferences(it) },
                                     isUploadingFile = isUploadingFile,
-                                    isOmemoEnabled = if (activeRoom != null) omemoEnabledJids.contains(activeRoom!!.jid.lowercase()) else false,
+                                    isOmemoEnabled = if (activeRoom != null) omemoEnabledJids.contains(activeRoom!!.jid.trim().substringBefore("/").lowercase()) else false,
+                                    isOmemoSupportedByContact = activeRoom?.jid?.trim()?.substringBefore("/")?.lowercase()?.let { contactOmemoSupport[it] },
                                     onToggleOmemo = {
                                         activeRoom?.let { room ->
-                                            val on = omemoEnabledJids.contains(room.jid.lowercase())
-                                            viewModel.setOmemoEnabledFor(room.jid, !on)
+                                            val bare = room.jid.trim().substringBefore("/").lowercase()
+                                            val on = omemoEnabledJids.contains(bare)
+                                            viewModel.setOmemoEnabledFor(bare, !on)
                                         }
                                     },
                                     onOpenOmemoDetails = {
-                                        omemoSecurityTargetJid = activeRoom?.jid
+                                        omemoSecurityTargetJid = activeRoom?.jid?.trim()?.substringBefore("/")?.lowercase()
                                         showOmemoSecurityDialog = true
                                     }
                                 )
@@ -2700,8 +2745,9 @@ fun MultiRoomMainScreen(
     }
 
     if (showOmemoSecurityDialog) {
-        val targetJid = omemoSecurityTargetJid ?: activeRoom?.jid ?: ""
-        val roomMatch = allRooms.find { it.jid.equals(targetJid, ignoreCase = true) }
+        val rawTargetJid = omemoSecurityTargetJid ?: activeRoom?.jid ?: ""
+        val targetJid = rawTargetJid.trim().substringBefore("/")
+        val roomMatch = allRooms.find { it.jid.substringBefore("/").equals(targetJid, ignoreCase = true) }
         val targetName = roomMatch?.name ?: targetJid.substringBefore("@")
         val isGroup = roomMatch?.isGroupChat ?: isMucJid(targetJid)
         val isEnabled = if (targetJid.isNotBlank()) omemoEnabledJids.contains(targetJid.lowercase()) else false
@@ -2723,6 +2769,44 @@ fun MultiRoomMainScreen(
             onToggleAutoTrust = { viewModel.setAutoTrustOmemo(it) },
             onGetFingerprints = { jid -> viewModel.getActiveFingerprints(jid) },
             onDismiss = { showOmemoSecurityDialog = false }
+        )
+    }
+
+    pendingOmemoBypass?.let {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissOmemoBypassPrompt() },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Peringatan OMEMO",
+                    tint = Color(0xFFF59E0B)
+                )
+            },
+            title = {
+                Text(
+                    text = "Enkripsi OMEMO Tidak Didukung",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text("Kontak ini tidak mendukung OMEMO. Pesan tidak dikirim.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.confirmSendWithoutEncryptionOnce() },
+                    modifier = Modifier.testTag("btn_omemo_send_plaintext_once")
+                ) {
+                    Text("Kirim tanpa enkripsi")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.dismissOmemoBypassPrompt() },
+                    modifier = Modifier.testTag("btn_omemo_cancel_send")
+                ) {
+                    Text("Batal")
+                }
+            }
         )
     }
 
@@ -2906,9 +2990,13 @@ fun OmemoSecurityDialog(
                             val devices = deviceFingerprints ?: emptyMap()
                             if (devices.isEmpty()) {
                                 Text(
-                                    text = "Belum ada kunci perangkat lain terdaftar di server untuk JID ini. Kunci akan otomatis disinkronkan saat lawan bicara online.",
+                                    text = if (isOmemoEnabled) {
+                                        "⚠️ Tidak didukung kontak — daftar perangkat OMEMO untuk bare JID ini kosong. Pesan tidak akan dikirim dalam teks biasa saat saklar aktif."
+                                    } else {
+                                        "Belum ada kunci perangkat OMEMO terdaftar di server untuk bare JID ini."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (isOmemoEnabled) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             } else {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3335,6 +3423,7 @@ fun ChatInputBar(
     onUpdateTranslationPreferences: ((com.ndregil.inchat.data.model.TranslationPreferences) -> Unit)? = null,
     isUploadingFile: Boolean = false,
     isOmemoEnabled: Boolean = false,
+    isOmemoSupportedByContact: Boolean? = null,
     onToggleOmemo: (() -> Unit)? = null,
     onOpenOmemoDetails: (() -> Unit)? = null
 ) {
@@ -3602,8 +3691,26 @@ fun ChatInputBar(
                 }
             }
 
-            // OMEMO Encryption Active Badge Bar
+            // OMEMO Encryption Status Badge Bar (hanya tampil gembok tertutup jika kontak benar-benar punya perangkat OMEMO)
             AnimatedVisibility(visible = isOmemoEnabled) {
+                val isSupported = isOmemoSupportedByContact == true
+                val isUnsupported = isOmemoSupportedByContact == false
+                val warningColor = Color(0xFFF59E0B)
+                val badgeBg = when {
+                    isUnsupported -> warningColor.copy(alpha = 0.16f)
+                    isSupported -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f)
+                }
+                val badgeBorder = when {
+                    isUnsupported -> warningColor.copy(alpha = 0.75f)
+                    isSupported -> MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                }
+                val iconTint = when {
+                    isUnsupported -> warningColor
+                    isSupported -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3614,31 +3721,35 @@ fun ChatInputBar(
                     Surface(
                         onClick = { onOpenOmemoDetails?.invoke() },
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
-                        border = androidx.compose.foundation.BorderStroke(0.8.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                        color = badgeBg,
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, badgeBorder)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Lock,
+                                imageVector = if (isSupported) Icons.Default.Lock else Icons.Default.LockOpen,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = iconTint,
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Enkripsi OMEMO (E2EE) Aktif",
+                                text = when {
+                                    isUnsupported -> "Tidak didukung kontak"
+                                    isSupported -> "Enkripsi OMEMO (E2EE) Aktif"
+                                    else -> "Memeriksa OMEMO kontak..."
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (isUnsupported) Color(0xFFB45309) else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
-                                imageVector = Icons.Default.Info,
+                                imageVector = if (isUnsupported) Icons.Default.Warning else Icons.Default.Info,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = iconTint,
                                 modifier = Modifier.size(13.dp)
                             )
                         }
@@ -3780,16 +3891,30 @@ fun ChatInputBar(
                                     )
                                 }
 
-                                // Tombol Enkripsi OMEMO
+                                // Tombol Enkripsi OMEMO (gembok tertutup hanya jika kontak punya perangkat OMEMO; warna peringatan bila tidak didukung)
                                 if (onToggleOmemo != null) {
+                                    val isVerifiedSupported = isOmemoEnabled && isOmemoSupportedByContact == true
+                                    val isKnownUnsupported = isOmemoEnabled && isOmemoSupportedByContact == false
                                     IconButton(
                                         onClick = { onToggleOmemo() },
                                         modifier = Modifier.size(32.dp).testTag("btn_omemo_input")
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Lock,
-                                            contentDescription = "Enkripsi OMEMO (XEP-0384)",
-                                            tint = if (isOmemoEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                            imageVector = if (isVerifiedSupported) {
+                                                Icons.Default.Lock
+                                            } else {
+                                                Icons.Default.LockOpen
+                                            },
+                                            contentDescription = when {
+                                                isKnownUnsupported -> "Tidak didukung kontak"
+                                                isVerifiedSupported -> "Enkripsi OMEMO Aktif"
+                                                else -> "Enkripsi OMEMO (XEP-0384)"
+                                            },
+                                            tint = when {
+                                                isKnownUnsupported -> Color(0xFFF59E0B)
+                                                isVerifiedSupported -> MaterialTheme.colorScheme.primary
+                                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                            },
                                             modifier = Modifier.size(19.dp)
                                         )
                                     }
