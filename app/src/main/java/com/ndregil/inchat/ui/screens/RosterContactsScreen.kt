@@ -1384,8 +1384,13 @@ fun UserPresenceControlCard(
                                 contentScale = ContentScale.Crop
                             )
                         } else {
+                            val initialsSource = currentAccount.nickname.ifBlank {
+                                currentAccount.username.ifBlank {
+                                    currentAccount.jid.substringBefore("@")
+                                }
+                            }
                             Text(
-                                text = currentAccount.nickname.take(2).uppercase(Locale.getDefault()),
+                                text = initialsSource.take(2).uppercase(Locale.getDefault()),
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 14.sp

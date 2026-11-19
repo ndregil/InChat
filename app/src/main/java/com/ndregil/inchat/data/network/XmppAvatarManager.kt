@@ -64,6 +64,7 @@ class XmppAvatarManager(
 
     private val fetchSemaphore = kotlinx.coroutines.sync.Semaphore(10)
     private var currentConnection: XMPPTCPConnection? = null
+    private var lastListenerConnection: XMPPTCPConnection? = null
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -101,6 +102,44 @@ class XmppAvatarManager(
         noAvatarSet.clear()
         inFlightSet.clear()
         setupPepAndVCardUpdateListeners(connection)
+        scope.launch(Dispatchers.IO) {
+            _avatarUpdates.emit("connection_ready")
+            val ownBareJid = connection.user?.asBareJid()?.toString()
+            if (!ownBareJid.isNullOrBlank()) {
+                refreshOwnAvatar(ownBareJid)
+            }
+        }
+    }
+
+    /**
+     * Proactively fetches the authenticated user's own avatar from the server (PEP / VCard)
+     * so profile cards in Contacts and Account Settings stay up to date after login/reconnect.
+     */
+    fun refreshOwnAvatar(ownJid: String) {
+        val bare = ownJid.trim().substringBefore("/")
+        if (bare.isBlank()) return
+        val key = resolveAvatarKey(bare)
+        if (key.isEmpty()) return
+        noAvatarSet.remove(key)
+        scope.launch(Dispatchers.IO) {
+            if (!inFlightSet.add(key)) return@launch
+            try {
+                val conn = currentConnection
+                if (conn == null || !conn.isAuthenticated) return@launch
+                fetchSemaphore.withPermit {
+                    val outcome = fetchAvatarInternal(bare)
+                    if (outcome.bytes != null && outcome.bytes.isNotEmpty()) {
+                        storeAvatarBytes(bare, outcome.bytes)
+                    } else if (outcome.confirmedMissing && currentConnection?.isAuthenticated == true && !avatarCache.containsKey(key)) {
+                        noAvatarSet.add(key)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to refresh own avatar for $bare: ${e.message}")
+            } finally {
+                inFlightSet.remove(key)
+            }
+        }
     }
 
     private fun extractPayloadXml(payload: Any?): String {
@@ -117,6 +156,8 @@ class XmppAvatarManager(
     }
 
     private fun setupPepAndVCardUpdateListeners(connection: XMPPTCPConnection) {
+        if (lastListenerConnection === connection) return
+        lastListenerConnection = connection
         val pepListener = StanzaListener { stanza ->
             val msg = stanza as Message
             val event = try {
@@ -292,11 +333,15 @@ class XmppAvatarManager(
 
     suspend fun publishAvatar(bytes: ByteArray): Result<Unit> = withContext(Dispatchers.IO) {
         val connection = currentConnection ?: return@withContext Result.failure(IllegalStateException("Not connected"))
+        var pepPublished = false
+        var vCardPublished = false
+        var lastError: Exception? = null
+
+        // 1. Try publishing via XEP-0084 PEP
         try {
             val hash = sha1Hash(bytes)
             val pubSubManager = PubSubManager.getInstanceFor(connection)
 
-            // 1. Publish Data
             val dataNode = try {
                 pubSubManager.getLeafNode("urn:xmpp:avatar:data")
             } catch (_: Exception) {
@@ -307,7 +352,6 @@ class XmppAvatarManager(
             val dataPayload = SimplePayload("<data xmlns='urn:xmpp:avatar:data'>$base64Data</data>")
             dataNode.publish(PayloadItem(hash, dataPayload))
 
-            // 2. Publish Metadata
             val metadataNode = try {
                 pubSubManager.getLeafNode("urn:xmpp:avatar:metadata")
             } catch (_: Exception) {
@@ -320,26 +364,40 @@ class XmppAvatarManager(
                     "</metadata>"
             )
             metadataNode.publish(PayloadItem(hash, metadataPayload))
-
-            // 3. Also save to VCard as legacy fallback (XEP-0153)
-            try {
-                val vCardManager = VCardManager.getInstanceFor(connection)
-                val vCard = vCardManager.loadVCard() ?: VCard()
-                vCard.avatar = bytes
-                vCardManager.saveVCard(vCard)
-                Log.i(TAG, "Also saved avatar to VCard for legacy fallback")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to save VCard avatar fallback: ${e.message}")
-            }
-
-            val myJid = connection.user.asBareJid().toString()
-            storeAvatarBytes(myJid, bytes)
-
+            pepPublished = true
             Log.i(TAG, "Published new PEP avatar with hash: $hash")
-            Result.success(Unit)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to publish PEP avatar: ${e.message}", e)
-            Result.failure(e)
+            lastError = e
+            Log.w(TAG, "PEP avatar publish failed (will try VCard fallback): ${e.message}")
+        }
+
+        // 2. Save to VCard (XEP-0054 / XEP-0153) independently so servers without PEP still persist avatar
+        try {
+            val vCardManager = VCardManager.getInstanceFor(connection)
+            val vCard = try {
+                vCardManager.loadVCard() ?: VCard()
+            } catch (_: Exception) {
+                VCard()
+            }
+            vCard.setAvatar(bytes, "image/png")
+            vCardManager.saveVCard(vCard)
+            vCardPublished = true
+            Log.i(TAG, "Saved avatar to VCard")
+        } catch (e: Exception) {
+            if (lastError == null) lastError = e
+            Log.w(TAG, "Failed to save VCard avatar: ${e.message}")
+        }
+
+        return@withContext if (pepPublished || vCardPublished) {
+            val myJid = connection.user?.asBareJid()?.toString()
+                ?: connectionManager.currentCredentials.jid
+            if (myJid.isNotBlank()) {
+                storeAvatarBytes(myJid, bytes)
+            }
+            Result.success(Unit)
+        } else {
+            Log.e(TAG, "Failed to publish avatar via both PEP and VCard: ${lastError?.message}", lastError)
+            Result.failure(lastError ?: IllegalStateException("Failed to publish avatar"))
         }
     }
 
@@ -599,6 +657,8 @@ class XmppAvatarManager(
             val bareJidStr = bareJid.toString()
             val isMuc = isMucDomain(bareJidStr)
             val hasResource = fullJid.hasResource()
+            val myBareJidStr = connection.user?.asBareJid()?.toString()
+            val isOwnJid = !isMuc && myBareJidStr != null && bareJidStr.equals(myBareJidStr, ignoreCase = true)
 
             // 1. If this is a MUC room bare JID or MUC occupant JID, query XEP-0054 vCard-temp directly
             if (isMuc) {
@@ -633,9 +693,9 @@ class XmppAvatarManager(
                             return@withContext AvatarFetchOutcome(bytes = bytes)
                         }
                     }
-                } catch (e: SmackException.NoResponseException) {
+                } catch (e: SmackException) {
                     sawTimeoutOrTransientError = true
-                    Log.d(TAG, "MUC vCard timeout for $targetJid: ${e.message}")
+                    Log.d(TAG, "MUC vCard transient error for $targetJid: ${e.message}")
                 } catch (e: TimeoutCancellationException) {
                     sawTimeoutOrTransientError = true
                 } catch (e: Exception) {
@@ -651,13 +711,18 @@ class XmppAvatarManager(
             // 2. Try XEP-0084 PEP / PubSub (works for users and MUC rooms supporting PubSub avatars)
             try {
                 val pepBytes = withTimeoutOrNull(3_500L) {
-                    val pubSubManager = PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(bareJidStr))
+                    val pubSubManager = if (isOwnJid) {
+                        PubSubManager.getInstanceFor(connection)
+                    } else {
+                        PubSubManager.getInstanceFor(connection, JidCreate.bareFrom(bareJidStr))
+                    }
                     val metaNode = pubSubManager.getLeafNode("urn:xmpp:avatar:metadata")
                     val metaItems = metaNode.getItems<PayloadItem<SimplePayload>>()
                     val latestMetaItem = metaItems.lastOrNull() as? PayloadItem<*>
                     val metaPayload = extractPayloadXml(latestMetaItem?.payload)
 
                     val hash = "id=['\"]([^'\"]+)['\"]".toRegex().find(metaPayload)?.groupValues?.get(1)
+                        ?: latestMetaItem?.id?.takeIf { it.isNotBlank() }
                     val infoUrl = "url=['\"]([^'\"]+)['\"]".toRegex().find(metaPayload)?.groupValues?.get(1)
 
                     if (!hash.isNullOrBlank()) {
@@ -682,7 +747,7 @@ class XmppAvatarManager(
                     Log.i(TAG, "Fetched XEP-0084 PEP avatar for $targetJid (${pepBytes.size} bytes)")
                     return@withContext AvatarFetchOutcome(bytes = pepBytes)
                 }
-            } catch (e: SmackException.NoResponseException) {
+            } catch (e: SmackException) {
                 sawTimeoutOrTransientError = true
             } catch (e: TimeoutCancellationException) {
                 sawTimeoutOrTransientError = true
@@ -692,11 +757,36 @@ class XmppAvatarManager(
 
             // 3. Standard user vCard-temp fallback (skip duplicate call if already queried as MUC above)
             if (!isMuc) {
+                val vCardManager = VCardManager.getInstanceFor(connection)
+                // For our own account, XEP-0054 expects loadVCard() without 'to' first; fall back to explicit bare JID.
+                if (isOwnJid) {
+                    try {
+                        val ownVCard = withTimeoutOrNull(4_500L) {
+                            vCardManager.loadVCard()
+                        }
+                        if (ownVCard == null) {
+                            sawTimeoutOrTransientError = true
+                        } else {
+                            val bytes = extractAvatarFromVCard(ownVCard)
+                            if (bytes != null && bytes.isNotEmpty()) {
+                                Log.i(TAG, "Fetched own XEP-0054 vCard avatar (${bytes.size} bytes)")
+                                return@withContext AvatarFetchOutcome(bytes = bytes)
+                            }
+                        }
+                    } catch (e: SmackException) {
+                        sawTimeoutOrTransientError = true
+                    } catch (e: TimeoutCancellationException) {
+                        sawTimeoutOrTransientError = true
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Own loadVCard() fallback note for $targetJid: ${e.message}")
+                    }
+                }
+
                 try {
                     val bareJidObj = bareJid.asEntityBareJidIfPossible()
                     if (bareJidObj != null) {
                         val vCard = withTimeoutOrNull(4_500L) {
-                            VCardManager.getInstanceFor(connection).loadVCard(bareJidObj)
+                            vCardManager.loadVCard(bareJidObj)
                         }
                         if (vCard == null) {
                             sawTimeoutOrTransientError = true
@@ -708,7 +798,9 @@ class XmppAvatarManager(
                             }
                         }
                     }
-                } catch (e: SmackException.NoResponseException) {
+                } catch (e: SmackException) {
+                    sawTimeoutOrTransientError = true
+                } catch (e: TimeoutCancellationException) {
                     sawTimeoutOrTransientError = true
                 } catch (e: Exception) {
                     Log.d(TAG, "VCard avatar fetch failed for $targetJid: ${e.message}")
@@ -723,14 +815,18 @@ class XmppAvatarManager(
     }
 
     /**
-     * Clears the in-memory avatar cache.
+     * Clears the in-memory avatar cache and optionally clears persisted SQLite avatars.
      */
-    fun clearCache() {
+    fun clearCache(clearDatabase: Boolean = true) {
         avatarCache.clear()
         photoHashCache.clear()
         noAvatarSet.clear()
+        inFlightSet.clear()
         scope.launch {
-            avatarDao.clearAllAvatars()
+            if (clearDatabase) {
+                avatarDao.clearAllAvatars()
+            }
+            _avatarUpdates.emit("cleared")
         }
     }
 }

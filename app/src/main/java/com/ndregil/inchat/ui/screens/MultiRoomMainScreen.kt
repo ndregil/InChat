@@ -394,6 +394,21 @@ fun MultiRoomMainScreen(
         }
     }
 
+    // Redirect user to Contacts menu after successful login or registration
+    val navigateToContactsToken by viewModel.navigateToContactsToken.collectAsStateWithLifecycle()
+    LaunchedEffect(navigateToContactsToken) {
+        if (navigateToContactsToken > 0L) {
+            activeNavIndex = 2
+            showAccountSettingsDirectly = false
+            showBookmarksScreen = false
+            showCustomThemeScreen = false
+            isDirectConversationOpen = false
+            viewModel.resetRegistrationState()
+            viewModel.refreshRoster()
+            viewModel.consumeNavigateToContactsToken()
+        }
+    }
+
     // Show Toast for room config status
     val roomConfigStatus by viewModel.roomConfigStatus.collectAsStateWithLifecycle()
     val isRoomConfigLoading by viewModel.isRoomConfigLoading.collectAsStateWithLifecycle()

@@ -533,6 +533,7 @@ class XmppRepository(
             database.messageDao().clearAllMessages()
             database.storyDao().clearAllStories()
             database.avatarDao().clearAllAvatars()
+            smackAvatarManager.clearCache(clearDatabase = false)
             database.accountDao().clearAccounts()
             smackMucManager.clearServerBookmarks()
         }
@@ -813,6 +814,7 @@ class XmppRepository(
         database.contactDao().clearAllContacts()
         database.storyDao().clearAllStories()
         database.avatarDao().clearAllAvatars()
+        smackAvatarManager.clearCache(clearDatabase = false)
         smackMucManager.clearServerBookmarks()
         _currentAccount.value = XmppAccount()
     }
@@ -838,6 +840,7 @@ class XmppRepository(
         database.contactDao().clearAllContacts()
         database.storyDao().clearAllStories()
         database.avatarDao().clearAllAvatars()
+        smackAvatarManager.clearCache(clearDatabase = false)
         smackMucManager.clearServerBookmarks()
         _currentAccount.value = XmppAccount()
     }

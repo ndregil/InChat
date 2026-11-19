@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
@@ -80,9 +81,17 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val myStatusMessage: StateFlow<String> = repository.userStatusMessage
     val currentCall: StateFlow<com.ndregil.inchat.data.model.CallInfo?> = repository.currentCall
     
-    val myAvatar: StateFlow<ByteArray?> = combine(currentAccount, repository.smackAvatarManager.avatarUpdates) { acc, _ ->
-        repository.smackAvatarManager.getAvatar(acc.jid)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val myAvatar: StateFlow<ByteArray?> = combine(
+        currentAccount,
+        repository.smackAvatarManager.avatarUpdates.onStart { emit("") }
+    ) { acc, _ ->
+        val myJid = acc.jid.ifBlank {
+            if (acc.username.isNotBlank() && acc.domain.isNotBlank()) {
+                "${acc.username.trim()}@${acc.domain.trim()}"
+            } else ""
+        }
+        if (myJid.isBlank()) null else repository.smackAvatarManager.getAvatar(myJid)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val translationPreferences: StateFlow<com.ndregil.inchat.data.model.TranslationPreferences> =
         repository.translationPreferences.stateIn(
@@ -1345,7 +1354,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                             isDemoMode = false,
                             statusMessage = "Aktif di InChat"
                         )
-                        connectAccount(newAccount, password)
+                        connectAndRedirectIfAuthenticated(newAccount, password)
+                    } else {
+                        _navigateToContactsToken.value = System.nanoTime()
                     }
                 },
                 onFailure = { error ->
@@ -1406,7 +1417,9 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                             isDemoMode = false,
                             statusMessage = "Aktif di InChat"
                         )
-                        connectAccount(newAccount, challenge.password)
+                        connectAndRedirectIfAuthenticated(newAccount, challenge.password)
+                    } else {
+                        _navigateToContactsToken.value = System.nanoTime()
                     }
                 },
                 onFailure = { error ->
@@ -1458,7 +1471,7 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                 statusMessage = "Mode Tamu / Eksplorasi InChat"
             )
 
-            connectAccount(guestAccount, "")
+            connectAndRedirectIfAuthenticated(guestAccount, "")
         }
     }
 
@@ -1588,9 +1601,25 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private val _navigateToContactsToken = MutableStateFlow(0L)
+    val navigateToContactsToken: StateFlow<Long> = _navigateToContactsToken.asStateFlow()
+
+    fun consumeNavigateToContactsToken() {
+        _navigateToContactsToken.value = 0L
+    }
+
+    private suspend fun connectAndRedirectIfAuthenticated(account: XmppAccount, password: String = "") {
+        repository.connect(account, password)
+        val isAuthenticated = connectionStatus.value == ConnectionStatus.CONNECTED ||
+            repository.smackConnectionManager.isAuthenticated()
+        if (isAuthenticated) {
+            _navigateToContactsToken.value = System.nanoTime()
+        }
+    }
+
     fun connectAccount(account: XmppAccount, password: String = "") {
         viewModelScope.launch {
-            repository.connect(account, password)
+            connectAndRedirectIfAuthenticated(account, password)
         }
     }
 
