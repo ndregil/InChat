@@ -1,9 +1,13 @@
 package com.ndregil.inchat.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -58,6 +62,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -75,6 +81,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +90,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +101,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import com.ndregil.inchat.data.model.ContactStoryGroup
@@ -100,6 +110,7 @@ import com.ndregil.inchat.data.model.RosterContact
 import com.ndregil.inchat.data.model.StoryMediaType
 import com.ndregil.inchat.data.model.UserStory
 import kotlinx.coroutines.delay
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -125,17 +136,76 @@ fun StoriesTabContent(
     paddingValues: PaddingValues = PaddingValues(0.dp)
 ) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
+    val context = LocalContext.current
     var showCreateTextDialog by remember { mutableStateOf(false) }
-    var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
-    var showCreateMediaDialog by remember { mutableStateOf(false) }
+    var selectedMediaUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var showCreateMediaDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingCameraPhotoPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var showMediaSourceMenu by remember { mutableStateOf(false) }
     var viewingGroupTarget by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
+    val selectedMediaUri = remember(selectedMediaUriString) {
+        selectedMediaUriString?.let { runCatching { Uri.parse(it) }.getOrNull() }
+    }
+
     val photoPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+        contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            selectedMediaUri = uri
+            selectedMediaUriString = uri.toString()
             showCreateMediaDialog = true
+        }
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success: Boolean ->
+        val filePath = pendingCameraPhotoPath
+        pendingCameraPhotoPath = null
+        val capturedFile = filePath?.let { File(it) }
+        if (success && capturedFile != null && capturedFile.exists() && capturedFile.length() > 0L) {
+            val contentUri = try {
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    capturedFile
+                )
+            } catch (_: Exception) {
+                Uri.fromFile(capturedFile)
+            }
+            selectedMediaUriString = contentUri.toString()
+            showCreateMediaDialog = true
+        } else {
+            if (capturedFile != null && capturedFile.exists() && capturedFile.length() == 0L) {
+                runCatching { capturedFile.delete() }
+            }
+        }
+    }
+
+    fun launchCameraCapture() {
+        try {
+            val photoFile = File(context.cacheDir, "story_cam_${System.currentTimeMillis()}.jpg")
+            val photoUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                photoFile
+            )
+            pendingCameraPhotoPath = photoFile.absolutePath
+            takePictureLauncher.launch(photoUri)
+        } catch (_: Exception) {
+            pendingCameraPhotoPath?.let { path -> runCatching { File(path).delete() } }
+            pendingCameraPhotoPath = null
+            Toast.makeText(context, strings.cameraUnavailable, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            launchCameraCapture()
+        } else {
+            Toast.makeText(context, strings.cameraPermissionRequiredToast, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -367,20 +437,68 @@ fun StoriesTabContent(
                                 )
                             }
 
-                            IconButton(
-                                onClick = { photoPickerLauncher.launch("image/*") },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .testTag("btn_add_image_story")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = strings.sendPhotoStatusAction,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                            Box {
+                                IconButton(
+                                    onClick = { showMediaSourceMenu = true },
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .testTag("btn_add_image_story")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = strings.sendPhotoStatusAction,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showMediaSourceMenu,
+                                    onDismissRequest = { showMediaSourceMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(strings.takePhotoCamera) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.CameraAlt,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("menu_story_camera"),
+                                        onClick = {
+                                            showMediaSourceMenu = false
+                                            val hasCamPerm = ContextCompat.checkSelfPermission(
+                                                context,
+                                                Manifest.permission.CAMERA
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                            if (hasCamPerm) {
+                                                launchCameraCapture()
+                                            } else {
+                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(strings.chooseFromGallery) },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Image,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        },
+                                        modifier = Modifier.testTag("menu_story_gallery"),
+                                        onClick = {
+                                            showMediaSourceMenu = false
+                                            photoPickerLauncher.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -496,16 +614,16 @@ fun StoriesTabContent(
 
     // Modal Dialog: Create Media Story with Caption
     if (showCreateMediaDialog && selectedMediaUri != null) {
-        val targetMediaUri = selectedMediaUri!!
+        val targetMediaUri = selectedMediaUri
         CreateMediaStoryDialog(
             imageUri = targetMediaUri,
             onDismiss = {
                 showCreateMediaDialog = false
-                selectedMediaUri = null
+                selectedMediaUriString = null
             },
             onPublish = { caption ->
                 showCreateMediaDialog = false
-                selectedMediaUri = null
+                selectedMediaUriString = null
                 onPublishStory(caption, targetMediaUri, "#0284C7")
             },
             isPublishing = isPublishing

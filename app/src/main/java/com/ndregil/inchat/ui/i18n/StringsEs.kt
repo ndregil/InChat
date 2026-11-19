@@ -114,6 +114,8 @@ object SpanishStrings : AppStrings {
     override val addStatusDesc = "Añadir estado"
     override val writeStatusAction = "Escribir estado"
     override val sendPhotoStatusAction = "Enviar estado con foto"
+    override val takePhotoCamera = "Tomar foto (Cámara)"
+    override val chooseFromGallery = "Elegir de la galería"
     override val noStoriesYet = "Aún no hay historias"
     override val noStoriesDesc = "Comparte momentos diarios o textos con tus contactos. Las historias caducan automáticamente en 24 horas."
     override val createFirstStory = "Crear primera historia"

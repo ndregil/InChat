@@ -114,6 +114,8 @@ object ArabicStrings : AppStrings {
     override val addStatusDesc = "إضافة حالة"
     override val writeStatusAction = "كتابة حالة"
     override val sendPhotoStatusAction = "إرسال حالة صورة"
+    override val takePhotoCamera = "التقاط صورة (الكاميرا)"
+    override val chooseFromGallery = "اختر من المعرض"
     override val noStoriesYet = "لا توجد قصص بعد"
     override val noStoriesDesc = "شارك لحظاتك اليومية أو تحديثاتك النصية مع جهات اتصالك لمدة 24 ساعة."
     override val createFirstStory = "إنشاء أول قصة"

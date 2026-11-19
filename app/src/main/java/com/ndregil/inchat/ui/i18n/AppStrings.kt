@@ -116,6 +116,8 @@ interface AppStrings {
     val addStatusDesc: String
     val writeStatusAction: String
     val sendPhotoStatusAction: String
+    val takePhotoCamera: String
+    val chooseFromGallery: String
     val noStoriesYet: String
     val noStoriesDesc: String
     val createFirstStory: String

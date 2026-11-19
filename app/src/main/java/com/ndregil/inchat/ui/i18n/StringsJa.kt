@@ -114,6 +114,8 @@ object JapaneseStrings : AppStrings {
     override val addStatusDesc = "ステータスを追加"
     override val writeStatusAction = "テキストを入力"
     override val sendPhotoStatusAction = "写真ステータスを送信"
+    override val takePhotoCamera = "写真を撮る（カメラ）"
+    override val chooseFromGallery = "ギャラリーから選択"
     override val noStoriesYet = "ストーリーはまだありません"
     override val noStoriesDesc = "日々の瞬間やテキストを連絡先と共有しましょう。ストーリーは24時間後に自動削除されます。"
     override val createFirstStory = "最初のストーリーを作成"

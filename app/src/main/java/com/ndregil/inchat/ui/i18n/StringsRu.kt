@@ -114,6 +114,8 @@ object RussianStrings : AppStrings {
     override val addStatusDesc = "Добавить статус"
     override val writeStatusAction = "Написать статус"
     override val sendPhotoStatusAction = "Добавить фото-статус"
+    override val takePhotoCamera = "Сделать фото (Камера)"
+    override val chooseFromGallery = "Выбрать из галереи"
     override val noStoriesYet = "Историй пока нет"
     override val noStoriesDesc = "Делитесь моментами и текстовыми заметками с контактами. Они исчезнут через 24 часа."
     override val createFirstStory = "Создать первую историю"

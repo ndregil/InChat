@@ -114,6 +114,8 @@ object ChineseStrings : AppStrings {
     override val addStatusDesc = "添加状态"
     override val writeStatusAction = "写状态"
     override val sendPhotoStatusAction = "发送图片状态"
+    override val takePhotoCamera = "拍照（相机）"
+    override val chooseFromGallery = "从相册选择"
     override val noStoriesYet = "暂无动态"
     override val noStoriesDesc = "与联系人分享日常点滴或文字动态。动态将在 24 小时后自动过期。"
     override val createFirstStory = "创建第一条动态"

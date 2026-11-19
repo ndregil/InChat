@@ -114,6 +114,8 @@ object FrenchStrings : AppStrings {
     override val addStatusDesc = "Ajouter un statut"
     override val writeStatusAction = "Écrire un statut"
     override val sendPhotoStatusAction = "Envoyer un statut photo"
+    override val takePhotoCamera = "Prendre une photo (Caméra)"
+    override val chooseFromGallery = "Choisir dans la galerie"
     override val noStoriesYet = "Aucune story pour l'instant"
     override val noStoriesDesc = "Partagez des moments ou du texte avec vos contacts. Les stories expirent automatiquement après 24 heures."
     override val createFirstStory = "Créer la première story"

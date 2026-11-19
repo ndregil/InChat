@@ -114,6 +114,8 @@ object EnglishStrings : AppStrings {
     override val addStatusDesc = "Add Status"
     override val writeStatusAction = "Write Status"
     override val sendPhotoStatusAction = "Send Photo Status"
+    override val takePhotoCamera = "Take Photo (Camera)"
+    override val chooseFromGallery = "Choose from Gallery"
     override val noStoriesYet = "No Stories Yet"
     override val noStoriesDesc = "Share daily moments or text updates with your contacts. Stories expire automatically after 24 hours."
     override val createFirstStory = "Create First Story"

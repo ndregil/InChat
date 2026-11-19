@@ -114,6 +114,8 @@ object GermanStrings : AppStrings {
     override val addStatusDesc = "Status hinzufügen"
     override val writeStatusAction = "Status schreiben"
     override val sendPhotoStatusAction = "Foto-Status senden"
+    override val takePhotoCamera = "Foto aufnehmen (Kamera)"
+    override val chooseFromGallery = "Aus Galerie wählen"
     override val noStoriesYet = "Noch keine Stories"
     override val noStoriesDesc = "Teile tägliche Momente oder Textupdates mit deinen Kontakten. Stories laufen nach 24 Stunden ab."
     override val createFirstStory = "Erste Story erstellen"

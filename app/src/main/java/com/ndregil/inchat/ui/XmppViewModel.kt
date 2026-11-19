@@ -1948,6 +1948,10 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearStoryPublishError() {
+        storyPublishError.value = null
+    }
+
     fun markStoryViewed(storyId: String) {
         viewModelScope.launch {
             val story = stories.value.find { it.id == storyId }

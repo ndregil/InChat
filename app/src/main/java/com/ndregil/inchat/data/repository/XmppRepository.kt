@@ -3301,6 +3301,124 @@ class XmppRepository(
         }
     }
 
+    private fun openUriInputStream(uri: android.net.Uri): java.io.InputStream? {
+        return try {
+            context.contentResolver.openInputStream(uri)
+        } catch (_: Exception) {
+            null
+        } ?: if (uri.scheme == "file" && !uri.path.isNullOrBlank()) {
+            val file = java.io.File(uri.path!!)
+            if (file.exists()) java.io.FileInputStream(file) else null
+        } else {
+            null
+        }
+    }
+
+    private fun prepareStoryImageFile(mediaUri: android.net.Uri, targetFile: java.io.File): Boolean {
+        return try {
+            val orientation = try {
+                openUriInputStream(mediaUri)?.use { exifStream ->
+                    android.media.ExifInterface(exifStream).getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                    )
+                } ?: android.media.ExifInterface.ORIENTATION_NORMAL
+            } catch (_: Exception) {
+                android.media.ExifInterface.ORIENTATION_NORMAL
+            }
+
+            val boundsOpts = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            openUriInputStream(mediaUri)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream, null, boundsOpts)
+            }
+
+            val maxEdge = 1440
+            if (boundsOpts.outWidth > 0 && boundsOpts.outHeight > 0) {
+                var sampleSize = 1
+                var halfW = boundsOpts.outWidth
+                var halfH = boundsOpts.outHeight
+                while ((halfW / sampleSize) > maxEdge * 2 || (halfH / sampleSize) > maxEdge * 2) {
+                    sampleSize *= 2
+                }
+                val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                val decoded = openUriInputStream(mediaUri)?.use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream, null, decodeOpts)
+                }
+                if (decoded != null) {
+                    val matrix = android.graphics.Matrix()
+                    when (orientation) {
+                        android.media.ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                        android.media.ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                        android.media.ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                        android.media.ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                        android.media.ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                        android.media.ExifInterface.ORIENTATION_TRANSPOSE -> {
+                            matrix.postRotate(90f)
+                            matrix.postScale(-1f, 1f)
+                        }
+                        android.media.ExifInterface.ORIENTATION_TRANSVERSE -> {
+                            matrix.postRotate(270f)
+                            matrix.postScale(-1f, 1f)
+                        }
+                    }
+
+                    val rotated = if (!matrix.isIdentity) {
+                        android.graphics.Bitmap.createBitmap(
+                            decoded, 0, 0, decoded.width, decoded.height, matrix, true
+                        ).also {
+                            if (it !== decoded) decoded.recycle()
+                        }
+                    } else {
+                        decoded
+                    }
+
+                    val longest = maxOf(rotated.width, rotated.height)
+                    val finalBitmap = if (longest > maxEdge) {
+                        val scale = maxEdge.toFloat() / longest.toFloat()
+                        val targetW = (rotated.width * scale).toInt().coerceAtLeast(1)
+                        val targetH = (rotated.height * scale).toInt().coerceAtLeast(1)
+                        android.graphics.Bitmap.createScaledBitmap(rotated, targetW, targetH, true).also {
+                            if (it !== rotated) rotated.recycle()
+                        }
+                    } else {
+                        rotated
+                    }
+
+                    targetFile.outputStream().use { out ->
+                        finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                        out.flush()
+                    }
+                    if (targetFile.length() > 1_200_000L) {
+                        targetFile.outputStream().use { out ->
+                            finalBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out)
+                            out.flush()
+                        }
+                    }
+                    finalBitmap.recycle()
+                    if (targetFile.exists() && targetFile.length() > 0L) {
+                        return true
+                    }
+                }
+            }
+
+            // Fallback: copy raw stream if BitmapFactory could not decode
+            openUriInputStream(mediaUri)?.use { input ->
+                targetFile.outputStream().use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            }
+            targetFile.exists() && targetFile.length() > 0L
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "prepareStoryImageFile failed: ${e.message}", e)
+            false
+        }
+    }
+
     suspend fun publishStory(
         text: String,
         mediaUri: android.net.Uri? = null,
@@ -3313,49 +3431,49 @@ class XmppRepository(
             val now = System.currentTimeMillis()
 
             var mediaUrl: String? = null
+            var remoteMediaUrl: String? = null
             var mediaType = com.ndregil.inchat.data.model.StoryMediaType.TEXT
 
             if (mediaUri != null) {
-                // 1. Always copy to persistent internal app storage so it can be viewed locally even if offline or if server upload fails/lacks XEP-0363
-                try {
-                    val storiesDir = java.io.File(context.filesDir, "stories").apply { mkdirs() }
-                    val localFile = java.io.File(storiesDir, "story_${storyId}.jpg")
-                    context.contentResolver.openInputStream(mediaUri)?.use { input ->
-                        localFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    if (localFile.exists() && localFile.length() > 0) {
-                        mediaUrl = localFile.absolutePath
-                        mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
-                        Log.i("XmppRepository", "Saved local story image to: ${localFile.absolutePath} (${localFile.length()} bytes)")
-                    }
-                } catch (e: Exception) {
-                    Log.w("XmppRepository", "Failed saving local story image copy: ${e.message}")
+                val storiesDir = java.io.File(context.filesDir, "stories").apply { mkdirs() }
+                val localFile = java.io.File(storiesDir, "story_${storyId}.jpg")
+
+                // 1. Decode, apply EXIF orientation, resize/compress, and persist locally
+                val prepared = prepareStoryImageFile(mediaUri, localFile)
+                if (!prepared || !localFile.exists() || localFile.length() <= 0L) {
+                    return@withContext Result.failure(
+                        IllegalStateException("Gagal memproses gambar dari kamera atau galeri.")
+                    )
                 }
 
-                // 2. Try uploading via XEP-0363 HTTP File Upload so remote contacts can view it
+                mediaUrl = localFile.absolutePath
+                mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
+                Log.i("XmppRepository", "Saved local story image to: ${localFile.absolutePath} (${localFile.length()} bytes)")
+
+                // 2. Try uploading prepared localFile via XEP-0363 HTTP File Upload so remote contacts can view it
                 try {
                     val conn = smackConnectionManager.getRawConnection()
                     if (conn != null && smackConnectionManager.isConnected()) {
                         val fileName = "story_${storyId}.jpg"
-                        val localFile = java.io.File(context.filesDir, "stories/story_${storyId}.jpg")
-                        val fileSize = if (localFile.exists()) localFile.length() else 1024L
-                        val uploadResult = smackFileUploadManager.uploadFile(conn, mediaUri, fileName, fileSize, "image/jpeg")
-                        val remoteUrl = uploadResult.getOrNull()
-                        if (!remoteUrl.isNullOrBlank()) {
-                            mediaUrl = remoteUrl
-                            mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
-                            Log.i("XmppRepository", "Uploaded story image via XEP-0363: $remoteUrl")
+                        val uploadUri = android.net.Uri.fromFile(localFile)
+                        val uploadResult = smackFileUploadManager.uploadFile(
+                            conn,
+                            uploadUri,
+                            fileName,
+                            localFile.length(),
+                            "image/jpeg"
+                        )
+                        val uploadedUrl = uploadResult.getOrNull()
+                        if (!uploadedUrl.isNullOrBlank()) {
+                            mediaUrl = uploadedUrl
+                            remoteMediaUrl = uploadedUrl
+                            Log.i("XmppRepository", "Uploaded story image via XEP-0363: $uploadedUrl")
+                        } else {
+                            Log.w("XmppRepository", "XEP-0363 story upload failed: ${uploadResult.exceptionOrNull()?.message}")
                         }
                     }
                 } catch (e: Exception) {
                     Log.w("XmppRepository", "XEP-0363 remote upload for story failed or not supported: ${e.message}")
-                }
-
-                // If mediaUrl is still set (either local or remote), it is an IMAGE story
-                if (mediaUrl != null) {
-                    mediaType = com.ndregil.inchat.data.model.StoryMediaType.IMAGE
                 }
             }
 
@@ -3384,13 +3502,20 @@ class XmppRepository(
 
             // Broadcast story announcement to online roster contacts via XMPP Message
             val conn = smackConnectionManager.getRawConnection()
-            if (conn != null && smackConnectionManager.isConnected()) {
+            if (conn != null && smackConnectionManager.isConnected() &&
+                (mediaType == com.ndregil.inchat.data.model.StoryMediaType.TEXT || remoteMediaUrl != null || text.isNotBlank())
+            ) {
+                val broadcastType = if (mediaType == com.ndregil.inchat.data.model.StoryMediaType.IMAGE && remoteMediaUrl == null) {
+                    com.ndregil.inchat.data.model.StoryMediaType.TEXT
+                } else {
+                    mediaType
+                }
                 val storyJson = org.json.JSONObject().apply {
                     put("id", storyId)
                     put("senderName", myNick)
                     put("text", text)
-                    if (mediaUrl != null) put("mediaUrl", mediaUrl)
-                    put("mediaType", mediaType.name)
+                    if (remoteMediaUrl != null) put("mediaUrl", remoteMediaUrl)
+                    put("mediaType", broadcastType.name)
                     put("bgColor", backgroundColorHex)
                     put("timestamp", now)
                 }.toString()

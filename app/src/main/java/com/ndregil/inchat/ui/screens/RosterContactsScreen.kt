@@ -3,6 +3,7 @@ package com.ndregil.inchat.ui.screens
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.LaunchedEffect
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -144,9 +145,18 @@ fun RosterContactsScreen(
     val isSyncingBookmarks by viewModel.isSyncingBookmarks.collectAsStateWithLifecycle()
     val stories by viewModel.stories.collectAsStateWithLifecycle()
     val isPublishingStory by viewModel.isPublishingStory.collectAsStateWithLifecycle()
+    val storyPublishError by viewModel.storyPublishError.collectAsStateWithLifecycle()
     val myAvatar by viewModel.myAvatar.collectAsStateWithLifecycle()
 
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(storyPublishError) {
+        val err = storyPublishError
+        if (!err.isNullOrBlank()) {
+            android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearStoryPublishError()
+        }
+    }
     var selectedFileTargetJid by remember { mutableStateOf<String?>(null) }
     var pendingContactAttachment by remember { mutableStateOf<com.ndregil.inchat.ui.components.PendingAttachment?>(null) }
 

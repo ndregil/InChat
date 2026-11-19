@@ -114,6 +114,8 @@ object IndonesianStrings : AppStrings {
     override val addStatusDesc = "Tambah Status"
     override val writeStatusAction = "Tulis Status"
     override val sendPhotoStatusAction = "Kirim Foto Status"
+    override val takePhotoCamera = "Ambil Foto (Kamera)"
+    override val chooseFromGallery = "Pilih dari Galeri"
     override val noStoriesYet = "Belum Ada Status"
     override val noStoriesDesc = "Bagikan momen harian atau pembaruan teks dengan kontak Anda. Status otomatis aktif selama 24 jam."
     override val createFirstStory = "Buat Status Pertama"
