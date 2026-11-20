@@ -181,7 +181,8 @@ class XmppConnectionManager(
     private var connectInProgress: Boolean = false
 
     var onBeforeConnectPrepared: ((XMPPTCPConnection) -> Unit)? = null
-    var onReconnectedAuthenticated: ((XMPPTCPConnection) -> Unit)? = null
+    var onReconnectedAuthenticated: ((XMPPTCPConnection, Boolean) -> Unit)? = null
+    var onConnectionLostOrClosed: (() -> Unit)? = null
 
     private val smackConnectionListener = object : ConnectionListener {
         override fun connected(connection: XMPPConnection) {
@@ -194,19 +195,21 @@ class XmppConnectionManager(
             _connectionStatus.value = ConnectionStatus.CONNECTED
             _lastError.value = null
             if (!connectInProgress && connection is XMPPTCPConnection) {
-                onReconnectedAuthenticated?.invoke(connection)
+                onReconnectedAuthenticated?.invoke(connection, resumed)
             }
         }
 
         override fun connectionClosed() {
             Log.d(TAG, "Smack: Connection closed normally")
             _connectionStatus.value = ConnectionStatus.DISCONNECTED
+            onConnectionLostOrClosed?.invoke()
         }
 
         override fun connectionClosedOnError(e: Exception) {
             Log.e(TAG, "Smack: Connection closed on error: ${e.message}", e)
             _connectionStatus.value = ConnectionStatus.ERROR
             _lastError.value = e.localizedMessage ?: "Connection closed with error"
+            onConnectionLostOrClosed?.invoke()
         }
     }
 
@@ -319,9 +322,9 @@ class XmppConnectionManager(
             val configuration = configBuilder.build()
             val connection = XMPPTCPConnection(configuration)
             
-            // Enable Stream Management (XEP-0198)
-            connection.setUseStreamManagement(false)
-            connection.setUseStreamManagementResumption(false)
+            // Enable Stream Management (XEP-0198) with Resumption
+            connection.setUseStreamManagement(true)
+            connection.setUseStreamManagementResumption(true)
 
 
 
@@ -395,6 +398,15 @@ class XmppConnectionManager(
             // Enable XMPP Ping (XEP-0199) to keep-alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
             pingManager.pingInterval = 18 // Reduced to 18 seconds to stay within NAT windows
+            pingManager.registerPingFailedListener {
+                Log.w(TAG, "Ping failed! Forcing disconnect and reconnect.")
+                try {
+                    connection.instantShutdown()
+                } catch (_: Exception) {}
+                _connectionStatus.value = ConnectionStatus.ERROR
+                _lastError.value = "Koneksi terputus (Ping gagal)"
+                onConnectionLostOrClosed?.invoke()
+            }
             
 
             // Also try to enable standard TCP Keep-Alive
@@ -528,7 +540,18 @@ class XmppConnectionManager(
         }
     }
 
+    suspend fun sendUnavailablePresence() = withContext(Dispatchers.IO) {
+        try {
+            val conn = tcpConnection
+            if (conn != null && conn.isAuthenticated) {
+                val presence = PresenceBuilder.buildPresence().ofType(Presence.Type.unavailable).setStatus("Offline").build()
+                conn.sendStanza(presence)
+            }
+        } catch (_: Exception) {}
+    }
+
     suspend fun disconnect() = withContext(Dispatchers.IO) {
+        sendUnavailablePresence()
         safeDisconnectInternal()
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
     }

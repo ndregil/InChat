@@ -1024,6 +1024,10 @@ class RosterManager(
         return null
     }
 
+    fun clearPresenceMap() {
+        _presenceMap.value = emptyMap()
+    }
+
     /**
      * Cleans up listeners when disconnecting.
      */

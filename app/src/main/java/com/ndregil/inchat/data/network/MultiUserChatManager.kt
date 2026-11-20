@@ -870,6 +870,12 @@ class MultiUserChatManager(
         _serverBookmarks.value = emptyList()
     }
 
+    fun clearAllOccupantsAndCache() {
+        _roomOccupants.value = emptyMap()
+        roomOccupantPresenceCache.clear()
+        roomOccupantCapsCache.clear()
+    }
+
     /**
      * Checks if a room is currently joined.
      */
@@ -1815,7 +1821,7 @@ class MultiUserChatManager(
                     }
 
                     val smackPresence = muc.getOccupantPresence(occupantJid)
-                    val userPresence = smackPresence?.toUserPresence() ?: UserPresence.ONLINE
+                    val userPresence = smackPresence?.toUserPresence() ?: UserPresence.OFFLINE
                     val statusMessage = smackPresence?.status ?: ""
                     val defaultStatus = when (userPresence) {
                         UserPresence.ONLINE -> "Online"

@@ -210,12 +210,23 @@ class XmppRepository(
         smackConnectionManager.onBeforeConnectPrepared = { conn ->
             omemoEncryptionManager.prepareForConnection(conn)
         }
-        smackConnectionManager.onReconnectedAuthenticated = { conn ->
+        smackConnectionManager.onConnectionLostOrClosed = {
+            scope.launch(Dispatchers.IO) {
+                smackRosterManager.clearPresenceMap()
+                smackMucManager.clearAllOccupantsAndCache()
+            }
+        }
+        smackConnectionManager.onReconnectedAuthenticated = { conn, resumed ->
             scope.launch(Dispatchers.IO) {
                 try {
                     smackAvatarManager.onConnectionReady(conn)
                     setupReceiptListener(conn)
                     setupIncomingStanzaListener()
+                    if (!resumed) {
+                        Log.i("XmppRepository", "Fresh connection established (not resumed). Reloading roster and re-joining rooms.")
+                        smackRosterManager.loadContacts(forceReload = true)
+                        autoJoinConfiguredRooms()
+                    }
                     kotlinx.coroutines.withTimeoutOrNull(12_000L) {
                         val acctJid = currentAccount.value.jid.ifBlank { conn.user?.asBareJid()?.toString().orEmpty() }
                         omemoEncryptionManager.onConnectionReady(conn, acctJid)

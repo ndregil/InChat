@@ -108,6 +108,12 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.systemGestureExclusion
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.activity.compose.BackHandler
@@ -441,13 +447,9 @@ fun MultiRoomMainScreen(
     val directChatsList by viewModel.directChats.collectAsStateWithLifecycle()
     val roomUnread = remember(groupRoomsList) { groupRoomsList.sumOf { it.unreadCount } }
     val directUnread = remember(directChatsList) { directChatsList.sumOf { it.unreadCount } }
-    val isRoomChatActive = activeNavIndex == 0 && roomPagerState.currentPage > 0
-    val isDirectChatActive = activeNavIndex == 1 && isDirectConversationOpen && activeRoom != null && !activeRoom!!.isGroupChat
-    val drawerGesturesEnabled = drawerState.isOpen || (!isRoomChatActive && !isDirectChatActive)
-
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = drawerGesturesEnabled,
+        gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(280.dp)
@@ -640,8 +642,44 @@ fun MultiRoomMainScreen(
             }
         }
     ) {
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(drawerState) {
+                var dragStartedValid = false
+                var totalDragX = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        // Allow swiping right to open navigation drawer when drawer is closed and touch begins anywhere in the left portion of the screen (up to 240.dp)
+                        dragStartedValid = !drawerState.isOpen && offset.x <= 240.dp.toPx()
+                        totalDragX = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        if (dragStartedValid && dragAmount > 0f) {
+                            totalDragX += dragAmount
+                            if (totalDragX > 28.dp.toPx()) {
+                                change.consume()
+                                coroutineScope.launch {
+                                    if (!drawerState.isOpen) {
+                                        drawerState.open()
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        dragStartedValid = false
+                        totalDragX = 0f
+                    },
+                    onDragCancel = {
+                        dragStartedValid = false
+                        totalDragX = 0f
+                    }
+                )
+            }
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (activeNavIndex == 0) {
@@ -926,11 +964,7 @@ fun MultiRoomMainScreen(
                         }
                     }
 
-                    if (roomPagerState.currentPage > 0) {
-                        BackHandler {
-                            viewModel.clearSelectedRoom()
-                        }
-                    }
+
 
                         HorizontalPager(
                             state = roomPagerState,
@@ -1331,11 +1365,7 @@ fun MultiRoomMainScreen(
                         }
                     }
 
-                    if (isDirectActive && chatPagerState.currentPage == 1) {
-                        BackHandler {
-                            isDirectConversationOpen = false
-                        }
-                    }
+
 
                     HorizontalPager(
                         state = chatPagerState,
@@ -2232,6 +2262,16 @@ fun MultiRoomMainScreen(
                 }
             }
         }
+    }
+
+        // Left edge overlay that excludes Android system gesture back zone so swiping opens drawer
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(56.dp)
+                .align(Alignment.CenterStart)
+                .systemGestureExclusion()
+        )
     }
 
     BackHandler(enabled = drawerState.isOpen) {
