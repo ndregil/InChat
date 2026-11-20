@@ -87,7 +87,7 @@ class Converters {
         com.ndregil.inchat.data.local.entity.StoryViewerEntity::class,
         com.ndregil.inchat.data.local.entity.ClientCapabilityEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -112,6 +112,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_15_16 = object : androidx.room.migration.Migration(15, 16) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS story_viewers (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        storyId TEXT NOT NULL,
+                        viewerJid TEXT NOT NULL,
+                        viewerName TEXT NOT NULL,
+                        viewedAt INTEGER NOT NULL
+                    )
+                """)
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_story_viewers_storyId ON story_viewers(storyId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_story_viewers_viewerJid ON story_viewers(viewerJid)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_story_viewers_storyId_viewerJid ON story_viewers(storyId, viewerJid)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -119,8 +136,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xmpp_multiroom_database"
                 )
-                    .addMigrations(MIGRATION_14_15)
-                    .fallbackToDestructiveMigration(true)
+                    .addMigrations(MIGRATION_14_15, MIGRATION_15_16)
                     .build()
                 INSTANCE = instance
                 instance

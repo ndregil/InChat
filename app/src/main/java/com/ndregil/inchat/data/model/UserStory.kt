@@ -17,10 +17,10 @@ data class StoryViewer(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
         other as StoryViewer
-        return id == other.id || (storyId == other.storyId && viewerJid.equals(other.viewerJid, ignoreCase = true))
+        return storyId == other.storyId && viewerJid.trim().substringBefore("/").lowercase() == other.viewerJid.trim().substringBefore("/").lowercase()
     }
 
-    override fun hashCode(): Int = (storyId + viewerJid.lowercase()).hashCode()
+    override fun hashCode(): Int = (storyId + viewerJid.trim().substringBefore("/").lowercase()).hashCode()
 }
 
 /**
@@ -42,15 +42,6 @@ data class UserStory(
 ) {
     val viewerCount: Int
         get() = viewers.size
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-        other as UserStory
-        return id == other.id
-    }
-
-    override fun hashCode(): Int = id.hashCode()
 }
 
 enum class StoryMediaType {

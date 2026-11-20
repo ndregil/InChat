@@ -18,6 +18,9 @@ interface StoryDao {
     @Query("SELECT * FROM stories WHERE isMine = 1 ORDER BY timestamp DESC")
     fun getMyStories(): Flow<List<StoryEntity>>
 
+    @Query("SELECT * FROM stories WHERE id = :storyId AND isMine = 1 LIMIT 1")
+    suspend fun getMyStoryById(storyId: String): StoryEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateStory(story: StoryEntity)
 

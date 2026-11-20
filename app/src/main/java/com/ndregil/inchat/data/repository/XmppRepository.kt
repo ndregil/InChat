@@ -1066,6 +1066,13 @@ class XmppRepository(
                         val json = org.json.JSONObject(jsonStr)
                         val storyId = json.optString("storyId", "").trim()
                         if (storyId.isBlank()) return@launch
+
+                        val myStory = database.storyDao().getMyStoryById(storyId)
+                        if (myStory == null || !myStory.isMine) {
+                            Log.w("XmppRepository", "Ignored incoming story view notification: story $storyId is unknown or not mine.")
+                            return@launch
+                        }
+
                         val rawViewerJid = json.optString("viewerJid", "").ifBlank { fromBareJid }
                         val normalizedViewerJid = rawViewerJid.trim().substringBefore("/").lowercase()
                         if (normalizedViewerJid.isBlank() ||
@@ -1077,6 +1084,7 @@ class XmppRepository(
                             it.jid.trim().substringBefore("/").equals(normalizedViewerJid, ignoreCase = true)
                         }
                         val viewerName = contactMatch?.displayName?.takeIf { it.isNotBlank() }
+                            ?: contactMatch?.name?.takeIf { it.isNotBlank() }
                             ?: json.optString("viewerName", "").takeIf { it.isNotBlank() }
                             ?: normalizedViewerJid.substringBefore("@")
                         val timestamp = json.optLong("timestamp", System.currentTimeMillis())
@@ -3277,6 +3285,7 @@ class XmppRepository(
      */
     suspend fun sendStoryViewedNotification(story: com.ndregil.inchat.data.model.UserStory) = withContext(Dispatchers.IO) {
         try {
+            if (story.isMine) return@withContext
             val conn = smackConnectionManager.getRawConnection() ?: return@withContext
             if (!smackConnectionManager.isConnected()) return@withContext
 
@@ -3286,8 +3295,13 @@ class XmppRepository(
                 .substringBefore("/")
                 .lowercase()
             if (myJid.isBlank()) return@withContext
-            val targetBareJid = story.senderJid.trim().substringBefore("/")
+
+            val targetBareJid = story.senderJid.trim().substringBefore("/").lowercase()
             if (targetBareJid.isBlank() || targetBareJid.equals(myJid, ignoreCase = true)) return@withContext
+
+            if (story.viewers.any { it.viewerJid.trim().substringBefore("/").lowercase() == myJid }) {
+                return@withContext
+            }
 
             val myNick = currentAccount.value.nickname.ifBlank { myJid.substringBefore("@") }
 
@@ -3306,7 +3320,7 @@ class XmppRepository(
                 body = "[STORY_VIEWED] $viewJson"
             }
             conn.sendStanza(msg)
-            Log.i("XmppRepository", "Sent story viewed notification to $targetBareJid for story ${story.id}")
+            Log.i("XmppRepository", "Sent story viewed notification to $targetBareJid for story ${story.id} with stanza: ${msg.toXML()}")
         } catch (e: Exception) {
             Log.w("XmppRepository", "Failed to send story viewed notification: ${e.message}")
         }
