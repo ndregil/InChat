@@ -1026,6 +1026,11 @@ class RosterManager(
 
     fun clearPresenceMap() {
         _presenceMap.value = emptyMap()
+        if (_contacts.value.any { it.presence != UserPresence.OFFLINE }) {
+            _contacts.value = _contacts.value.map {
+                if (it.presence == UserPresence.OFFLINE) it else it.copy(presence = UserPresence.OFFLINE)
+            }
+        }
     }
 
     /**

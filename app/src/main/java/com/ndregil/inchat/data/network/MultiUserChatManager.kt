@@ -84,6 +84,9 @@ class MultiUserChatManager(
     // Active joined MUC instances mapped by Bare JID string
     private val activeMucs = ConcurrentHashMap<String, MultiUserChat>()
 
+    // Connection instance each active MUC was joined on
+    private val activeMucConnections = ConcurrentHashMap<String, org.jivesoftware.smack.XMPPConnection>()
+
     // Nicknames used when entering rooms (mapped by room JID string)
     private val roomNicknames = ConcurrentHashMap<String, String>()
 
@@ -184,16 +187,28 @@ class MultiUserChatManager(
             val joinMutex = joinMutexes.computeIfAbsent(norm) { Mutex() }
 
             joinMutex.withLock {
-                val smackMucManager = getSmackMucManager()
+                val conn = connectionManager.getRawConnection()
+                    ?: throw IllegalStateException("XMPP connection is not established. Please connect first.")
+                if (!conn.isConnected || !conn.isAuthenticated) {
+                    throw IllegalStateException("XMPP user is not authenticated. Please log in first.")
+                }
+                val smackMucManager = SmackMultiUserChatManager.getInstanceFor(conn)
                 val nick = Resourcepart.from(nickname.trim().ifBlank { connectionManager.credentials.value.username.ifBlank { "User" } })
                 val muc = smackMucManager.getMultiUserChat(bareJid)
 
-                // If already joined, return existing instance cleanly without duplicating listeners
-                if (muc.isJoined) {
+                // Only consider joined if tracked for this exact authenticated connection AND Smack says joined
+                val trackedConn = activeMucConnections[norm] ?: activeMucConnections[roomJid]
+                val alreadyJoinedCurrentSession = trackedConn === conn &&
+                    (activeMucs[norm] === muc || activeMucs[roomJid] === muc) &&
+                    muc.isJoined
+
+                if (alreadyJoinedCurrentSession) {
                     Log.d(TAG, "Already joined room $roomJid")
                     val actualNick = muc.nickname?.toString()?.takeIf { it.isNotBlank() } ?: nick.toString()
                     activeMucs[roomJid] = muc
                     activeMucs[norm] = muc
+                    activeMucConnections[roomJid] = conn
+                    activeMucConnections[norm] = conn
                     roomNicknames[roomJid] = actualNick
                     roomNicknames[norm] = actualNick
                     if (roomMessageListeners[norm].isNullOrEmpty() && roomMessageListeners[roomJid].isNullOrEmpty()) {
@@ -203,6 +218,13 @@ class MultiUserChatManager(
                     updateOccupantsForRoom(bareJid.toString(), muc)
                     avatarManager.getAvatar(roomJid)
                     return@withLock Result.success(muc)
+                }
+
+                // Reset stale Smack local state (myRoomJid != null from a dead session without SM resumption)
+                // so muc.join() immediately sends join presence without waiting 30s in Smack's leaveSync().
+                if (muc.isJoined) {
+                    Log.w(TAG, "Detected stale muc.isJoined=true for $roomJid without active session; resetting local MUC state before re-join.")
+                    resetSmackMucLocalState(muc)
                 }
 
                 // Build enter configuration
@@ -260,6 +282,8 @@ class MultiUserChatManager(
 
                 activeMucs[roomJid] = muc
                 activeMucs[norm] = muc
+                activeMucConnections[roomJid] = conn
+                activeMucConnections[norm] = conn
                 roomNicknames[roomJid] = actualNick
                 roomNicknames[norm] = actualNick
                 _joinedRooms.value = activeMucs.keys.toSet()
@@ -367,10 +391,18 @@ class MultiUserChatManager(
                 }
             }
 
+            val norm = bareJid.toString().lowercase()
+            val conn = connectionManager.getRawConnection()
             registerMucListeners(roomJid, muc, nick.toString())
 
             activeMucs[roomJid] = muc
+            activeMucs[norm] = muc
+            if (conn != null) {
+                activeMucConnections[roomJid] = conn
+                activeMucConnections[norm] = conn
+            }
             roomNicknames[roomJid] = nick.toString()
+            roomNicknames[norm] = nick.toString()
             _joinedRooms.value = activeMucs.keys.toSet()
 
             updateOccupantsForRoom(roomJid, muc)
@@ -402,7 +434,7 @@ class MultiUserChatManager(
         allowInvites: Boolean = true,
         whois: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(
             IllegalStateException("Ruangan $roomJid belum dimasuki / tidak aktif.")
         )
         try {
@@ -525,6 +557,7 @@ class MultiUserChatManager(
         detachMucListeners(keysToRemove, muc)
         for (key in keysToRemove) {
             activeMucs.remove(key)
+            activeMucConnections.remove(key)
             roomNicknames.remove(key)
             roomOccupantCapsCache.remove(key)
             roomOccupantPresenceCache.remove(key)
@@ -551,7 +584,7 @@ class MultiUserChatManager(
      * Changes or updates the room topic / subject.
      */
     suspend fun changeSubject(roomJid: String, newTopic: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(
             IllegalStateException("Room $roomJid is not joined.")
         )
         try {
@@ -673,9 +706,12 @@ class MultiUserChatManager(
                 UserPresence.OFFLINE -> null
             }
 
+            val sentRooms = HashSet<String>()
             for ((roomJid, muc) in activeMucs) {
-                if (muc.isJoined) {
-                    val nick = roomNicknames[roomJid] ?: conn.user?.resourceOrEmpty?.toString() ?: connectionManager.credentials.value.username.ifBlank { "User" }
+                val norm = roomJid.trim().lowercase()
+                if (!sentRooms.add(norm)) continue
+                if (isMucValidForCurrentSession(roomJid, muc)) {
+                    val nick = roomNicknames[norm] ?: roomNicknames[roomJid] ?: conn.user?.resourceOrEmpty?.toString() ?: connectionManager.credentials.value.username.ifBlank { "User" }
                     val roomFullJid = JidCreate.entityFullFrom("$roomJid/$nick")
                     val pres = if (presence == UserPresence.OFFLINE) {
                         PresenceBuilder.buildPresence()
@@ -851,7 +887,10 @@ class MultiUserChatManager(
                 Log.w(TAG, "Error leaving room $jid during teardown: ${e.message}")
             }
         }
+        updateJobs.values.forEach { it.cancel() }
+        updateJobs.clear()
         activeMucs.clear()
+        activeMucConnections.clear()
         roomNicknames.clear()
         roomMessageListeners.clear()
         roomParticipantListeners.clear()
@@ -860,6 +899,7 @@ class MultiUserChatManager(
         _joinedRooms.value = emptySet()
         _roomOccupants.value = emptyMap()
         _serverBookmarks.value = emptyList()
+        roomOccupantPresenceCache.clear()
         roomOccupantCapsCache.clear()
     }
 
@@ -870,26 +910,93 @@ class MultiUserChatManager(
         _serverBookmarks.value = emptyList()
     }
 
+    private fun resetSmackMucLocalState(muc: MultiUserChat) {
+        try {
+            val userHasLeftMethod = MultiUserChat::class.java.getDeclaredMethod("userHasLeft")
+            userHasLeftMethod.isAccessible = true
+            userHasLeftMethod.invoke(muc)
+            return
+        } catch (_: Exception) {}
+        try {
+            val myRoomJidField = MultiUserChat::class.java.getDeclaredField("myRoomJid")
+            myRoomJidField.isAccessible = true
+            myRoomJidField.set(muc, null)
+        } catch (_: Exception) {}
+    }
+
     fun clearAllOccupantsAndCache() {
+        updateJobs.values.forEach { it.cancel() }
+        updateJobs.clear()
+
+        val mucSnapshot = activeMucs.toMap()
+        val connSnapshot = activeMucConnections.toMap()
+        val allKeys = (mucSnapshot.keys + roomMessageListeners.keys + roomParticipantListeners.keys +
+            roomSubjectListeners.keys + roomPresenceListeners.keys).toSet()
+
+        for (key in allKeys) {
+            val muc = mucSnapshot[key] ?: mucSnapshot[key.lowercase()]
+            val conn = connSnapshot[key] ?: connSnapshot[key.lowercase()] ?: connectionManager.getRawConnection()
+            roomMessageListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeMessageListener(listener) } catch (_: Exception) {}
+            }
+            roomParticipantListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeParticipantStatusListener(listener) } catch (_: Exception) {}
+            }
+            roomSubjectListeners.remove(key)?.forEach { listener ->
+                try { muc?.removeSubjectUpdatedListener(listener) } catch (_: Exception) {}
+            }
+            roomPresenceListeners.remove(key)?.forEach { listener ->
+                try { conn?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
+                try { connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
+            }
+        }
+
+        mucSnapshot.values.distinct().forEach { muc ->
+            if (muc.isJoined) {
+                resetSmackMucLocalState(muc)
+            }
+        }
+
+        activeMucs.clear()
+        activeMucConnections.clear()
+        roomNicknames.clear()
+        _joinedRooms.value = emptySet()
         _roomOccupants.value = emptyMap()
         roomOccupantPresenceCache.clear()
         roomOccupantCapsCache.clear()
     }
 
-    /**
-     * Checks if a room is currently joined.
-     */
-    fun isRoomJoined(roomJid: String): Boolean {
-        val norm = roomJid.trim().lowercase()
-        return (activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value)?.isJoined == true
+    private fun findActiveMucEntry(roomJid: String): Pair<String, MultiUserChat>? {
+        val trimmed = roomJid.trim()
+        val norm = trimmed.lowercase()
+        activeMucs[norm]?.let { return norm to it }
+        activeMucs[trimmed]?.let { return trimmed to it }
+        return activeMucs.entries.firstOrNull { it.key.equals(trimmed, ignoreCase = true) }
+            ?.let { it.key to it.value }
+    }
+
+    private fun isMucValidForCurrentSession(key: String, muc: MultiUserChat): Boolean {
+        val currentConn = connectionManager.getRawConnection() ?: return false
+        if (!currentConn.isConnected || !currentConn.isAuthenticated) return false
+        val mucConn = activeMucConnections[key] ?: activeMucConnections[key.lowercase()]
+        if (mucConn !== currentConn) return false
+        return muc.isJoined
     }
 
     /**
-     * Retrieves the active [MultiUserChat] instance for a room, or null if not joined.
+     * Checks if a room is currently joined on the active authenticated session.
+     */
+    fun isRoomJoined(roomJid: String): Boolean {
+        val (key, muc) = findActiveMucEntry(roomJid) ?: return false
+        return isMucValidForCurrentSession(key, muc)
+    }
+
+    /**
+     * Retrieves the active [MultiUserChat] instance for a room on the current session, or null if not joined.
      */
     fun getMultiUserChat(roomJid: String): MultiUserChat? {
-        val norm = roomJid.trim().lowercase()
-        return activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
+        val (key, muc) = findActiveMucEntry(roomJid) ?: return null
+        return if (isMucValidForCurrentSession(key, muc)) muc else null
     }
 
     /**
@@ -1233,6 +1340,7 @@ class MultiUserChatManager(
 
     private fun detachMucListeners(keys: Set<String>, muc: MultiUserChat?) {
         for (key in keys) {
+            val storedConn = activeMucConnections[key] ?: activeMucConnections[key.lowercase()]
             roomMessageListeners.remove(key)?.forEach { listener ->
                 try { muc?.removeMessageListener(listener) } catch (_: Exception) {}
             }
@@ -1243,6 +1351,7 @@ class MultiUserChatManager(
                 try { muc?.removeSubjectUpdatedListener(listener) } catch (_: Exception) {}
             }
             roomPresenceListeners.remove(key)?.forEach { listener ->
+                try { storedConn?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
                 try { connectionManager.getRawConnection()?.removeAsyncStanzaListener(listener) } catch (_: Exception) {}
             }
         }
@@ -1676,8 +1785,7 @@ class MultiUserChatManager(
      * Public method to force a refresh of the occupant list for a room.
      */
     fun refreshOccupants(roomJid: String) {
-        val norm = roomJid.trim().lowercase()
-        val muc = activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value ?: return
+        val muc = getMultiUserChat(roomJid) ?: return
         updateOccupantsForRoom(roomJid, muc)
     }
 
@@ -1688,7 +1796,7 @@ class MultiUserChatManager(
         val norm = roomJid.trim().lowercase()
         val list = _roomOccupants.value[norm] ?: _roomOccupants.value[roomJid] ?: _roomOccupants.value.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
         if (!list.isNullOrEmpty()) return list.size
-        val muc = activeMucs[norm] ?: activeMucs[roomJid] ?: activeMucs.entries.firstOrNull { it.key.equals(roomJid.trim(), ignoreCase = true) }?.value
+        val muc = getMultiUserChat(roomJid)
         if (muc != null && muc.isJoined && muc.occupantsCount > 0) {
             return muc.occupantsCount
         }

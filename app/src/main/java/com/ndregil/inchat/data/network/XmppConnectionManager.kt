@@ -1486,6 +1486,7 @@ class XmppConnectionManager(
     }
 
     private fun safeDisconnectInternal() {
+        val hadConnection = tcpConnection != null
         try {
             tcpConnection?.let { conn ->
                 conn.removeConnectionListener(smackConnectionListener)
@@ -1496,6 +1497,9 @@ class XmppConnectionManager(
             tcpConnection = null
             mucManager = null
             chatManager = null
+            if (hadConnection) {
+                onConnectionLostOrClosed?.invoke()
+            }
         }
     }
 }

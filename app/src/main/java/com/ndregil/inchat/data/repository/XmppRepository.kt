@@ -211,10 +211,8 @@ class XmppRepository(
             omemoEncryptionManager.prepareForConnection(conn)
         }
         smackConnectionManager.onConnectionLostOrClosed = {
-            scope.launch(Dispatchers.IO) {
-                smackRosterManager.clearPresenceMap()
-                smackMucManager.clearAllOccupantsAndCache()
-            }
+            smackRosterManager.clearPresenceMap()
+            smackMucManager.clearAllOccupantsAndCache()
         }
         smackConnectionManager.onReconnectedAuthenticated = { conn, resumed ->
             scope.launch(Dispatchers.IO) {
@@ -226,6 +224,12 @@ class XmppRepository(
                         Log.i("XmppRepository", "Fresh connection established (not resumed). Reloading roster and re-joining rooms.")
                         smackRosterManager.loadContacts(forceReload = true)
                         autoJoinConfiguredRooms()
+                    } else {
+                        smackRosterManager.loadContacts(forceReload = false)
+                        if (smackMucManager.joinedRooms.value.isEmpty()) {
+                            Log.i("XmppRepository", "Resumed connection with cleared local MUC state; re-joining configured rooms.")
+                            autoJoinConfiguredRooms()
+                        }
                     }
                     kotlinx.coroutines.withTimeoutOrNull(12_000L) {
                         val acctJid = currentAccount.value.jid.ifBlank { conn.user?.asBareJid()?.toString().orEmpty() }
@@ -1622,6 +1626,10 @@ class XmppRepository(
      */
     suspend fun autoJoinConfiguredRooms() = kotlinx.coroutines.withContext(Dispatchers.IO) {
         autoJoinMutex.withLock {
+            if (!smackConnectionManager.isConnected() || !smackConnectionManager.isAuthenticated()) {
+                Log.w("XmppRepository", "Skipping auto-join: XMPP connection is not authenticated.")
+                return@withLock
+            }
             Log.i("XmppRepository", "Starting auto-join for configured rooms...")
             val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
             val savedRooms = database.roomDao().getAllRoomsList()
@@ -1654,6 +1662,10 @@ class XmppRepository(
 
             // Join rooms sequentially with a small delay to avoid overwhelming the server and connection
             for ((norm, data) in roomsToJoin) {
+                if (!smackConnectionManager.isConnected() || !smackConnectionManager.isAuthenticated()) {
+                    Log.w("XmppRepository", "Stopping auto-join mid-loop: connection lost.")
+                    break
+                }
                 val jid = originalJidByNorm[norm] ?: norm
                 if (smackMucManager.isRoomJoined(jid)) {
                     Log.d("XmppRepository", "Skipping auto-join for already-joined room $jid")
@@ -2456,8 +2468,8 @@ class XmppRepository(
             }
         }
 
-        // 4. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) — hanya bila OMEMO tidak aktif atau pengguna eksplisit memilih kirim tanpa enkripsi untuk pesan ini
-        if (!isSentSuccessfully && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
+        // 4. Direct 1-on-1 XMPP Chat Stanza (RFC 6121) — hanya bila bukan MUC room, OMEMO tidak aktif, atau pengguna eksplisit memilih kirim tanpa enkripsi untuk pesan ini
+        if (!isSentSuccessfully && !isGroup && smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
             try {
                 val conn = smackConnectionManager.getRawConnection()
                 if (conn != null) {
