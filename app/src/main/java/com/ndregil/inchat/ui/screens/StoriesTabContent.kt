@@ -67,11 +67,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -294,7 +296,7 @@ fun StoriesTabContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 12.dp, bottom = 80.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 148.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Section: Status Saya (My Status)
@@ -407,7 +409,8 @@ fun StoriesTabContent(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     Surface(
                                         shape = RoundedCornerShape(50),
@@ -415,7 +418,7 @@ fun StoriesTabContent(
                                         modifier = Modifier.testTag("badge_my_story_viewers")
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
@@ -423,13 +426,14 @@ fun StoriesTabContent(
                                                 imageVector = Icons.Default.Visibility,
                                                 contentDescription = strings.viewedByLabel,
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(13.dp)
+                                                modifier = Modifier.size(14.dp)
                                             )
                                             Text(
                                                 text = "$totalMyUniqueViewers",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1
                                             )
                                         }
                                     }
@@ -440,89 +444,6 @@ fun StoriesTabContent(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                        }
-
-                        // Action buttons: Text story and Camera/Gallery story
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            IconButton(
-                                onClick = openTextEditor,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .testTag("btn_add_text_story")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = strings.writeStatusAction,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-
-                            Box {
-                                IconButton(
-                                    onClick = { showMediaSourceMenu = true },
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surface)
-                                        .testTag("btn_add_image_story")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CameraAlt,
-                                        contentDescription = strings.sendPhotoStatusAction,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showMediaSourceMenu,
-                                    onDismissRequest = { showMediaSourceMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text(strings.takePhotoCamera) },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.CameraAlt,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        },
-                                        modifier = Modifier.testTag("menu_story_camera"),
-                                        onClick = {
-                                            showMediaSourceMenu = false
-                                            val hasCamPerm = ContextCompat.checkSelfPermission(
-                                                context,
-                                                Manifest.permission.CAMERA
-                                            ) == PackageManager.PERMISSION_GRANTED
-                                            if (hasCamPerm) {
-                                                launchCameraCapture()
-                                            } else {
-                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                            }
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text(strings.chooseFromGallery) },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Image,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        },
-                                        modifier = Modifier.testTag("menu_story_gallery"),
-                                        onClick = {
-                                            showMediaSourceMenu = false
-                                            photoPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            )
-                                        }
-                                    )
-                                }
                             }
                         }
                     }
@@ -619,6 +540,92 @@ fun StoriesTabContent(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Floating action buttons for creating Text Story (Pencil) and Camera/Gallery Story
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SmallFloatingActionButton(
+                onClick = openTextEditor,
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("btn_add_text_story")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = strings.writeStatusAction,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Box {
+                FloatingActionButton(
+                    onClick = { showMediaSourceMenu = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                    modifier = Modifier.testTag("btn_add_image_story")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = strings.sendPhotoStatusAction
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMediaSourceMenu,
+                    onDismissRequest = { showMediaSourceMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(strings.takePhotoCamera) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        modifier = Modifier.testTag("menu_story_camera"),
+                        onClick = {
+                            showMediaSourceMenu = false
+                            val hasCamPerm = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasCamPerm) {
+                                launchCameraCapture()
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(strings.chooseFromGallery) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        modifier = Modifier.testTag("menu_story_gallery"),
+                        onClick = {
+                            showMediaSourceMenu = false
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                    )
                 }
             }
         }
