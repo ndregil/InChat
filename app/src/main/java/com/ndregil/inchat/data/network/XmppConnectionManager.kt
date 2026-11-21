@@ -184,7 +184,15 @@ class XmppConnectionManager(
     @Volatile
     private var connectInProgress: Boolean = false
 
+    @Volatile
+    private var isSmackReconnecting: Boolean = false
+
+    @Volatile
+    private var activePingFailedListener: org.jivesoftware.smackx.ping.PingFailedListener? = null
+
     var onBeforeConnectPrepared: ((XMPPTCPConnection) -> Unit)? = null
+    var onSessionStarted: ((XMPPTCPConnection) -> Unit)? = null
+    var onSessionReset: (() -> Unit)? = null
     var onReconnectedAuthenticated: ((XMPPTCPConnection, Boolean) -> Unit)? = null
     var onConnectionLostOrClosed: (() -> Unit)? = null
 
@@ -195,9 +203,14 @@ class XmppConnectionManager(
         }
 
         override fun authenticated(connection: XMPPConnection, resumed: Boolean) {
-            Log.d(TAG, "Smack: Authenticated as ${connection.user} (resumed=$resumed)")
+            Log.i(TAG, "Smack: Authenticated as ${connection.user} (resumed=$resumed, connectInProgress=$connectInProgress)")
+            isSmackReconnecting = false
             _connectionStatus.value = ConnectionStatus.CONNECTED
             _lastError.value = null
+            if (!resumed && connection is XMPPTCPConnection) {
+                Log.i(TAG, "New XMPP session started (resumed=false); invoking onSessionStarted.")
+                onSessionStarted?.invoke(connection)
+            }
             if (!connectInProgress && connection is XMPPTCPConnection) {
                 onReconnectedAuthenticated?.invoke(connection, resumed)
             }
@@ -210,9 +223,14 @@ class XmppConnectionManager(
         }
 
         override fun connectionClosedOnError(e: Exception) {
-            Log.e(TAG, "Smack: Connection closed on error: ${e.message}", e)
+            if (isTransientSocketDisconnect(e)) {
+                Log.w(TAG, "Smack: Connection interrupted (${e.javaClass.simpleName}: ${e.message}); triggering recovery.")
+                _lastError.value = "Koneksi terputus sementara, menyambung ulang..."
+            } else {
+                Log.e(TAG, "Smack: Connection closed on error: ${e.message}", e)
+                _lastError.value = e.localizedMessage ?: "Connection closed with error"
+            }
             _connectionStatus.value = ConnectionStatus.ERROR
-            _lastError.value = e.localizedMessage ?: "Connection closed with error"
             onConnectionLostOrClosed?.invoke()
         }
     }
@@ -280,6 +298,19 @@ class XmppConnectionManager(
             }
         }
 
+        val currentStatus = _connectionStatus.value
+        if (connectInProgress ||
+            ((currentStatus == ConnectionStatus.CONNECTING ||
+                currentStatus == ConnectionStatus.AUTHENTICATING ||
+                isSmackReconnecting) && existingConn != null && !existingConn.isAuthenticated)
+        ) {
+            Log.w(
+                TAG,
+                "connectAndLogin aborted: reconnect/connect already in progress (status=$currentStatus, connectInProgress=$connectInProgress, smackReconnecting=$isSmackReconnecting)."
+            )
+            return@withContext Result.failure(IllegalStateException("Reconnect sedang berjalan"))
+        }
+
         val rawDomain = creds.domain.ifBlank { creds.jid.substringAfter("@", "").substringBefore("/") }
         val cleanDomain = sanitizeDomain(rawDomain)
         val cleanHost = sanitizeHost(creds.host)
@@ -302,6 +333,7 @@ class XmppConnectionManager(
                 .setPort(creds.port)
                 .setResource(Resourcepart.from(resource))
                 .setConnectTimeout(30000) // 30 seconds
+                .setSocketFactory(createKeepAliveSocketFactory())
                 .setSecurityMode(if (creds.useTls) ConnectionConfiguration.SecurityMode.required else ConnectionConfiguration.SecurityMode.ifpossible)
                 .setSendPresence(false)
                 .setCompressionEnabled(false)
@@ -360,6 +392,19 @@ class XmppConnectionManager(
             val reconnectionManager = ReconnectionManager.getInstanceFor(connection)
             reconnectionManager.setReconnectionPolicy(ReconnectionManager.ReconnectionPolicy.FIXED_DELAY)
             reconnectionManager.setFixedDelay(5) // Reconnect every 5 seconds
+            reconnectionManager.addReconnectionListener(object : org.jivesoftware.smack.ReconnectionListener {
+                override fun reconnectingIn(seconds: Int) {
+                    if (seconds == 0) {
+                        isSmackReconnecting = true
+                        Log.i(TAG, "ReconnectionManager attempting reconnection now.")
+                    }
+                }
+
+                override fun reconnectionFailed(e: Exception?) {
+                    isSmackReconnecting = false
+                    Log.w(TAG, "ReconnectionManager attempt failed: ${e?.message}")
+                }
+            })
             reconnectionManager.enableAutomaticReconnection()
 
 
@@ -422,15 +467,26 @@ class XmppConnectionManager(
             // Enable XMPP Ping (XEP-0199) to keep-alive
             val pingManager = org.jivesoftware.smackx.ping.PingManager.getInstanceFor(connection)
             pingManager.pingInterval = 18 // Reduced to 18 seconds to stay within NAT windows
-            pingManager.registerPingFailedListener {
+            activePingFailedListener?.let { oldListener ->
+                try { pingManager.unregisterPingFailedListener(oldListener) } catch (_: Exception) {}
+            }
+            val pingListener = org.jivesoftware.smackx.ping.PingFailedListener {
+                if (tcpConnection !== connection) {
+                    Log.d(TAG, "Ignoring PingFailedListener callback from stale connection.")
+                    return@PingFailedListener
+                }
                 Log.w(TAG, "Ping failed! Forcing disconnect and reconnect.")
                 try {
-                    connection.instantShutdown()
+                    if (connection.isConnected) {
+                        connection.instantShutdown()
+                    }
                 } catch (_: Exception) {}
                 _connectionStatus.value = ConnectionStatus.ERROR
                 _lastError.value = "Koneksi terputus (Ping gagal)"
                 onConnectionLostOrClosed?.invoke()
             }
+            activePingFailedListener = pingListener
+            pingManager.registerPingFailedListener(pingListener)
             
 
             // Also try to enable standard TCP Keep-Alive
@@ -578,6 +634,58 @@ class XmppConnectionManager(
         sendUnavailablePresence()
         safeDisconnectInternal()
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
+    }
+
+    private fun isTransientSocketDisconnect(throwable: Throwable?): Boolean {
+        var curr: Throwable? = throwable
+        while (curr != null) {
+            if (curr is java.net.SocketException ||
+                curr is java.net.SocketTimeoutException ||
+                curr is java.io.EOFException
+            ) {
+                return true
+            }
+            if (curr is java.io.IOException) {
+                val msg = curr.message?.lowercase(Locale.ROOT) ?: ""
+                if (msg.contains("software caused connection abort") ||
+                    msg.contains("connection reset") ||
+                    msg.contains("broken pipe") ||
+                    msg.contains("socket closed") ||
+                    msg.contains("read error") ||
+                    msg.contains("timed out") ||
+                    msg.contains("network is unreachable")
+                ) {
+                    return true
+                }
+            }
+            curr = curr.cause
+        }
+        return false
+    }
+
+    private fun createKeepAliveSocketFactory(): javax.net.SocketFactory {
+        val defaultFactory = javax.net.SocketFactory.getDefault()
+        return object : javax.net.SocketFactory() {
+            private fun configure(socket: java.net.Socket): java.net.Socket {
+                try {
+                    socket.keepAlive = true
+                    socket.tcpNoDelay = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Unable to configure socket keepAlive/tcpNoDelay: ${e.message}")
+                }
+                return socket
+            }
+
+            override fun createSocket(): java.net.Socket = configure(defaultFactory.createSocket())
+            override fun createSocket(host: String?, port: Int): java.net.Socket =
+                configure(defaultFactory.createSocket(host, port))
+            override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): java.net.Socket =
+                configure(defaultFactory.createSocket(host, port, localHost, localPort))
+            override fun createSocket(host: InetAddress?, port: Int): java.net.Socket =
+                configure(defaultFactory.createSocket(host, port))
+            override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): java.net.Socket =
+                configure(defaultFactory.createSocket(address, port, localAddress, localPort))
+        }
     }
 
     private fun isTlsCertificateException(throwable: Throwable?): Boolean {
@@ -1511,17 +1619,28 @@ class XmppConnectionManager(
 
     private fun safeDisconnectInternal() {
         val hadConnection = tcpConnection != null
+        isSmackReconnecting = false
         try {
             tcpConnection?.let { conn ->
+                activePingFailedListener?.let { pingListener ->
+                    try {
+                        org.jivesoftware.smackx.ping.PingManager.getInstanceFor(conn)
+                            .unregisterPingFailedListener(pingListener)
+                    } catch (_: Exception) {}
+                }
+                activePingFailedListener = null
                 conn.removeConnectionListener(smackConnectionListener)
                 if (conn.isConnected) conn.disconnect()
             }
         } catch (e: Exception) {
         } finally {
+            activePingFailedListener = null
             tcpConnection = null
             mucManager = null
             chatManager = null
             if (hadConnection) {
+                Log.i(TAG, "safeDisconnectInternal: tearing down previous connection and resetting MUC session.")
+                onSessionReset?.invoke()
                 onConnectionLostOrClosed?.invoke()
             }
         }

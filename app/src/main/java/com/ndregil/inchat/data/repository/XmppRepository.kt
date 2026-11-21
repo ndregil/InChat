@@ -82,6 +82,9 @@ class XmppRepository(
     private val connectionMutex = Mutex()
     private val incomingMessageMutex = Mutex()
     private val autoJoinMutex = Mutex()
+    private val reconnectCheckMutex = Mutex()
+    @Volatile
+    private var lastAutoJoinCompletedAtMs: Long = 0L
     private val listenerAttachLock = Any()
     private val translationInFlight = ConcurrentHashMap.newKeySet<String>()
     private val translationAttempted = ConcurrentHashMap<String, String>()
@@ -208,6 +211,14 @@ class XmppRepository(
         smackConnectionManager.onBeforeConnectPrepared = { conn ->
             omemoEncryptionManager.prepareForConnection(conn)
         }
+        smackConnectionManager.onSessionStarted = { _ ->
+            Log.i("XmppRepository", "Session started (resumed=false): resetting MUC session.")
+            smackMucManager.resetMucSession()
+        }
+        smackConnectionManager.onSessionReset = {
+            Log.i("XmppRepository", "Connection torn down: resetting MUC session.")
+            smackMucManager.resetMucSession()
+        }
         smackConnectionManager.onConnectionLostOrClosed = {
             smackRosterManager.clearPresenceMap()
             smackMucManager.clearAllOccupantsAndCache()
@@ -215,27 +226,45 @@ class XmppRepository(
         smackConnectionManager.onReconnectedAuthenticated = { conn, resumed ->
             scope.launch(Dispatchers.IO) {
                 try {
+                    Log.i("XmppRepository", "onReconnectedAuthenticated (resumed=$resumed): running ordered post-auth setup...")
+                    // (a) Update presence first
+                    try {
+                        smackConnectionManager.updatePresence(_userPresence.value, _userStatusMessage.value)
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "Reconnect presence warning: ${e.message}")
+                    }
+
+                    // (b) Avatar, delivery receipts, and incoming stanza listeners
                     smackAvatarManager.onConnectionReady(conn)
                     setupReceiptListener(conn)
                     setupIncomingStanzaListener()
+
+                    // (c) Non-resumed vs resumed handling
                     if (!resumed) {
-                        Log.i("XmppRepository", "Fresh connection established (not resumed). Reloading roster and re-joining rooms.")
+                        Log.i("XmppRepository", "Fresh connection established (not resumed). Reloading roster, waiting 1500ms, then auto-joining rooms.")
                         smackRosterManager.loadContacts(forceReload = true)
+                        kotlinx.coroutines.delay(1500)
                         autoJoinConfiguredRooms()
+                        refreshAllRoomOccupantCounts()
                     } else {
+                        Log.i("XmppRepository", "Connection resumed (resumed=true). Refreshing roster presence and room occupant counts without rejoining.")
                         smackRosterManager.loadContacts(forceReload = false)
-                        if (smackMucManager.joinedRooms.value.isEmpty()) {
-                            Log.i("XmppRepository", "Resumed connection with cleared local MUC state; re-joining configured rooms.")
-                            autoJoinConfiguredRooms()
+                        val groupRooms = database.roomDao().getAllRoomsList().filter { it.isGroupChat }
+                        groupRooms.forEach { room ->
+                            if (smackMucManager.isRoomJoined(room.jid)) {
+                                smackMucManager.refreshOccupants(room.jid)
+                            }
                         }
+                        refreshAllRoomOccupantCounts()
                     }
+
+                    // (d) OMEMO last with 12s timeout so it never delays presence or MUC join
                     kotlinx.coroutines.withTimeoutOrNull(12_000L) {
                         val acctJid = currentAccount.value.jid.ifBlank { conn.user?.asBareJid()?.toString().orEmpty() }
                         omemoEncryptionManager.onConnectionReady(conn, acctJid)
                     }
-                    smackConnectionManager.updatePresence(_userPresence.value, _userStatusMessage.value)
                 } catch (e: Exception) {
-                    Log.w("XmppRepository", "Reconnect OMEMO/presence setup warning: ${e.message}")
+                    Log.w("XmppRepository", "Reconnect post-auth setup warning: ${e.message}")
                 }
             }
         }
@@ -323,12 +352,20 @@ class XmppRepository(
             try {
                 smackConnectionManager.connectionStatus.collect { status ->
                     if (status == ConnectionStatus.CONNECTED) {
-                        Log.i("XmppRepository", "Connection established, setting up listeners and rejoining rooms.")
+                        Log.i("XmppRepository", "Connection established, setting up listeners and verifying auto-join.")
                         setupIncomingStanzaListener()
-                        
+
                         // REJOIN logic: Join rooms that were previously joined or are marked for auto-join
                         scope.launch {
                             kotlinx.coroutines.delay(2000) // Give the connection a moment to stabilize
+                            val elapsedSinceLastJoin = System.currentTimeMillis() - lastAutoJoinCompletedAtMs
+                            if (autoJoinMutex.isLocked || elapsedSinceLastJoin < 5_000L) {
+                                Log.d(
+                                    "XmppRepository",
+                                    "Skipping status-collector auto-join (locked=${autoJoinMutex.isLocked}, elapsed=${elapsedSinceLastJoin}ms)."
+                                )
+                                return@launch
+                            }
                             autoJoinConfiguredRooms()
                             refreshAllRoomOccupantCounts()
                         }
@@ -392,26 +429,36 @@ class XmppRepository(
      */
     fun checkAndReconnectIfNeeded() {
         scope.launch {
-            try {
-                // Do not auto-reconnect if last failure was an authentication error (wrong password/not-authorized)
-                val currentError = smackConnectionManager.lastError.value
-                if (currentError != null && currentError.contains("Autentikasi gagal", ignoreCase = true)) {
-                    Log.w("XmppRepository", "Skipping background reconnect because authentication credentials failed: $currentError")
-                    return@launch
-                }
+            performReconnectCheckIfNeeded()
+        }
+    }
 
-                if (!smackConnectionManager.isConnected() || !smackConnectionManager.isAuthenticated()) {
-                    val savedAccountEntity = database.accountDao().getActiveAccountSync()
-                    if (savedAccountEntity != null && savedAccountEntity.jid.isNotBlank()) {
-                        val accountModel = savedAccountEntity.toModel()
-                        _currentAccount.value = accountModel
-                        val savedPassword = savedAccountEntity.password
-                        connect(accountModel, savedPassword)
-                    }
-                }
-            } catch (e: Exception) {
-                // Handled gracefully
+    suspend fun performReconnectCheckIfNeeded() = reconnectCheckMutex.withLock {
+        try {
+            val status = smackConnectionManager.connectionStatus.value
+            if (status == ConnectionStatus.CONNECTING || status == ConnectionStatus.AUTHENTICATING) {
+                Log.d("XmppRepository", "Skipping checkAndReconnectIfNeeded: connection is currently $status.")
+                return@withLock
             }
+
+            // Do not auto-reconnect if last failure was an authentication error (wrong password/not-authorized)
+            val currentError = smackConnectionManager.lastError.value
+            if (currentError != null && currentError.contains("Autentikasi gagal", ignoreCase = true)) {
+                Log.w("XmppRepository", "Skipping background reconnect because authentication credentials failed: $currentError")
+                return@withLock
+            }
+
+            if (!smackConnectionManager.isConnected() || !smackConnectionManager.isAuthenticated()) {
+                val savedAccountEntity = database.accountDao().getActiveAccountSync()
+                if (savedAccountEntity != null && savedAccountEntity.jid.isNotBlank()) {
+                    val accountModel = savedAccountEntity.toModel()
+                    _currentAccount.value = accountModel
+                    val savedPassword = savedAccountEntity.password
+                    connect(accountModel, savedPassword)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("XmppRepository", "performReconnectCheckIfNeeded error: ${e.message}")
         }
     }
 
@@ -541,6 +588,7 @@ class XmppRepository(
         val pwdToSave = if (password.isNotBlank()) password else (if (!isDifferentAccount) (existing?.password ?: "") else "")
         database.accountDao().saveAccount(sanitizedAccount.toEntity(pwdToSave))
         _currentAccount.value = sanitizedAccount
+        connectionService.start()
 
         // Check if Smack is already connected to this account
         if (smackConnectionManager.isConnected() && smackConnectionManager.isAuthenticated()) {
@@ -1454,10 +1502,17 @@ class XmppRepository(
         }
     }
 
-    suspend fun joinRoom(roomJid: String, name: String, nickname: String, topic: String = "", password: String = ""): Result<Unit> {
+    suspend fun joinRoom(
+        roomJid: String,
+        name: String,
+        nickname: String,
+        topic: String = "",
+        password: String = "",
+        isAutoRejoin: Boolean = false
+    ): Result<Unit> {
         val existing = database.roomDao().getRoomByJid(roomJid)
         val roomEntity = existing?.copy(
-            isJoined = true,
+            isJoined = existing.isJoined,
             myNickname = nickname,
             topic = if (topic.isNotBlank()) topic else existing.topic,
             password = if (password.isNotBlank()) password else existing.password
@@ -1470,7 +1525,7 @@ class XmppRepository(
             unreadCount = 0,
             lastMessageText = getAppStrings(currentAppLanguage).sysJustJoined,
             lastMessageTime = System.currentTimeMillis(),
-            isJoined = true,
+            isJoined = false,
             isBookmarked = true,
             myRole = OccupantRole.MEMBER,
             myAffiliation = OccupantAffiliation.MEMBER,
@@ -1504,42 +1559,49 @@ class XmppRepository(
         )
         database.roomConfigDao().insertOrUpdateConfig(config)
 
-        // Join via Smack MUC if Smack connection is established
-        var smackResult: Result<Unit> = Result.success(Unit)
-        if (smackConnectionManager.isConnected()) {
-            val mucResult = smackMucManager.joinRoom(roomJid, nickname, password)
-            if (mucResult.isFailure) {
-                val exception = mucResult.exceptionOrNull()
-                smackResult = Result.failure(exception!!)
-                
-                // If it's not a MUC service, disable auto-join to prevent infinite loop on reconnection
-                if (exception.cause is org.jivesoftware.smackx.muc.MultiUserChatException.NotAMucServiceException) {
-                    Log.i("XmppRepository", "Disabling auto-join for non-MUC JID: $roomJid")
-                    updateRoomAutoJoin(roomJid, false)
-                }
-            } else {
-                val actualNick = mucResult.getOrNull()?.nickname?.toString()?.takeIf { it.isNotBlank() }
-                if (actualNick != null && !actualNick.equals(nickname, ignoreCase = true)) {
-                    database.roomDao().updateNickname(roomJid, actualNick)
-                }
-                val liveCount = smackMucManager.getRoomOccupantsCount(roomJid)
-                if (liveCount > 0) {
-                    database.roomDao().updateOccupantCount(roomJid, liveCount)
-                }
-                // If join succeeded, trigger MAM history sync to fill gaps since last seen message
-                // Delay MAM sync slightly to let the room presence stabilize and avoid flooding the connection
-                scope.launch {
-                    try {
-                        kotlinx.coroutines.delay(1500)
-                        syncMamHistory(roomJid, limit = 100)
-                    } catch (e: Exception) {
-                        Log.w("XmppRepository", "MAM Sync failed for $roomJid: ${e.message}")
-                    }
-                }
-            }
+        // Join via Smack MUC only if connection is authenticated
+        if (!smackConnectionManager.isAuthenticated()) {
+            Log.w("XmppRepository", "Cannot join room $roomJid: XMPP connection is not authenticated.")
+            database.roomDao().updateJoinStatus(roomJid, false)
+            return Result.failure(IllegalStateException("Belum terhubung dan terautentikasi ke server XMPP."))
         }
 
-        return smackResult
+        val mucResult = smackMucManager.joinRoom(
+            roomJid = roomJid,
+            nickname = nickname,
+            password = password,
+            isAutoRejoin = isAutoRejoin
+        )
+        if (mucResult.isFailure) {
+            val exception = mucResult.exceptionOrNull() ?: IllegalStateException("Gagal bergabung ke room $roomJid")
+            database.roomDao().updateJoinStatus(roomJid, false)
+            Log.w("XmppRepository", "Failed joining room $roomJid; marked isJoined=false: ${exception.message}")
+
+            // If it's not a MUC service, disable auto-join to prevent infinite loop on reconnection
+            if (exception.cause is org.jivesoftware.smackx.muc.MultiUserChatException.NotAMucServiceException) {
+                Log.i("XmppRepository", "Disabling auto-join for non-MUC JID: $roomJid")
+                updateRoomAutoJoin(roomJid, false)
+            }
+            return Result.failure(exception)
+        } else {
+            database.roomDao().updateJoinStatus(roomJid, true)
+            Log.i("XmppRepository", "Joined room $roomJid (isAutoRejoin=$isAutoRejoin); marked isJoined=true.")
+            val liveCount = smackMucManager.getRoomOccupantsCount(roomJid)
+            if (liveCount > 0) {
+                database.roomDao().updateOccupantCount(roomJid, liveCount)
+            }
+            // If join succeeded, trigger MAM history sync to fill gaps since last seen message
+            // Delay MAM sync slightly to let the room presence stabilize and avoid flooding the connection
+            scope.launch {
+                try {
+                    kotlinx.coroutines.delay(1500)
+                    syncMamHistory(roomJid, limit = 100)
+                } catch (e: Exception) {
+                    Log.w("XmppRepository", "MAM Sync failed for $roomJid: ${e.message}")
+                }
+            }
+            return Result.success(Unit)
+        }
     }
 
     suspend fun leaveRoom(roomJid: String, nickname: String) {
@@ -1635,12 +1697,13 @@ class XmppRepository(
                 }
                 val (name, nick, pass) = data
                 try {
-                    Log.d("XmppRepository", "Attempting auto-join for $jid as $nick...")
+                    Log.d("XmppRepository", "Attempting auto-join for $jid as $nick (isAutoRejoin=true)...")
                     val res = joinRoom(
                         roomJid = jid,
                         name = name,
                         nickname = nick,
-                        password = pass.orEmpty()
+                        password = pass.orEmpty(),
+                        isAutoRejoin = true
                     )
                     if (res.isSuccess) {
                         joinedNames.add(name.ifBlank { jid.substringBefore("@") })
@@ -1655,6 +1718,7 @@ class XmppRepository(
                 }
             }
 
+            lastAutoJoinCompletedAtMs = System.currentTimeMillis()
             if (joinedNames.isNotEmpty()) {
                 val namesStr = joinedNames.distinct().joinToString(", ")
                 _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")

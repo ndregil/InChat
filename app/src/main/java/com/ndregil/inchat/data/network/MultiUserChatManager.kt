@@ -179,12 +179,14 @@ class MultiUserChatManager(
         roomJid: String,
         nickname: String,
         password: String? = null,
-        maxHistoryStanzas: Int = DEFAULT_HISTORY_STANZAS
+        maxHistoryStanzas: Int = DEFAULT_HISTORY_STANZAS,
+        isAutoRejoin: Boolean = false
     ): Result<MultiUserChat> = withContext(Dispatchers.IO) {
         try {
             val bareJid = JidCreate.entityBareFrom(roomJid.trim())
             val norm = bareJid.toString().lowercase()
             val joinMutex = joinMutexes.computeIfAbsent(norm) { Mutex() }
+            val effectiveHistoryStanzas = if (isAutoRejoin) 0 else maxHistoryStanzas
 
             joinMutex.withLock {
                 val conn = connectionManager.getRawConnection()
@@ -228,7 +230,6 @@ class MultiUserChatManager(
                 }
 
                 // Build enter configuration
-                val enterConfigBuilder = muc.getEnterConfigurationBuilder(nick)
                 val liveCapsVer = try {
                     connectionManager.getRawConnection()?.let {
                         org.jivesoftware.smackx.caps.EntityCapsManager.getInstanceFor(it)?.capsVersionAndHash
@@ -239,40 +240,47 @@ class MultiUserChatManager(
                     liveCapsVer?.version ?: "kFwX23eY765qL90mN12aBcDeFgH=",
                     liveCapsVer?.hash ?: "sha-1"
                 )
-                enterConfigBuilder.withPresence { pb ->
-                    pb.overrideExtension(capsNodeExt)
-                }
-                if (!password.isNullOrBlank()) {
-                    enterConfigBuilder.withPassword(password)
-                }
-                if (maxHistoryStanzas > 0) {
-                    enterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
-                } else {
-                    enterConfigBuilder.requestNoHistory()
-                }
+                fun buildEnterConfig(targetNick: Resourcepart) = muc.getEnterConfigurationBuilder(targetNick).apply {
+                    withPresence { pb ->
+                        pb.overrideExtension(capsNodeExt)
+                    }
+                    if (!password.isNullOrBlank()) {
+                        withPassword(password)
+                    }
+                    if (effectiveHistoryStanzas > 0) {
+                        requestMaxStanzasHistory(effectiveHistoryStanzas)
+                    } else {
+                        requestNoHistory()
+                    }
+                }.build()
 
-                Log.i(TAG, "Joining MUC room $roomJid as '$nick'...")
+                Log.i(TAG, "Joining MUC room $roomJid as '$nick' (historyStanzas=$effectiveHistoryStanzas, isAutoRejoin=$isAutoRejoin)...")
                 var effectiveNick = nick
                 try {
-                    muc.join(enterConfigBuilder.build())
+                    muc.join(buildEnterConfig(nick))
                 } catch (e: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
-                    if (e.stanzaError.condition == StanzaError.Condition.conflict) {
-                        Log.w(TAG, "Nickname '$nick' conflict in $roomJid, retrying with unique suffix...")
-                        val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
-                        val newEnterConfigBuilder = muc.getEnterConfigurationBuilder(newNick)
-                        newEnterConfigBuilder.withPresence { pb ->
-                            pb.overrideExtension(capsNodeExt)
+                    if (e.stanzaError?.condition == StanzaError.Condition.conflict) {
+                        Log.w(TAG, "Nickname '$nick' conflict (409) in $roomJid, waiting 2500ms before retrying original nick...")
+                        kotlinx.coroutines.delay(2500)
+                        if (muc.isJoined) {
+                            resetSmackMucLocalState(muc)
                         }
-                        if (!password.isNullOrBlank()) {
-                            newEnterConfigBuilder.withPassword(password)
+                        try {
+                            muc.join(buildEnterConfig(nick))
+                            Log.i(TAG, "Retry with original nick '$nick' succeeded in $roomJid.")
+                        } catch (e2: org.jivesoftware.smack.XMPPException.XMPPErrorException) {
+                            if (e2.stanzaError?.condition == StanzaError.Condition.conflict) {
+                                val newNick = Resourcepart.from("$nick" + "_" + (1000..9999).random())
+                                Log.w(TAG, "Original nick '$nick' still conflicted in $roomJid, retrying with unique suffix '$newNick'...")
+                                if (muc.isJoined) {
+                                    resetSmackMucLocalState(muc)
+                                }
+                                muc.join(buildEnterConfig(newNick))
+                                effectiveNick = newNick
+                            } else {
+                                throw e2
+                            }
                         }
-                        if (maxHistoryStanzas > 0) {
-                            newEnterConfigBuilder.requestMaxStanzasHistory(maxHistoryStanzas)
-                        } else {
-                            newEnterConfigBuilder.requestNoHistory()
-                        }
-                        muc.join(newEnterConfigBuilder.build())
-                        effectiveNick = newNick
                     } else {
                         throw e
                     }
@@ -915,16 +923,49 @@ class MultiUserChatManager(
             val userHasLeftMethod = MultiUserChat::class.java.getDeclaredMethod("userHasLeft")
             userHasLeftMethod.isAccessible = true
             userHasLeftMethod.invoke(muc)
+            Log.i(TAG, "resetSmackMucLocalState: invoked userHasLeft() for ${muc.room}")
             return
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.w(TAG, "resetSmackMucLocalState: userHasLeft() reflection failed for ${muc.room}: ${e.message}")
+        }
         try {
             val myRoomJidField = MultiUserChat::class.java.getDeclaredField("myRoomJid")
             myRoomJidField.isAccessible = true
             myRoomJidField.set(muc, null)
-        } catch (_: Exception) {}
+            Log.i(TAG, "resetSmackMucLocalState: cleared myRoomJid field for ${muc.room}")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "resetSmackMucLocalState: myRoomJid reflection failed for ${muc.room}: ${e.message}")
+        }
+        try {
+            Log.w(TAG, "resetSmackMucLocalState: falling back to muc.leave() for ${muc.room}")
+            muc.leave()
+        } catch (_: Exception) {
+        }
     }
 
+    /**
+     * Clears only UI-visible occupant lists and presence/caps caches on connection drop,
+     * preserving active MUC session tracking and listeners so XEP-0198 resumption stays intact.
+     */
     fun clearAllOccupantsAndCache() {
+        updateJobs.values.forEach { it.cancel() }
+        updateJobs.clear()
+        _roomOccupants.value = emptyMap()
+        roomOccupantPresenceCache.clear()
+        roomOccupantCapsCache.clear()
+        Log.i(TAG, "Cleared MUC UI occupants and caches (active MUC session & listeners preserved for resumption).")
+    }
+
+    /**
+     * Full MUC session reset invoked when starting a fresh non-resumed session or replacing the connection.
+     * Clears activeMucs, activeMucConnections, listeners, updateJobs, and stale Smack local state while preserving roomNicknames.
+     */
+    fun resetMucSession() {
+        Log.i(
+            TAG,
+            "Resetting full MUC session (activeMucs=${activeMucs.size}, activeConns=${activeMucConnections.size}, preservedNicknames=${roomNicknames.size})."
+        )
         updateJobs.values.forEach { it.cancel() }
         updateJobs.clear()
 
@@ -959,7 +1000,6 @@ class MultiUserChatManager(
 
         activeMucs.clear()
         activeMucConnections.clear()
-        roomNicknames.clear()
         _joinedRooms.value = emptySet()
         _roomOccupants.value = emptyMap()
         roomOccupantPresenceCache.clear()
@@ -1015,7 +1055,7 @@ class MultiUserChatManager(
      * @return true if successfully attached to the room
      */
     fun addMessageListener(roomJid: String, listener: MessageListener): Boolean {
-        val muc = activeMucs[roomJid] ?: return false
+        val muc = getMultiUserChat(roomJid) ?: return false
         val success = muc.addMessageListener(listener)
         if (success) {
             roomMessageListeners.getOrPut(roomJid) { mutableListOf() }.add(listener)
@@ -1027,9 +1067,10 @@ class MultiUserChatManager(
      * Detaches a [MessageListener] from a joined MUC room.
      */
     fun removeMessageListener(roomJid: String, listener: MessageListener): Boolean {
-        val muc = activeMucs[roomJid] ?: return false
+        val muc = getMultiUserChat(roomJid) ?: return false
         val success = muc.removeMessageListener(listener)
         roomMessageListeners[roomJid]?.remove(listener)
+        roomMessageListeners[roomJid.trim().lowercase()]?.remove(listener)
         return success
     }
 
@@ -1037,7 +1078,7 @@ class MultiUserChatManager(
      * Grants moderator role to a user in the room.
      */
     suspend fun grantModerator(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.grantModerator(Resourcepart.from(nickname))
             Result.success(Unit)
@@ -1050,7 +1091,7 @@ class MultiUserChatManager(
      * Revokes moderator role from a user in the room.
      */
     suspend fun revokeModerator(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.revokeModerator(Resourcepart.from(nickname))
             Result.success(Unit)
@@ -1063,7 +1104,7 @@ class MultiUserChatManager(
      * Grants membership affiliation to a user.
      */
     suspend fun grantMembership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.grantMembership(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1076,7 +1117,7 @@ class MultiUserChatManager(
      * Revokes membership affiliation from a user.
      */
     suspend fun revokeMembership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.revokeMembership(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1089,7 +1130,7 @@ class MultiUserChatManager(
      * Grants admin affiliation to a user.
      */
     suspend fun grantAdmin(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.grantAdmin(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1102,7 +1143,7 @@ class MultiUserChatManager(
      * Revokes admin affiliation from a user.
      */
     suspend fun revokeAdmin(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.revokeAdmin(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1115,7 +1156,7 @@ class MultiUserChatManager(
      * Bans a user from the room.
      */
     suspend fun banUser(roomJid: String, jid: String, reason: String?): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.banUser(JidCreate.entityBareFrom(jid), reason)
             Result.success(Unit)
@@ -1128,7 +1169,7 @@ class MultiUserChatManager(
      * Kicks a user from the room.
      */
     suspend fun kickParticipant(roomJid: String, nickname: String, reason: String?): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.kickParticipant(Resourcepart.from(nickname), reason)
             Result.success(Unit)
@@ -1141,7 +1182,7 @@ class MultiUserChatManager(
      * Grants owner affiliation to a user.
      */
     suspend fun grantOwnership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.grantOwnership(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1154,7 +1195,7 @@ class MultiUserChatManager(
      * Revokes owner affiliation from a user.
      */
     suspend fun revokeOwnership(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.revokeOwnership(JidCreate.entityBareFrom(jid))
             Result.success(Unit)
@@ -1167,7 +1208,7 @@ class MultiUserChatManager(
      * Grants voice role to a visitor (makes participant).
      */
     suspend fun grantVoice(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.grantVoice(Resourcepart.from(nickname))
             Result.success(Unit)
@@ -1180,7 +1221,7 @@ class MultiUserChatManager(
      * Revokes voice role from a participant (makes visitor).
      */
     suspend fun revokeVoice(roomJid: String, nickname: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             muc.revokeVoice(Resourcepart.from(nickname))
             Result.success(Unit)
@@ -1193,7 +1234,7 @@ class MultiUserChatManager(
      * Sets a user's affiliation to none by revoking ownership, admin, and membership/outcast status.
      */
     suspend fun grantNone(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val entityJid = JidCreate.entityBareFrom(jid)
             try { muc.revokeOwnership(entityJid) } catch (e: Exception) {}
@@ -1209,7 +1250,7 @@ class MultiUserChatManager(
      * Unbans a user.
      */
     suspend fun unbanUser(roomJid: String, jid: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val entityJid = JidCreate.entityBareFrom(jid)
             try { muc.revokeMembership(entityJid) } catch (e: Exception) {}
@@ -1223,7 +1264,7 @@ class MultiUserChatManager(
      * Fetches owner affiliates list from room.
      */
     suspend fun getOwners(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val list = muc.owners.map {
                 com.ndregil.inchat.data.model.MucAffiliate(
@@ -1243,7 +1284,7 @@ class MultiUserChatManager(
      * Fetches admin affiliates list from room.
      */
     suspend fun getAdmins(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val list = muc.admins.map {
                 com.ndregil.inchat.data.model.MucAffiliate(
@@ -1263,7 +1304,7 @@ class MultiUserChatManager(
      * Fetches member affiliates list from room.
      */
     suspend fun getMembers(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val list = muc.members.map {
                 com.ndregil.inchat.data.model.MucAffiliate(
@@ -1283,7 +1324,7 @@ class MultiUserChatManager(
      * Fetches outcast (banned) affiliates list from room.
      */
     suspend fun getOutcasts(roomJid: String): Result<List<com.ndregil.inchat.data.model.MucAffiliate>> = withContext(Dispatchers.IO) {
-        val muc = activeMucs[roomJid] ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
+        val muc = getMultiUserChat(roomJid) ?: return@withContext Result.failure(IllegalStateException("Room not joined"))
         try {
             val list = muc.outcasts.map {
                 com.ndregil.inchat.data.model.MucAffiliate(
@@ -1310,10 +1351,10 @@ class MultiUserChatManager(
         roomJid: String,
         onMessageReceived: (XmppMessage) -> Unit
     ): MucMessageListener? {
-        val muc = activeMucs[roomJid] ?: return null
+        val muc = getMultiUserChat(roomJid) ?: return null
         val listener = MucMessageListener(
             roomJid = roomJid,
-            myNicknameProvider = { roomNicknames[roomJid] ?: "" },
+            myNicknameProvider = { roomNicknames[roomJid] ?: roomNicknames[roomJid.trim().lowercase()] ?: "" },
             onMessageProcessed = { msg ->
                 val senderJid = msg.senderJid
                 val avatar = avatarManager.getAvatar(senderJid) ?: avatarManager.getAvatar(msg.senderNickname)
@@ -2053,7 +2094,7 @@ class MultiUserChatManager(
             val conn = connectionManager.getRawConnection() ?: return@withContext Result.failure(Exception("Not connected"))
             val bareJid = JidCreate.entityBareFrom(roomJid)
             val domain = bareJid.domain.toString()
-            val isMuc = activeMucs.containsKey(roomJid) ||
+            val isMuc = getMultiUserChat(roomJid) != null ||
                 domain.contains("conference", ignoreCase = true) ||
                 domain.contains("muc.", ignoreCase = true) ||
                 domain.contains("chat.", ignoreCase = true) ||

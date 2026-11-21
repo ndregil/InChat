@@ -14,6 +14,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Higher-level service that monitors network connectivity and manages the XMPP connection lifecycle.
@@ -30,19 +32,34 @@ class XmppConnectionService(
     }
 
     private val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    private var isNetworkAvailable = false
+    private val activeNetworks = mutableSetOf<Network>()
+    private val isNetworkAvailable: Boolean
+        get() = synchronized(activeNetworks) { activeNetworks.isNotEmpty() }
+
     private var connectionJob: Job? = null
+    private var watchdogJob: Job? = null
+    private var statusObserverJob: Job? = null
+
+    @Volatile
+    private var isDelayingReconnect = false
+    private val reconnectMutex = Mutex()
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
-            Log.i(TAG, "Network available, triggering reconnection check.")
-            isNetworkAvailable = true
+            val activeCount = synchronized(activeNetworks) {
+                activeNetworks.add(network)
+                activeNetworks.size
+            }
+            Log.i(TAG, "Network available ($network, activeNetworks=$activeCount), triggering reconnection check.")
             triggerReconnection()
         }
 
         override fun onLost(network: Network) {
-            Log.i(TAG, "Network lost.")
-            isNetworkAvailable = false
+            val remainingCount = synchronized(activeNetworks) {
+                activeNetworks.remove(network)
+                activeNetworks.size
+            }
+            Log.i(TAG, "Network lost ($network), remaining activeNetworks=$remainingCount.")
         }
     }
 
@@ -72,7 +89,11 @@ class XmppConnectionService(
         try {
             val activeNetwork = connectivityManager.activeNetwork
             val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
-            isNetworkAvailable = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            if (activeNetwork != null && caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
+                synchronized(activeNetworks) {
+                    activeNetworks.add(activeNetwork)
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed checking initial network state: ${e.message}")
         }
@@ -81,11 +102,12 @@ class XmppConnectionService(
     }
 
     private fun startWatchdog() {
-        scope.launch {
+        watchdogJob?.cancel()
+        watchdogJob = scope.launch {
             while (true) {
                 delay(30000) // Check every 30 seconds
-                if (isNetworkAvailable && 
-                    (repository.connectionStatus.value == ConnectionStatus.DISCONNECTED || 
+                if (isNetworkAvailable &&
+                    (repository.connectionStatus.value == ConnectionStatus.DISCONNECTED ||
                      repository.connectionStatus.value == ConnectionStatus.ERROR)) {
                     Log.d(TAG, "Watchdog detected disconnected state, triggering reconnection.")
                     triggerReconnection()
@@ -94,9 +116,9 @@ class XmppConnectionService(
         }
     }
 
-
     private fun observeConnectionStatus() {
-        scope.launch {
+        statusObserverJob?.cancel()
+        statusObserverJob = scope.launch {
             repository.connectionStatus.collectLatest { status ->
                 if (status == ConnectionStatus.DISCONNECTED || status == ConnectionStatus.ERROR) {
                     if (isNetworkAvailable) {
@@ -109,12 +131,30 @@ class XmppConnectionService(
     }
 
     private fun triggerReconnection() {
-        connectionJob?.cancel()
+        if (reconnectMutex.isLocked && !isDelayingReconnect) {
+            Log.d(TAG, "Reconnect check is already executing; skipping duplicate trigger.")
+            return
+        }
+        if (isDelayingReconnect) {
+            Log.d(TAG, "Cancelling pending reconnect delay to reschedule.")
+            connectionJob?.cancel()
+        } else if (connectionJob?.isActive == true) {
+            Log.d(TAG, "Reconnect job already active; not cancelling running checkAndReconnectIfNeeded.")
+            return
+        }
+
         connectionJob = scope.launch(Dispatchers.IO) {
-            delay(RECONNECT_DELAY_MS)
-            if (isNetworkAvailable) {
-                Log.i(TAG, "Attempting to reconnect XMPP...")
-                repository.checkAndReconnectIfNeeded()
+            reconnectMutex.withLock {
+                try {
+                    isDelayingReconnect = true
+                    delay(RECONNECT_DELAY_MS)
+                } finally {
+                    isDelayingReconnect = false
+                }
+                if (isNetworkAvailable) {
+                    Log.i(TAG, "Attempting to reconnect XMPP...")
+                    repository.performReconnectCheckIfNeeded()
+                }
             }
         }
     }
@@ -123,11 +163,23 @@ class XmppConnectionService(
      * Call this when the application is being terminated or connection is no longer needed.
      */
     fun release() {
+        synchronized(this) {
+            isStarted = false
+        }
         try {
             connectivityManager.unregisterNetworkCallback(networkCallback)
         } catch (e: Exception) {
             Log.w(TAG, "Error unregistering network callback: ${e.message}")
         }
+        watchdogJob?.cancel()
+        watchdogJob = null
+        statusObserverJob?.cancel()
+        statusObserverJob = null
         connectionJob?.cancel()
+        connectionJob = null
+        isDelayingReconnect = false
+        synchronized(activeNetworks) {
+            activeNetworks.clear()
+        }
     }
 }
