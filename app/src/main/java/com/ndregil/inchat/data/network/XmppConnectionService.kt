@@ -51,7 +51,7 @@ class XmppConnectionService(
                 activeNetworks.size
             }
             Log.i(TAG, "Network available ($network, activeNetworks=$activeCount), triggering reconnection check.")
-            triggerReconnection()
+            triggerReconnection(ignoreCooldown = true)
         }
 
         override fun onLost(network: Network) {
@@ -137,7 +137,7 @@ class XmppConnectionService(
         }
     }
 
-    private fun triggerReconnection() {
+    private fun triggerReconnection(ignoreCooldown: Boolean = false) {
         if (reconnectMutex.isLocked && !isDelayingReconnect) {
             Log.d(TAG, "Reconnect check is already executing; skipping duplicate trigger.")
             return
@@ -160,7 +160,7 @@ class XmppConnectionService(
                 }
                 if (isNetworkAvailable) {
                     Log.i(TAG, "Attempting to reconnect XMPP...")
-                    repository.performReconnectCheckIfNeeded()
+                    repository.performReconnectCheckIfNeeded(ignoreCooldown = ignoreCooldown)
                 }
             }
         }

@@ -86,6 +86,10 @@ class XmppRepository(
     private val reconnectCheckMutex = Mutex()
     @Volatile
     private var lastAutoJoinCompletedAtMs: Long = 0L
+    @Volatile
+    private var lastConnectCompletedAtMs: Long = 0L
+    @Volatile
+    private var lastConnectSucceeded: Boolean = false
     private val listenerAttachLock = Any()
     private val translationInFlight = ConcurrentHashMap.newKeySet<String>()
     private val translationAttempted = ConcurrentHashMap<String, String>()
@@ -276,16 +280,11 @@ class XmppRepository(
         omemoEncryptionManager.onDecryptedMessageReceived = { xmppMsg, _ ->
             scope.launch(Dispatchers.IO) {
                 val bareRoom = omemoEncryptionManager.toBareJid(xmppMsg.roomJid)
-                val contactMatch = rosterContacts.value.find {
-                    it.jid.substringBefore("/").equals(bareRoom, ignoreCase = true) ||
-                        it.jid.substringBefore("@").equals(bareRoom.substringBefore("@"), ignoreCase = true)
-                }
+                val contactMatch = findContactByBareJid(bareRoom)
                 val resolvedNick = if (xmppMsg.isMine) {
                     currentAccount.value.nickname.ifBlank { currentAccount.value.username }
                 } else {
-                    contactMatch?.name?.takeIf { it.isNotBlank() }
-                        ?: contactMatch?.nickname?.takeIf { it.isNotBlank() }
-                        ?: xmppMsg.senderNickname.ifBlank { bareRoom.substringBefore("@") }
+                    resolveDirectContactName(bareRoom, xmppMsg.senderNickname)
                 }
                 val resolvedCaps = if (xmppMsg.isMine) {
                     xmppMsg.senderClientCaps
@@ -394,7 +393,7 @@ class XmppRepository(
             }
         }
 
-        // Persist roster contact updates to local Room Database
+        // Persist roster contact updates to local Room Database and sync 1-on-1 room names
         scope.launch {
             try {
                 smackRosterManager.contacts.collect { contactsList ->
@@ -404,6 +403,19 @@ class XmppRepository(
                         if (smackRosterManager.isLoaded.value && smackConnectionManager.isAuthenticated()) {
                             database.contactDao().deleteContactsNotIn(contactsList.map { it.jid })
                         }
+                        val contactByBareJid = contactsList.associateBy {
+                            it.jid.trim().substringBefore("/").lowercase()
+                        }
+                        database.roomDao().getAllRoomsList()
+                            .filter { !it.isGroupChat }
+                            .forEach { directRoom ->
+                                val bare = directRoom.jid.trim().substringBefore("/").lowercase()
+                                val contact = contactByBareJid[bare]
+                                val resolvedName = contact?.displayName?.takeIf { it.isNotBlank() }
+                                if (resolvedName != null && directRoom.name != resolvedName) {
+                                    database.roomDao().updateRoomName(directRoom.jid, resolvedName)
+                                }
+                            }
                     } else if (smackRosterManager.isLoaded.value && smackConnectionManager.isAuthenticated()) {
                         database.contactDao().clearAllContacts()
                     }
@@ -421,7 +433,11 @@ class XmppRepository(
                     val accountModel = savedAccountEntity.toModel()
                     _currentAccount.value = accountModel
                     val savedPassword = savedAccountEntity.password
-                    connect(accountModel, savedPassword)
+                    if (hasNetworkConnection()) {
+                        connect(accountModel, savedPassword)
+                    } else {
+                        Log.i("XmppRepository", "Deferring startup auto-login: no active internet network yet.")
+                    }
                 }
             } catch (e: Exception) {
                 // Handled gracefully
@@ -429,20 +445,42 @@ class XmppRepository(
         }
     }
 
-    /**
-     * Checks if the connection dropped while running in the background and reconnects using saved credentials.
-     */
-    fun checkAndReconnectIfNeeded() {
-        scope.launch {
-            performReconnectCheckIfNeeded()
+    private fun hasNetworkConnection(): Boolean {
+        return try {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager ?: return true
+            val activeNetwork = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            true
         }
     }
 
-    suspend fun performReconnectCheckIfNeeded() = reconnectCheckMutex.withLock {
+    /**
+     * Checks if the connection dropped while running in the background and reconnects using saved credentials.
+     */
+    fun checkAndReconnectIfNeeded(ignoreCooldown: Boolean = false) {
+        scope.launch {
+            performReconnectCheckIfNeeded(ignoreCooldown = ignoreCooldown)
+        }
+    }
+
+    suspend fun performReconnectCheckIfNeeded(ignoreCooldown: Boolean = false) = reconnectCheckMutex.withLock {
         try {
+            if (connectionMutex.isLocked) {
+                Log.d("XmppRepository", "Skipping performReconnectCheckIfNeeded: connect is already in progress.")
+                return@withLock
+            }
+
             val status = smackConnectionManager.connectionStatus.value
             if (status == ConnectionStatus.CONNECTING || status == ConnectionStatus.AUTHENTICATING) {
                 Log.d("XmppRepository", "Skipping checkAndReconnectIfNeeded: connection is currently $status.")
+                return@withLock
+            }
+
+            if (!hasNetworkConnection()) {
+                Log.d("XmppRepository", "Skipping performReconnectCheckIfNeeded: no active internet network.")
                 return@withLock
             }
 
@@ -450,6 +488,12 @@ class XmppRepository(
             val currentError = smackConnectionManager.lastError.value
             if (currentError != null && currentError.contains("Autentikasi gagal", ignoreCase = true)) {
                 Log.w("XmppRepository", "Skipping background reconnect because authentication credentials failed: $currentError")
+                return@withLock
+            }
+
+            val elapsedSinceLastConnect = System.currentTimeMillis() - lastConnectCompletedAtMs
+            if (!ignoreCooldown && !lastConnectSucceeded && lastConnectCompletedAtMs > 0L && elapsedSinceLastConnect < 15_000L) {
+                Log.d("XmppRepository", "Skipping performReconnectCheckIfNeeded: in failure cooldown (${elapsedSinceLastConnect}ms).")
                 return@withLock
             }
 
@@ -609,6 +653,8 @@ class XmppRepository(
         val smackResult = smackConnectionManager.connectAndLogin(
             com.ndregil.inchat.data.network.XmppCredentials.fromAccount(sanitizedAccount, pwdToSave)
         )
+        lastConnectCompletedAtMs = System.currentTimeMillis()
+        lastConnectSucceeded = smackResult.isSuccess
 
         if (smackResult.isFailure) {
             val err = smackResult.exceptionOrNull()
@@ -895,6 +941,59 @@ class XmppRepository(
     private var lastAttachedReceiptConnection: org.jivesoftware.smack.XMPPConnection? = null
     private val processedStanzaIds = java.util.Collections.synchronizedSet(java.util.HashSet<String>())
 
+    private suspend fun findContactByBareJid(bareJid: String): RosterContact? {
+        val cleanBare = bareJid.trim().substringBefore("/")
+        if (cleanBare.isBlank()) return null
+        return rosterContacts.value.find {
+            it.jid.trim().substringBefore("/").equals(cleanBare, ignoreCase = true)
+        } ?: database.contactDao().getContactByJidIgnoreCase(cleanBare)?.toModel()
+    }
+
+    private suspend fun resolveDirectContactName(bareJid: String, stanzaNick: String? = null): String {
+        val cleanBare = bareJid.trim().substringBefore("/")
+        if (cleanBare.isBlank()) return stanzaNick?.trim().orEmpty()
+        val contact = findContactByBareJid(cleanBare)
+        val localpart = cleanBare.substringBefore("@").ifBlank { cleanBare }
+        val contactDisplay = contact?.displayName?.takeIf { it.isNotBlank() }
+        val cleanStanzaNick = stanzaNick?.trim()?.takeIf { it.isNotBlank() }
+        return when {
+            contactDisplay != null && !contactDisplay.equals(localpart, ignoreCase = true) -> contactDisplay
+            cleanStanzaNick != null && !cleanStanzaNick.equals(localpart, ignoreCase = true) -> cleanStanzaNick
+            contactDisplay != null -> contactDisplay
+            cleanStanzaNick != null -> cleanStanzaNick
+            else -> localpart
+        }
+    }
+
+    private fun extractMessageNickname(
+        message: org.jivesoftware.smack.packet.Message,
+        cachedXml: String? = null
+    ): String? {
+        try {
+            val nickExt = message.getExtension(org.jivesoftware.smackx.nick.packet.Nick::class.java)
+            if (nickExt != null && !nickExt.name.isNullOrBlank()) {
+                return nickExt.name.trim()
+            }
+        } catch (_: Throwable) {}
+        try {
+            val ext = message.extensions.firstOrNull {
+                it.elementName == "nick" && it.namespace == "http://jabber.org/protocol/nick"
+            }
+            if (ext is org.jivesoftware.smackx.nick.packet.Nick) {
+                return ext.name?.trim()?.takeIf { it.isNotBlank() }
+            }
+            if (ext != null) {
+                val xml = cachedXml ?: message.toXML().toString()
+                val match = Regex("""<nick[^>]*xmlns=['"]http://jabber\.org/protocol/nick['"][^>]*>([^<]+)</nick>""", RegexOption.IGNORE_CASE)
+                    .find(xml)?.groupValues?.get(1)
+                    ?: Regex("""<nick[^>]*>([^<]+)</nick>""", RegexOption.IGNORE_CASE)
+                        .find(xml)?.groupValues?.get(1)
+                if (!match.isNullOrBlank()) return match.trim()
+            }
+        } catch (_: Throwable) {}
+        return null
+    }
+
     private fun setupIncomingStanzaListener() {
         val conn = smackConnectionManager.getRawConnection() ?: return
         synchronized(listenerAttachLock) {
@@ -1008,13 +1107,9 @@ class XmppRepository(
                         kotlinx.coroutines.delay(3500L)
                         if (database.messageDao().getMessageByIdSync(stanzaId) == null) {
                             val cleanBare = fromBareJid.substringBefore("/").trim()
-                            val contactMatch = rosterContacts.value.find {
-                                it.jid.equals(cleanBare, ignoreCase = true) ||
-                                    it.jid.substringBefore("@").equals(cleanBare.substringBefore("@"), ignoreCase = true)
-                            }
-                            val fallbackNick = contactMatch?.name?.takeIf { it.isNotBlank() }
-                                ?: contactMatch?.nickname?.takeIf { it.isNotBlank() }
-                                ?: cleanBare.substringBefore("@")
+                            val contactMatch = findContactByBareJid(cleanBare)
+                            val msgNick = extractMessageNickname(message, cachedXml)
+                            val fallbackNick = resolveDirectContactName(cleanBare, msgNick)
                             val fallbackMsg = XmppMessage(
                                 id = stanzaId,
                                 roomJid = fromBareJid,
@@ -1225,16 +1320,12 @@ class XmppRepository(
                 }
 
                 val cleanTargetBareJid = targetRoomJid.substringBefore("/").trim()
-                val contactMatch = rosterContacts.value.find { 
-                    it.jid.equals(cleanTargetBareJid, ignoreCase = true) || 
-                    it.jid.substringBefore("@").equals(cleanTargetBareJid.substringBefore("@"), ignoreCase = true) 
-                }
+                val contactMatch = findContactByBareJid(cleanTargetBareJid)
+                val msgNick = if (isSentByMe) null else extractMessageNickname(message, cachedXml)
                 val senderNick = if (isSentByMe) {
                     currentAccount.value.nickname.ifBlank { currentAccount.value.username }
                 } else {
-                    contactMatch?.name?.takeIf { it.isNotBlank() } 
-                        ?: contactMatch?.nickname?.takeIf { it.isNotBlank() } 
-                        ?: cleanTargetBareJid.substringBefore("@")
+                    resolveDirectContactName(cleanTargetBareJid, msgNick)
                 }
 
                 val avatar = smackAvatarManager.getAvatar(targetRoomJid)
@@ -1374,8 +1465,9 @@ class XmppRepository(
                 return@withLock
             }
 
-            // 0. Ensure room exists in database so it appears in Chat list
-            if (database.roomDao().getRoomByJid(finalMsg.roomJid) == null) {
+            // 0. Ensure room exists in database so it appears in Chat list (and update stale 1-on-1 room name)
+            val existingRoom = database.roomDao().getRoomByJid(finalMsg.roomJid)
+            if (existingRoom == null) {
                 val isGroup = finalMsg.messageType == MessageType.GROUPCHAT || isMucJid(finalMsg.roomJid)
                 val defaultName = if (isGroup) "# " + finalMsg.roomJid.substringBefore("@") else finalMsg.senderNickname.ifBlank { finalMsg.roomJid.substringBefore("@") }
                 val newRoom = RoomEntity(
@@ -1396,6 +1488,15 @@ class XmppRepository(
                     isGroupChat = isGroup
                 )
                 database.roomDao().insertOrUpdateRoom(newRoom)
+            } else if (!existingRoom.isGroupChat && !finalMsg.isMine && finalMsg.senderNickname.isNotBlank()) {
+                val rawLocalpart = existingRoom.jid.substringBefore("@")
+                val resolvedName = finalMsg.senderNickname
+                if (existingRoom.name != resolvedName &&
+                    (existingRoom.name.equals(rawLocalpart, ignoreCase = true) ||
+                        !resolvedName.equals(rawLocalpart, ignoreCase = true))
+                ) {
+                    database.roomDao().updateRoomName(existingRoom.jid, resolvedName)
+                }
             }
 
             // 1. Efficient Insert
@@ -1895,18 +1996,22 @@ class XmppRepository(
                     messages.forEach { smackMsg ->
                         try {
                             val fromJid = smackMsg.from
+                            val isMine = if (isMucJid(canonicalJid)) {
+                                val mucNick = fromJid?.resourceOrNull?.toString()
+                                    ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
+                                    ?: "User"
+                                mucNick.equals(myNickname, ignoreCase = true)
+                            } else {
+                                fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                            }
                             val senderNick = if (isMucJid(canonicalJid)) {
                                 fromJid?.resourceOrNull?.toString()
                                     ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
                                     ?: "User"
+                            } else if (isMine) {
+                                myNickname.ifBlank { currentAccount.value.username.ifBlank { "Saya" } }
                             } else {
-                                fromJid?.asBareJid()?.toString()?.substringBefore("@") ?: "User"
-                            }
-
-                            val isMine = if (isMucJid(canonicalJid)) {
-                                senderNick.equals(myNickname, ignoreCase = true)
-                            } else {
-                                fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                                resolveDirectContactName(fromJid?.asBareJid()?.toString() ?: canonicalJid)
                             }
 
                             val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)
@@ -2001,18 +2106,22 @@ class XmppRepository(
             messages.forEach { smackMsg ->
                 try {
                     val fromJid = smackMsg.from
+                    val isMine = if (isMucJid(canonicalJid)) {
+                        val mucNick = fromJid?.resourceOrNull?.toString()
+                            ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
+                            ?: "User"
+                        mucNick.equals(myNickname, ignoreCase = true)
+                    } else {
+                        fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                    }
                     val senderNick = if (isMucJid(canonicalJid)) {
                         fromJid?.resourceOrNull?.toString()
                             ?: fromJid?.asBareJid()?.toString()?.substringBefore("@")
                             ?: "User"
+                    } else if (isMine) {
+                        myNickname.ifBlank { currentAccount.value.username.ifBlank { "Saya" } }
                     } else {
-                        fromJid?.asBareJid()?.toString()?.substringBefore("@") ?: "User"
-                    }
-
-                    val isMine = if (isMucJid(canonicalJid)) {
-                        senderNick.equals(myNickname, ignoreCase = true)
-                    } else {
-                        fromJid?.asBareJid()?.toString()?.equals(myJid.substringBefore("/"), ignoreCase = true) == true
+                        resolveDirectContactName(fromJid?.asBareJid()?.toString() ?: canonicalJid)
                     }
 
                     val delayInfo = DelayInformationManager.getDelayInformation(smackMsg)

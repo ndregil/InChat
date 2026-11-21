@@ -72,6 +72,9 @@ interface RoomDao {
     @Query("UPDATE rooms SET topic = :newTopic WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateTopic(roomJid: String, newTopic: String)
 
+    @Query("UPDATE rooms SET name = :name WHERE LOWER(jid) = LOWER(:roomJid)")
+    suspend fun updateRoomName(roomJid: String, name: String)
+
     @Query("UPDATE rooms SET isJoined = :isJoined WHERE LOWER(jid) = LOWER(:roomJid)")
     suspend fun updateJoinStatus(roomJid: String, isJoined: Boolean)
 
@@ -283,6 +286,9 @@ interface ContactDao {
 
     @Query("SELECT * FROM contacts WHERE jid = :jid")
     suspend fun getContactByJid(jid: String): ContactEntity?
+
+    @Query("SELECT * FROM contacts WHERE LOWER(jid) = LOWER(:jid) LIMIT 1")
+    suspend fun getContactByJidIgnoreCase(jid: String): ContactEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdateContact(contact: ContactEntity)

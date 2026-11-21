@@ -526,17 +526,27 @@ class XmppConnectionManager(
             _connectionStatus.value = ConnectionStatus.CONNECTED
             Result.success(connection)
         } catch (e: Exception) {
-            Log.e(TAG, "Connect/Login failed: ${e.message}")
+            val isTransient = isTransientSocketDisconnect(e)
+            if (isTransient) {
+                Log.w(TAG, "Connect/Login interrupted (network/transient): ${extractDeepestMessage(e)}")
+            } else {
+                Log.e(TAG, "Connect/Login failed: ${e.message}")
+            }
             _connectionStatus.value = ConnectionStatus.ERROR
             val rawMsg = e.localizedMessage ?: "XMPP failure"
+            val lowerMsg = rawMsg.lowercase(Locale.ROOT)
             val friendlyMsg = when {
                 isTlsCertificateException(e) ->
                     "Koneksi TLS gagal: Sertifikat SSL server $cleanDomain tidak dipercaya atau tidak valid (${extractDeepestMessage(e)})."
-                e is SASLErrorException || rawMsg.contains("not-authorized", ignoreCase = true) ->
+                e is SASLErrorException || lowerMsg.contains("not-authorized") ->
                     "Autentikasi gagal: Username atau password salah."
-                rawMsg.contains("connection refused", ignoreCase = true) ->
+                lowerMsg.contains("enetunreach") || lowerMsg.contains("network is unreachable") ->
+                    "Jaringan tidak terjangkau. Periksa koneksi internet Anda."
+                lowerMsg.contains("unknownhost") || lowerMsg.contains("dns lookup exception") ->
+                    "Server XMPP tidak ditemukan. Periksa koneksi internet atau nama domain."
+                lowerMsg.contains("connection refused") ->
                     "Koneksi ditolak oleh server."
-                rawMsg.contains("timeout", ignoreCase = true) ->
+                lowerMsg.contains("timeout") || lowerMsg.contains("timed out") ->
                     "Batas waktu koneksi habis."
                 else -> rawMsg
             }
@@ -662,22 +672,28 @@ class XmppConnectionManager(
         while (curr != null) {
             if (curr is java.net.SocketException ||
                 curr is java.net.SocketTimeoutException ||
-                curr is java.io.EOFException
+                curr is java.io.EOFException ||
+                curr is java.net.UnknownHostException ||
+                curr is java.net.NoRouteToHostException
             ) {
                 return true
             }
-            if (curr is java.io.IOException) {
-                val msg = curr.message?.lowercase(Locale.ROOT) ?: ""
-                if (msg.contains("software caused connection abort") ||
-                    msg.contains("connection reset") ||
-                    msg.contains("broken pipe") ||
-                    msg.contains("socket closed") ||
-                    msg.contains("read error") ||
-                    msg.contains("timed out") ||
-                    msg.contains("network is unreachable")
-                ) {
-                    return true
-                }
+            val msg = curr.message?.lowercase(Locale.ROOT) ?: ""
+            if (msg.contains("software caused connection abort") ||
+                msg.contains("connection reset") ||
+                msg.contains("broken pipe") ||
+                msg.contains("socket closed") ||
+                msg.contains("read error") ||
+                msg.contains("timed out") ||
+                msg.contains("network is unreachable") ||
+                msg.contains("enetunreach") ||
+                msg.contains("ehostunreach") ||
+                msg.contains("no route to host") ||
+                msg.contains("multipleioexception") ||
+                msg.contains("dns lookup exception") ||
+                msg.contains("could not lookup the following endpoints")
+            ) {
+                return true
             }
             curr = curr.cause
         }

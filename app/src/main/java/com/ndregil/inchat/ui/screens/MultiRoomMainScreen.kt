@@ -1572,7 +1572,13 @@ fun MultiRoomMainScreen(
                             }
                         } else {
                             // MODE B: Active Direct Conversation Screen
-                            val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find { it.jid == activeRoom?.jid }
+                            val activeBareJid = activeRoom?.jid?.substringBefore("/")?.trim().orEmpty()
+                            val activeContact = viewModel.rosterContacts.collectAsStateWithLifecycle().value.find {
+                                it.jid.substringBefore("/").trim().equals(activeBareJid, ignoreCase = true)
+                            }
+                            val directDisplayName = activeContact?.displayName?.takeIf { it.isNotBlank() }
+                                ?: activeRoom?.name
+                                ?: ""
                             val directHeaderAvatarRev by viewModel.avatarRevision.collectAsStateWithLifecycle()
                             val roomAvatar = remember(activeRoom?.jid, directHeaderAvatarRev) { activeRoom?.let { viewModel.getRoomAvatar(it.jid) } }
                             var showDirectMenu by remember { mutableStateOf(false) }
@@ -1623,7 +1629,7 @@ fun MultiRoomMainScreen(
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
-                                                        text = (activeRoom?.name ?: "?").take(1).uppercase(Locale.getDefault()),
+                                                        text = directDisplayName.ifBlank { "?" }.take(1).uppercase(Locale.getDefault()),
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 18.sp,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1661,7 +1667,7 @@ fun MultiRoomMainScreen(
                                         // Name & Presence Status
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = activeRoom?.name ?: "",
+                                                text = directDisplayName,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontSize = themePrefs.contactFontSizeSp.sp,
                                                 lineHeight = (themePrefs.contactFontSizeSp * 1.3f).sp,

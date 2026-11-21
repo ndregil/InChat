@@ -333,16 +333,21 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         rooms.filter { it.isGroupChat }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val directChats: StateFlow<List<XmppRoom>> = allRooms.map { rooms ->
+    val directChats: StateFlow<List<XmppRoom>> = combine(allRooms, rosterContacts) { rooms, contacts ->
+        val contactByBare = contacts.associateBy { it.jid.trim().substringBefore("/").lowercase() }
         rooms.filter { room ->
-            !room.isGroupChat && 
-            room.lastMessageText.isNotBlank() && 
+            !room.isGroupChat &&
+            room.lastMessageText.isNotBlank() &&
             room.lastMessageText != "Sinkronisasi dari server" &&
             room.lastMessageText != "Ruangan disimpan ke favorit" &&
             room.lastMessageText != "Baru saja bergabung" &&
             room.lastMessageText != "Sinkronisasi Favorit" &&
             room.lastMessageText != "Obrolan Langsung (1-on-1)" &&
             room.lastMessageText != "Ruangan MUC"
+        }.map { room ->
+            val contact = contactByBare[room.jid.trim().substringBefore("/").lowercase()]
+            val resolvedName = contact?.displayName?.takeIf { it.isNotBlank() }
+            if (resolvedName != null && room.name != resolvedName) room.copy(name = resolvedName) else room
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -409,20 +414,32 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     val selectedRoomJid: StateFlow<String?> = _selectedRoomJid.asStateFlow()
 
     // Active room object with graceful fallback or virtual room for new chats
-    val activeRoom: StateFlow<XmppRoom?> = combine(allRooms, _selectedRoomJid) { rooms, jid ->
+    val activeRoom: StateFlow<XmppRoom?> = combine(allRooms, rosterContacts, _selectedRoomJid) { rooms, contacts, jid ->
         if (jid == null) {
             return@combine null
         }
-        
+
+        val bareJid = jid.trim().substringBefore("/")
+        val contactMatch = contacts.find {
+            it.jid.trim().substringBefore("/").equals(bareJid, ignoreCase = true)
+        }
+        val contactDisplayName = contactMatch?.displayName?.takeIf { it.isNotBlank() }
+
         val found = rooms.find { it.jid.equals(jid, ignoreCase = true) }
-        if (found != null) return@combine found
-        
+        if (found != null) {
+            return@combine if (!found.isGroupChat && contactDisplayName != null && found.name != contactDisplayName) {
+                found.copy(name = contactDisplayName)
+            } else {
+                found
+            }
+        }
+
         // If JID is specified but not in DB yet, create a "virtual" placeholder room
         // so that messages can be sent and received immediately.
         val isGroup = jid.contains("conference.", ignoreCase = true) || jid.contains("muc.", ignoreCase = true)
         XmppRoom(
             jid = jid,
-            name = jid.substringBefore("@"),
+            name = if (!isGroup && contactDisplayName != null) contactDisplayName else jid.substringBefore("@"),
             topic = if (isGroup) "Ruangan MUC" else "Obrolan Langsung (1-on-1)",
             isGroupChat = isGroup,
             isJoined = isGroup,
@@ -452,6 +469,30 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                 if (jid.isNullOrBlank()) flowOf(emptyList())
                 else (repository.getMessagesForRoom(jid, maxCount = limit) ?: flowOf(emptyList()))
                     .catch { emit(emptyList()) }
+            }
+            .combine(rosterContacts) { msgs, contacts ->
+                if (msgs.isEmpty() || contacts.isEmpty()) return@combine msgs
+                val contactByBare = contacts.associateBy { it.jid.trim().substringBefore("/").lowercase() }
+                msgs.map { msg ->
+                    if (!msg.isMine &&
+                        msg.messageType != MessageType.GROUPCHAT &&
+                        msg.messageType != MessageType.WHISPER &&
+                        !repository.isMucJid(msg.roomJid)
+                    ) {
+                        val senderBare = msg.senderJid.trim().substringBefore("/").lowercase()
+                            .ifBlank { msg.roomJid.trim().substringBefore("/").lowercase() }
+                        val roomBare = msg.roomJid.trim().substringBefore("/").lowercase()
+                        val contact = contactByBare[senderBare] ?: contactByBare[roomBare]
+                        val displayName = contact?.displayName?.takeIf { it.isNotBlank() }
+                        if (displayName != null && msg.senderNickname != displayName) {
+                            msg.copy(senderNickname = displayName)
+                        } else {
+                            msg
+                        }
+                    } else {
+                        msg
+                    }
+                }
             }
             .conflate()
             .flowOn(Dispatchers.Default)
@@ -1048,9 +1089,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDirectChat(targetJid: String, displayName: String = "") {
-        val cleanJid = targetJid.trim()
+        val cleanJid = targetJid.trim().substringBefore("/")
         if (cleanJid.isBlank()) return
-        val name = displayName.trim().ifBlank { cleanJid.substringBefore("@") }
+        val contactName = rosterContacts.value.find {
+            it.jid.trim().substringBefore("/").equals(cleanJid, ignoreCase = true)
+        }?.displayName?.takeIf { it.isNotBlank() }
+        val name = displayName.trim().ifBlank { contactName ?: cleanJid.substringBefore("@") }
         val myNick = currentAccount.value.nickname.ifBlank { currentAccount.value.username.ifBlank { "User" } }
         _selectedRoomJid.value = cleanJid
         viewModelScope.launch(Dispatchers.IO) {
