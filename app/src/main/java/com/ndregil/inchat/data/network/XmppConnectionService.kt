@@ -104,13 +104,20 @@ class XmppConnectionService(
     private fun startWatchdog() {
         watchdogJob?.cancel()
         watchdogJob = scope.launch {
+            var tickCount = 0
             while (true) {
                 delay(30000) // Check every 30 seconds
+                tickCount++
                 if (isNetworkAvailable &&
                     (repository.connectionStatus.value == ConnectionStatus.DISCONNECTED ||
                      repository.connectionStatus.value == ConnectionStatus.ERROR)) {
                     Log.d(TAG, "Watchdog detected disconnected state, triggering reconnection.")
                     triggerReconnection()
+                }
+                if (tickCount % 2 == 0) {
+                    scope.launch(Dispatchers.IO) {
+                        repository.verifyRoomMemberships(reason = "watchdog_60s")
+                    }
                 }
             }
         }

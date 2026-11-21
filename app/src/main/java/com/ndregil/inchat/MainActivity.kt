@@ -115,6 +115,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        viewModel.verifyRoomMemberships(reason = "foreground")
+    }
+
     override fun onResume() {
         super.onResume()
         FcmPushManager.isAppInForeground = true

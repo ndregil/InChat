@@ -82,6 +82,7 @@ class XmppRepository(
     private val connectionMutex = Mutex()
     private val incomingMessageMutex = Mutex()
     private val autoJoinMutex = Mutex()
+    private val verifyMembershipMutex = Mutex()
     private val reconnectCheckMutex = Mutex()
     @Volatile
     private var lastAutoJoinCompletedAtMs: Long = 0L
@@ -246,6 +247,10 @@ class XmppRepository(
                         kotlinx.coroutines.delay(1500)
                         autoJoinConfiguredRooms()
                         refreshAllRoomOccupantCounts()
+                        scope.launch(Dispatchers.IO) {
+                            kotlinx.coroutines.delay(8_000L)
+                            verifyRoomMemberships(reason = "post_autojoin_8s")
+                        }
                     } else {
                         Log.i("XmppRepository", "Connection resumed (resumed=true). Refreshing roster presence and room occupant counts without rejoining.")
                         smackRosterManager.loadContacts(forceReload = false)
@@ -1724,6 +1729,99 @@ class XmppRepository(
                 _autoJoinEvents.emit("Berhasil bergabung otomatis ke room: $namesStr")
                 Log.i("XmppRepository", "Auto-join completed for: $namesStr")
             }
+        }
+    }
+
+    /**
+     * Verifies MUC room memberships against auto-join configs and rejoins any unjoined room.
+     * Bypasses the 5-second lastAutoJoinCompletedAtMs cooldown by design.
+     */
+    suspend fun verifyRoomMemberships(reason: String = "manual") = withContext(Dispatchers.IO) {
+        if (!smackConnectionManager.isAuthenticated() ||
+            connectionStatus.value != ConnectionStatus.CONNECTED ||
+            autoJoinMutex.isLocked
+        ) {
+            return@withContext
+        }
+        if (!verifyMembershipMutex.tryLock()) {
+            return@withContext
+        }
+        try {
+            if (!smackConnectionManager.isAuthenticated() ||
+                connectionStatus.value != ConnectionStatus.CONNECTED ||
+                autoJoinMutex.isLocked
+            ) {
+                return@withContext
+            }
+
+            val autoJoinConfigs = database.roomConfigDao().getAutoJoinRoomConfigsList()
+            if (autoJoinConfigs.isEmpty()) return@withContext
+
+            val defaultNick = currentAccount.value.nickname
+                .ifBlank { currentAccount.value.username.ifBlank { "User" } }
+            val processedJids = mutableSetOf<String>()
+            var attempts = 0
+            val maxAttemptsPerCycle = 3
+            var needsInterRoomDelay = false
+
+            for (cfg in autoJoinConfigs) {
+                if (attempts >= maxAttemptsPerCycle) {
+                    Log.i(
+                        "XmppRepository",
+                        "verifyRoomMemberships: reached max $maxAttemptsPerCycle rejoin attempts for cycle (reason=$reason)."
+                    )
+                    break
+                }
+                if (!smackConnectionManager.isAuthenticated() ||
+                    connectionStatus.value != ConnectionStatus.CONNECTED ||
+                    autoJoinMutex.isLocked
+                ) {
+                    Log.i(
+                        "XmppRepository",
+                        "verifyRoomMemberships: stopping mid-cycle because connection/autoJoin state changed (reason=$reason)."
+                    )
+                    break
+                }
+
+                val jid = cfg.roomJid.trim()
+                if (jid.isBlank() || !processedJids.add(jid.lowercase())) continue
+
+                if (!smackMucManager.isRoomJoined(jid)) {
+                    if (needsInterRoomDelay) {
+                        kotlinx.coroutines.delay(800L)
+                        if (!smackConnectionManager.isAuthenticated() ||
+                            connectionStatus.value != ConnectionStatus.CONNECTED ||
+                            autoJoinMutex.isLocked
+                        ) {
+                            break
+                        }
+                    }
+                    attempts++
+                    needsInterRoomDelay = true
+                    val nick = cfg.nickname.ifBlank { defaultNick }
+                    Log.i(
+                        "XmppRepository",
+                        "verifyRoomMemberships: re-joining room $jid (reason=$reason, attempt=$attempts/$maxAttemptsPerCycle)"
+                    )
+                    val res = try {
+                        joinRoom(
+                            roomJid = jid,
+                            name = cfg.roomName,
+                            nickname = nick,
+                            password = cfg.password.orEmpty(),
+                            isAutoRejoin = true
+                        )
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.w("XmppRepository", "verifyRoomMemberships ($reason): joinRoom error for $jid: ${e.message}")
+                        Result.failure(e)
+                    }
+                    database.roomDao().updateJoinStatus(jid, res.isSuccess)
+                }
+            }
+        } finally {
+            verifyMembershipMutex.unlock()
         }
     }
 

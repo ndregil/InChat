@@ -188,6 +188,9 @@ class XmppConnectionManager(
     private var isSmackReconnecting: Boolean = false
 
     @Volatile
+    private var smackReconnectStartedAtMs: Long = 0L
+
+    @Volatile
     private var activePingFailedListener: org.jivesoftware.smackx.ping.PingFailedListener? = null
 
     var onBeforeConnectPrepared: ((XMPPTCPConnection) -> Unit)? = null
@@ -205,6 +208,7 @@ class XmppConnectionManager(
         override fun authenticated(connection: XMPPConnection, resumed: Boolean) {
             Log.i(TAG, "Smack: Authenticated as ${connection.user} (resumed=$resumed, connectInProgress=$connectInProgress)")
             isSmackReconnecting = false
+            smackReconnectStartedAtMs = 0L
             _connectionStatus.value = ConnectionStatus.CONNECTED
             _lastError.value = null
             if (!resumed && connection is XMPPTCPConnection) {
@@ -218,6 +222,8 @@ class XmppConnectionManager(
 
         override fun connectionClosed() {
             Log.d(TAG, "Smack: Connection closed normally")
+            isSmackReconnecting = false
+            smackReconnectStartedAtMs = 0L
             _connectionStatus.value = ConnectionStatus.DISCONNECTED
             onConnectionLostOrClosed?.invoke()
         }
@@ -298,11 +304,24 @@ class XmppConnectionManager(
             }
         }
 
+        val now = System.currentTimeMillis()
+        val smackReconnectTimedOut = isSmackReconnecting &&
+            smackReconnectStartedAtMs > 0L &&
+            (now - smackReconnectStartedAtMs) > 60_000L
+        if (smackReconnectTimedOut) {
+            Log.w(
+                TAG,
+                "isSmackReconnecting has been true for >60s (${now - smackReconnectStartedAtMs}ms); clearing flag and bypassing connectAndLogin guard."
+            )
+            isSmackReconnecting = false
+            smackReconnectStartedAtMs = 0L
+        }
+
         val currentStatus = _connectionStatus.value
-        if (connectInProgress ||
+        if (!smackReconnectTimedOut && (connectInProgress ||
             ((currentStatus == ConnectionStatus.CONNECTING ||
                 currentStatus == ConnectionStatus.AUTHENTICATING ||
-                isSmackReconnecting) && existingConn != null && !existingConn.isAuthenticated)
+                isSmackReconnecting) && existingConn != null && !existingConn.isAuthenticated))
         ) {
             Log.w(
                 TAG,
@@ -396,12 +415,14 @@ class XmppConnectionManager(
                 override fun reconnectingIn(seconds: Int) {
                     if (seconds == 0) {
                         isSmackReconnecting = true
+                        smackReconnectStartedAtMs = System.currentTimeMillis()
                         Log.i(TAG, "ReconnectionManager attempting reconnection now.")
                     }
                 }
 
                 override fun reconnectionFailed(e: Exception?) {
                     isSmackReconnecting = false
+                    smackReconnectStartedAtMs = 0L
                     Log.w(TAG, "ReconnectionManager attempt failed: ${e?.message}")
                 }
             })
@@ -1620,6 +1641,7 @@ class XmppConnectionManager(
     private fun safeDisconnectInternal() {
         val hadConnection = tcpConnection != null
         isSmackReconnecting = false
+        smackReconnectStartedAtMs = 0L
         try {
             tcpConnection?.let { conn ->
                 activePingFailedListener?.let { pingListener ->

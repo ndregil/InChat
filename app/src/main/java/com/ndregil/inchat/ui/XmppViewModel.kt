@@ -1604,6 +1604,12 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
         reconnect()
     }
 
+    fun verifyRoomMemberships(reason: String = "foreground") {
+        viewModelScope.launch {
+            repository.verifyRoomMemberships(reason = reason)
+        }
+    }
+
     fun disconnect() {
         viewModelScope.launch {
             repository.disconnect()
