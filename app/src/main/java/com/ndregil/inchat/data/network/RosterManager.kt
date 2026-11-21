@@ -27,7 +27,6 @@ import org.jxmpp.jid.impl.JidCreate
  * monitor online/offline presence status of XMPP contacts.
  *
  * Implements [RosterListener] to observe real-time roster updates and presence broadcasts.
- * Includes demo fallback mode for offline testing and rapid prototyping.
  */
 class RosterManager(
     private val connectionManager: XmppConnectionManager,
@@ -36,39 +35,6 @@ class RosterManager(
 ) {
     companion object {
         private const val TAG = "RosterManager"
-
-        val DEMO_CONTACTS = listOf(
-            RosterContact(
-                jid = "smartng@jabber.org",
-                name = "SmartNG.1",
-                presence = UserPresence.ONLINE,
-                statusMessage = "Available for direct messaging",
-                groups = listOf("Jabber", "Admins"),
-                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("SmartNG.1", "smartng@jabber.org", node = "http://conversations.im", ver = "2.9.8"),
-                pepActivity = "Working",
-                pepStatus = "Available"
-            ),
-            RosterContact(
-                jid = "tfox@conference.org",
-                name = "tfox",
-                presence = UserPresence.DND,
-                statusMessage = "In a meeting - Do Not Disturb",
-                groups = listOf("Devs"),
-                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("tfox", "tfox@conference.org", node = "http://psi-plus.com", ver = "1.5.0"),
-                pepMood = "Focused",
-                pepStatus = "Busy"
-            ),
-            RosterContact(
-                jid = "i_duthe@jabber.net",
-                name = "i_duthe",
-                presence = UserPresence.AWAY,
-                statusMessage = "Stepped out for coffee",
-                groups = listOf("Friends"),
-                clientCaps = com.ndregil.inchat.data.model.ClientCaps.resolveFor("i_duthe", "i_duthe@jabber.net", node = "http://miranda-ng.org/caps", ver = "0.96"),
-                pepTune = "Daft Punk - One More Time",
-                pepStatus = "Away"
-            )
-        )
     }
 
     // Reactive StateFlows for UI observation
@@ -94,14 +60,6 @@ class RosterManager(
         if (persistedContacts.isNotEmpty()) {
             _contacts.value = persistedContacts
             _presenceMap.value = persistedContacts.associate { it.jid to it.presence }
-            _isLoaded.value = true
-        }
-    }
-
-    fun loadDemoContactsIfEmpty() {
-        if (_contacts.value.isEmpty()) {
-            _contacts.value = DEMO_CONTACTS
-            _presenceMap.value = DEMO_CONTACTS.associate { it.jid to it.presence }
             _isLoaded.value = true
         }
     }
@@ -521,8 +479,7 @@ class RosterManager(
     suspend fun addContact(
         jidString: String,
         name: String,
-        groupName: String? = null,
-        isDemoMode: Boolean = false
+        groupName: String? = null
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val normalizedInput = jidString.trim()
             .removePrefix("xmpp:")
@@ -641,18 +598,6 @@ class RosterManager(
                 _lastError.value = msg
                 Result.failure(Exception(msg, e))
             }
-        } else if (isDemoMode) {
-            val newContact = RosterContact(
-                jid = bareJidStr,
-                name = cleanName,
-                presence = UserPresence.ONLINE,
-                statusMessage = "Ditambahkan di sesi lokal",
-                groups = if (cleanGroup != null) listOf(cleanGroup) else listOf("Kontak"),
-                subscriptionType = "both"
-            )
-            _contacts.value = _contacts.value.filterNot { it.jid.equals(bareJidStr, ignoreCase = true) } + newContact
-            _presenceMap.value = _presenceMap.value + (bareJidStr to UserPresence.ONLINE)
-            Result.success(Unit)
         } else {
             val msg = "Belum terhubung ke server XMPP. Pastikan akun sudah terhubung sebelum menambah kontak."
             _lastError.value = msg
@@ -700,10 +645,9 @@ class RosterManager(
                 Result.failure(e)
             }
         } else {
-            // Offline demo removal
-            _contacts.value = _contacts.value.filterNot { it.jid.equals(cleanJid, ignoreCase = true) }
-            _presenceMap.value = _presenceMap.value.filterKeys { !it.equals(cleanJid, ignoreCase = true) }
-            Result.success(Unit)
+            val msg = "Belum terhubung ke server XMPP."
+            _lastError.value = msg
+            Result.failure(IllegalStateException(msg))
         }
     }
 
@@ -735,15 +679,9 @@ class RosterManager(
                 Result.failure(e)
             }
         } else {
-            // Offline demo update
-            _contacts.value = _contacts.value.map { contact ->
-                if (contact.jid.equals(cleanJid, ignoreCase = true)) {
-                    contact.copy(name = cleanName)
-                } else {
-                    contact
-                }
-            }
-            Result.success(Unit)
+            val msg = "Belum terhubung ke server XMPP."
+            _lastError.value = msg
+            Result.failure(IllegalStateException(msg))
         }
     }
 
@@ -780,15 +718,9 @@ class RosterManager(
                 Result.failure(e)
             }
         } else {
-            _contacts.value = _contacts.value.map { contact ->
-                if (contact.jid.equals(cleanJid, ignoreCase = true)) {
-                    val updatedGroups = (contact.groups + cleanGroup).distinct()
-                    contact.copy(groups = updatedGroups)
-                } else {
-                    contact
-                }
-            }
-            Result.success(Unit)
+            val msg = "Belum terhubung ke server XMPP."
+            _lastError.value = msg
+            Result.failure(IllegalStateException(msg))
         }
     }
 

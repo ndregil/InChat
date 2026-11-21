@@ -78,7 +78,6 @@ fun AccountConnectionScreen(
         email: String,
         useTls: Boolean
     ) -> Unit = { _, _, _, _, _, _, _, _ -> },
-    onCreateInstantAccount: (username: String, domain: String, nickname: String) -> Unit = { _, _, _ -> },
     onResetRegistrationState: () -> Unit = {},
     onSolveCaptcha: (com.ndregil.inchat.data.network.CaptchaChallengeData, String, Map<String, String>) -> Unit = { _, _, _ -> },
     onExportBackup: (targetUri: android.net.Uri?, passphrase: String) -> Unit = { _, _ -> },
@@ -435,8 +434,7 @@ fun AccountConnectionScreen(
         if (activeTabMode == 0) {
             WelcomeSplashScreen(
                 onGoToLogin = { activeTabMode = 1 },
-                onGoToRegister = { activeTabMode = 2 },
-                onInstantGuestLogin = { onCreateInstantAccount("User", "xmpp.today", "User") }
+                onGoToRegister = { activeTabMode = 2 }
             )
         } else if (activeTabMode == 1) {
             Row(
@@ -578,7 +576,7 @@ fun AccountConnectionScreen(
                     val cleanDom = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeDomain(rawDom)
                     val user = if (cleanJid.contains("@")) cleanJid.substringBefore("@") else cleanJid
                     val cleanHost = com.ndregil.inchat.data.network.XmppConnectionManager.sanitizeHost(hostInput.trim())
-                    onConnect(XmppAccount(cleanJid, user.trim(), cleanDom, nicknameInput.trim().ifBlank { user.trim() }, cleanHost, port, useTls, false, statusMsgInput.trim()), passwordInput)
+                    onConnect(XmppAccount(cleanJid, user.trim(), cleanDom, nicknameInput.trim().ifBlank { user.trim() }, cleanHost, port, useTls, statusMsgInput.trim()), passwordInput)
                 }, modifier = Modifier.weight(1f).height(46.dp), enabled = connectionStatus != ConnectionStatus.CONNECTING && connectionStatus != ConnectionStatus.AUTHENTICATING, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Default.Link, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -1162,7 +1160,7 @@ fun AccountConnectionScreen(
 }
 
 @Composable
-fun WelcomeSplashScreen(onGoToLogin: () -> Unit, onGoToRegister: () -> Unit, onInstantGuestLogin: () -> Unit) {
+fun WelcomeSplashScreen(onGoToLogin: () -> Unit, onGoToRegister: () -> Unit) {
     val strings = com.ndregil.inchat.ui.i18n.LocalAppStrings.current
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)), elevation = CardDefaults.cardElevation(2.dp)) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {

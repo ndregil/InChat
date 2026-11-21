@@ -135,7 +135,6 @@ fun SettingsScreen(
     onConnect: (XmppAccount, String) -> Unit,
     onDisconnect: () -> Unit,
     onRegisterAccount: (String, String, String, String, Int, String, String, Boolean) -> Unit,
-    onCreateInstantAccount: (String, String, String) -> Unit,
     onResetRegistrationState: () -> Unit,
     backupStatus: String?,
     isBackupLoading: Boolean,

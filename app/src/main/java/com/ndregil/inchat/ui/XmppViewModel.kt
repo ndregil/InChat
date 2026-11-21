@@ -1351,7 +1351,6 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                             host = cleanHost,
                             port = port,
                             useTls = useTls,
-                            isDemoMode = false,
                             statusMessage = "Aktif di InChat"
                         )
                         connectAndRedirectIfAuthenticated(newAccount, password)
@@ -1414,7 +1413,6 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                             host = challenge.host,
                             port = challenge.port,
                             useTls = challenge.useTls,
-                            isDemoMode = false,
                             statusMessage = "Aktif di InChat"
                         )
                         connectAndRedirectIfAuthenticated(newAccount, challenge.password)
@@ -1445,33 +1443,6 @@ class XmppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             )
-        }
-    }
-
-    fun createInstantAccount(
-        username: String,
-        domain: String = "trashserver.net",
-        nickname: String = ""
-    ) {
-        viewModelScope.launch {
-            val cleanUser = username.trim().ifBlank { "guest_" + (1000..9999).random() }
-            val cleanDom = domain.trim().ifBlank { "trashserver.net" }
-            val jid = "$cleanUser@$cleanDom"
-            val nick = nickname.trim().ifBlank { cleanUser }
-
-            val guestAccount = XmppAccount(
-                jid = jid,
-                username = cleanUser,
-                domain = cleanDom,
-                nickname = nick,
-                host = cleanDom,
-                port = 5222,
-                useTls = true,
-                isDemoMode = true,
-                statusMessage = "Mode Tamu / Eksplorasi InChat"
-            )
-
-            connectAndRedirectIfAuthenticated(guestAccount, "")
         }
     }
 

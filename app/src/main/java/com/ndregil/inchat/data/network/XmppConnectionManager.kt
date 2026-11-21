@@ -3,6 +3,8 @@ package com.ndregil.inchat.data.network
 import android.util.Log
 import java.util.Locale
 import com.ndregil.inchat.data.model.ConnectionStatus
+import com.ndregil.inchat.data.model.StanzaDirection
+import com.ndregil.inchat.data.model.StanzaLog
 import com.ndregil.inchat.data.model.UserPresence
 import com.ndregil.inchat.data.model.XmppAccount
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +53,7 @@ data class XmppCredentials(
     val nickname: String = "InChatUser",
     val useTls: Boolean = true
 ) {
-    fun toAccount(isDemoMode: Boolean = false): XmppAccount {
+    fun toAccount(): XmppAccount {
         return XmppAccount(
             jid = if (jid.contains("@")) jid else "$username@$domain",
             username = username,
@@ -59,8 +61,7 @@ data class XmppCredentials(
             nickname = nickname,
             host = host,
             port = port,
-            useTls = useTls,
-            isDemoMode = isDemoMode
+            useTls = useTls
         )
     }
 
@@ -167,6 +168,9 @@ class XmppConnectionManager(
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    private val _stanzaLogs = MutableStateFlow<List<StanzaLog>>(emptyList())
+    val stanzaLogs: StateFlow<List<StanzaLog>> = _stanzaLogs.asStateFlow()
 
     @Volatile
     private var tcpConnection: XMPPTCPConnection? = null
@@ -329,6 +333,26 @@ class XmppConnectionManager(
 
 
             connection.addConnectionListener(smackConnectionListener)
+            connection.addAsyncStanzaListener(
+                org.jivesoftware.smack.StanzaListener { stanza ->
+                    logStanza(
+                        direction = StanzaDirection.INCOMING,
+                        rawXml = stanza.toXML().toString(),
+                        type = determineStanzaType(stanza)
+                    )
+                },
+                org.jivesoftware.smack.filter.StanzaFilter { true }
+            )
+            connection.addStanzaSendingListener(
+                org.jivesoftware.smack.StanzaListener { stanza ->
+                    logStanza(
+                        direction = StanzaDirection.OUTGOING,
+                        rawXml = stanza.toXML().toString(),
+                        type = determineStanzaType(stanza)
+                    )
+                },
+                org.jivesoftware.smack.filter.StanzaFilter { true }
+            )
             org.jivesoftware.smack.SmackConfiguration.setDefaultReplyTimeout(DEFAULT_CONNECT_TIMEOUT_MS)
             connection.replyTimeout = DEFAULT_CONNECT_TIMEOUT_MS.toLong()
 
@@ -1500,6 +1524,61 @@ class XmppConnectionManager(
             if (hadConnection) {
                 onConnectionLostOrClosed?.invoke()
             }
+        }
+    }
+
+    fun sendRawStanza(xml: String) {
+        val trimmed = xml.trim()
+        if (trimmed.isBlank()) return
+        val conn = tcpConnection
+        if (conn == null || !conn.isConnected || !conn.isAuthenticated) {
+            logStanza(
+                direction = StanzaDirection.OUTGOING,
+                rawXml = "<!-- Gagal mengirim stanza: koneksi XMPP belum terautentikasi -->\n$trimmed",
+                type = "ERROR"
+            )
+            return
+        }
+        try {
+            val stanza = org.jivesoftware.smack.util.PacketParserUtils.parseStanza<org.jivesoftware.smack.packet.Stanza>(trimmed)
+            conn.sendStanza(stanza)
+        } catch (e: Exception) {
+            logStanza(
+                direction = StanzaDirection.OUTGOING,
+                rawXml = "<!-- Stanza XML tidak valid (${e.message ?: "parse error"}) -->\n$trimmed",
+                type = "ERROR"
+            )
+        }
+    }
+
+    private fun determineStanzaType(stanza: org.jivesoftware.smack.packet.Stanza): String {
+        return when (stanza) {
+            is org.jivesoftware.smack.packet.Message -> "MESSAGE"
+            is org.jivesoftware.smack.packet.Presence -> "PRESENCE"
+            is org.jivesoftware.smack.packet.IQ -> "IQ"
+            else -> "XML"
+        }
+    }
+
+    private fun logStanza(
+        direction: StanzaDirection,
+        rawXml: String,
+        type: String,
+        roomJid: String? = null
+    ) {
+        val log = StanzaLog(
+            direction = direction,
+            rawXml = rawXml,
+            stanzaType = type,
+            roomJid = roomJid
+        )
+        synchronized(_stanzaLogs) {
+            val current = _stanzaLogs.value.toMutableList()
+            if (current.size >= 200) {
+                current.removeAt(current.size - 1)
+            }
+            current.add(0, log)
+            _stanzaLogs.value = current
         }
     }
 }

@@ -72,7 +72,6 @@ data class XmppAccount(
     val host: String = "",
     val port: Int = 5222,
     val useTls: Boolean = true,
-    val isDemoMode: Boolean = false,
     val statusMessage: String = "Active on InChat"
 )
 

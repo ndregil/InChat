@@ -19,7 +19,6 @@ data class AccountEntity(
     val host: String,
     val port: Int,
     val useTls: Boolean,
-    val isDemoMode: Boolean,
     val statusMessage: String,
     val password: String = "",
     val isActive: Boolean = true,

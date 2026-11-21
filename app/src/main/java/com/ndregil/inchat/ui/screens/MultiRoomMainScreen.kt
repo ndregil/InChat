@@ -2147,9 +2147,6 @@ fun MultiRoomMainScreen(
                                     autoLogin = true
                                 )
                             },
-                            onCreateInstantAccount = { user, dom, nick ->
-                                viewModel.createInstantAccount(user, dom, nick)
-                            },
                             onResetRegistrationState = { viewModel.resetRegistrationState() },
                             backupStatus = backupStatus,
                             isBackupLoading = isBackupLoading,
@@ -2239,9 +2236,6 @@ fun MultiRoomMainScreen(
                                         useTls = tls,
                                         autoLogin = true
                                     )
-                                },
-                                onCreateInstantAccount = { user, dom, nick ->
-                                    viewModel.createInstantAccount(user, dom, nick)
                                 },
                                 onResetRegistrationState = { viewModel.resetRegistrationState() },
                                 onSolveCaptcha = { challenge, answer, extraFields ->

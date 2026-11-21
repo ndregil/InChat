@@ -87,7 +87,7 @@ class Converters {
         com.ndregil.inchat.data.local.entity.StoryViewerEntity::class,
         com.ndregil.inchat.data.local.entity.ClientCapabilityEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -129,6 +129,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : androidx.room.migration.Migration(16, 17) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `accounts_new` (
+                        `jid` TEXT NOT NULL,
+                        `username` TEXT NOT NULL,
+                        `domain` TEXT NOT NULL,
+                        `nickname` TEXT NOT NULL,
+                        `host` TEXT NOT NULL,
+                        `port` INTEGER NOT NULL,
+                        `useTls` INTEGER NOT NULL,
+                        `statusMessage` TEXT NOT NULL,
+                        `password` TEXT NOT NULL,
+                        `isActive` INTEGER NOT NULL,
+                        `lastActiveTime` INTEGER NOT NULL,
+                        PRIMARY KEY(`jid`)
+                    )
+                """)
+                database.execSQL("""
+                    INSERT INTO `accounts_new` (jid, username, domain, nickname, host, port, useTls, statusMessage, password, isActive, lastActiveTime)
+                    SELECT jid, username, domain, nickname, host, port, useTls, statusMessage, password, isActive, lastActiveTime
+                    FROM `accounts`
+                """)
+                database.execSQL("DROP TABLE `accounts`")
+                database.execSQL("ALTER TABLE `accounts_new` RENAME TO `accounts`")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -136,7 +164,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xmpp_multiroom_database"
                 )
-                    .addMigrations(MIGRATION_14_15, MIGRATION_15_16)
+                    .addMigrations(MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17)
                     .build()
                 INSTANCE = instance
                 instance

@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.flowOn
 import com.ndregil.inchat.data.network.ServiceDiscoveryManager
 import com.ndregil.inchat.data.network.XmppConnectionManager
 import com.ndregil.inchat.data.network.XmppConnectionService
-import com.ndregil.inchat.data.network.XmppProtocolEngine
 import com.ndregil.inchat.data.network.fcm.FcmPushManager
 import com.ndregil.inchat.data.network.fcm.PushMessagePayload
 import com.ndregil.inchat.data.network.OmemoSupportResult
@@ -117,7 +116,6 @@ class XmppRepository(
         }
     }
 
-    val engine = XmppProtocolEngine(scope)
     val smackConnectionManager = XmppConnectionManager()
     val smackAvatarManager = XmppAvatarManager(smackConnectionManager, database.avatarDao(), scope)
     val smackMucManager = MultiUserChatManager(smackConnectionManager, smackAvatarManager, scope)
@@ -164,7 +162,7 @@ class XmppRepository(
     val connectionError: StateFlow<String?> = smackConnectionManager.lastError
     private val _currentAccount = MutableStateFlow(XmppAccount())
     val currentAccount: StateFlow<XmppAccount> = _currentAccount.asStateFlow()
-    val stanzaLogs: StateFlow<List<StanzaLog>> = engine.stanzaLogs
+    val stanzaLogs: StateFlow<List<StanzaLog>> = smackConnectionManager.stanzaLogs
     val roomOccupants: StateFlow<Map<String, List<RoomOccupant>>> = smackMucManager.roomOccupants
     val currentCall: StateFlow<CallInfo?> = smackCallManager.currentCall
     val discoveredRooms: StateFlow<List<DiscoveredRoom>> = smackDiscoManager.discoveredRooms
@@ -279,17 +277,6 @@ class XmppRepository(
                 // Handled safely
             }
         }
-        // Collect incoming network messages from engine and store into Room database
-        scope.launch {
-            try {
-                engine.incomingMessages.collect { msg ->
-                    processIncomingMessage(msg)
-                }
-            } catch (e: Exception) {
-                // Handled safely
-            }
-        }
-
         // Collect incoming messages from Smack MultiUserChatManager MessageListener
         scope.launch {
             try {
@@ -369,7 +356,6 @@ class XmppRepository(
         scope.launch {
             try {
                 smackRosterManager.contacts.collect { contactsList ->
-                    if (currentAccount.value.isDemoMode) return@collect
                     if (contactsList.isNotEmpty()) {
                         val entities = contactsList.map { ContactEntity.fromModel(it) }
                         database.contactDao().insertOrUpdateContacts(entities)
@@ -539,7 +525,6 @@ class XmppRepository(
             } catch (e: Exception) {
                 Log.w("XmppRepository", "Pembersihan sesi lama gagal: ${e.message}")
             }
-            try { engine.disconnect() } catch (_: Exception) {}
 
             // Bersihkan data lokal yang terkait dengan akun lama (room, favorit, config, kontak, pesan)
             database.roomDao().clearAllRooms()
@@ -580,16 +565,6 @@ class XmppRepository(
             }
         }
         
-        // 2. Do not open a conflicting parallel raw socket connection if Smack is handling the real XMPP session
-        if (smackResult.isFailure && account.isDemoMode) {
-            smackRosterManager.loadDemoContactsIfEmpty()
-            try {
-                engine.connect(account, pwdToSave)
-            } catch (e: Exception) {
-                // Handled safely
-            }
-        }
-
         if (smackResult.isSuccess) {
             val conn = smackResult.getOrNull()
             if (conn != null) {
@@ -805,7 +780,6 @@ class XmppRepository(
         } catch (e: Exception) {
             // Handled gracefully
         }
-        try { engine.disconnect() } catch (_: Exception) {}
         _currentAccount.value = XmppAccount()
     }
 
@@ -818,9 +792,6 @@ class XmppRepository(
         } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
-        } catch (_: Exception) {}
-        try {
-            engine.disconnect()
         } catch (_: Exception) {}
         database.accountDao().clearAccounts()
         database.roomDao().clearAllRooms()
@@ -845,9 +816,6 @@ class XmppRepository(
         try {
             smackConnectionManager.disconnect()
         } catch (_: Exception) {}
-        try {
-            engine.disconnect()
-        } catch (_: Exception) {}
         database.accountDao().clearAccounts()
         database.roomDao().clearAllRooms()
         database.messageDao().clearAllMessages()
@@ -867,9 +835,6 @@ class XmppRepository(
         } catch (_: Exception) {}
         try {
             smackConnectionManager.disconnect()
-        } catch (_: Exception) {}
-        try {
-            engine.disconnect()
         } catch (_: Exception) {}
     }
 
@@ -1574,7 +1539,6 @@ class XmppRepository(
             }
         }
 
-        engine.joinRoom(roomJid, nickname, password)
         return smackResult
     }
 
@@ -1599,8 +1563,6 @@ class XmppRepository(
                 // Handled gracefully
             }
         }
-
-        engine.leaveRoom(roomJid, nickname)
     }
 
     suspend fun deleteRoom(roomJid: String) {
@@ -2404,7 +2366,7 @@ class XmppRepository(
                     "$text\n⚠️ Gagal OMEMO: $reason"
                 )
                 database.roomDao().updateLastMessage(cleanJid, "⚠️ Gagal OMEMO: $text", timestamp, 0)
-                if (!currentAccount.value.isDemoMode) checkAndReconnectIfNeeded()
+                checkAndReconnectIfNeeded()
                 return@withContext SendMessageOutcome.Failed(reason, stanzaId)
             }
 
@@ -2501,27 +2463,13 @@ class XmppRepository(
             }
         }
 
-        // 5. Fallback to raw engine ONLY in demo mode (bila OMEMO tidak aktif)
-        if (!isSentSuccessfully && currentAccount.value.isDemoMode) {
-            try {
-                if (isUrlFinal && !isGroup) {
-                    engine.sendDirectOobMessage(cleanJid, textToSend, myNickname)
-                } else {
-                    engine.sendGroupMessage(cleanJid, textToSend, myNickname)
-                }
-                isSentSuccessfully = true
-            } catch (e: Exception) {
-                Log.e("XmppRepository", "Demo fallback send failed for $cleanJid: ${e.message}")
-            }
-        }
-
-        // 6. Update delivery status (only if still SENDING so fast DELIVERED receipt is preserved)
+        // 5. Update delivery status (only if still SENDING so fast DELIVERED receipt is preserved)
         try {
             database.messageDao().updateMessageStatusIfSending(
                 stanzaId,
                 if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED
             )
-            if (!isSentSuccessfully && !currentAccount.value.isDemoMode) {
+            if (!isSentSuccessfully) {
                 checkAndReconnectIfNeeded()
             }
         } catch (e: Exception) {
@@ -2565,20 +2513,34 @@ class XmppRepository(
         }
 
         // If Smack MUC is connected and room joined, send whisper via Smack
-        if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {
+        val isSentSuccessfully = if (smackConnectionManager.isConnected() && smackMucManager.isRoomJoined(roomJid)) {
             try {
-                smackMucManager.sendWhisper(roomJid, targetNickname, textToSend)
+                smackMucManager.sendWhisper(roomJid, targetNickname, textToSend).isSuccess
             } catch (e: Exception) {
-                // Handled gracefully
+                false
             }
+        } else {
+            false
         }
 
         val myJid = currentAccount.value.jid
-
-        val baseMsg = engine.sendPrivateWhisper(roomJid, targetNickname, text, myNickname).copy(avatarKey = myJid)
-        val msg = if (textToSend != text && targetLangCode != null) {
-            baseMsg.copy(translatedBody = textToSend, translationLanguage = targetLangCode)
-        } else baseMsg
+        val msgId = "whisper_${java.util.UUID.randomUUID()}"
+        val now = System.currentTimeMillis()
+        val msg = XmppMessage(
+            id = msgId,
+            roomJid = roomJid,
+            senderJid = "$roomJid/$myNickname",
+            senderNickname = myNickname,
+            body = text,
+            timestamp = now,
+            isMine = true,
+            messageType = MessageType.WHISPER,
+            status = if (isSentSuccessfully) DeliveryStatus.SENT else DeliveryStatus.FAILED,
+            recipientNickname = targetNickname,
+            avatarKey = myJid,
+            translatedBody = if (textToSend != text && targetLangCode != null) textToSend else null,
+            translationLanguage = if (textToSend != text && targetLangCode != null) targetLangCode else null
+        )
         database.messageDao().insertMessage(msg.toEntity())
 
         try {
@@ -2625,8 +2587,6 @@ class XmppRepository(
                 // Handled gracefully
             }
         }
-
-    engine.changeRoomTopic(roomJid, newTopic, myNickname)
     }
 
     suspend fun sendFile(
@@ -3188,10 +3148,7 @@ class XmppRepository(
 
     suspend fun queryDirectory(): List<PublicDirectoryRoom> {
         val discoRooms = smackDiscoManager.discoverRooms().getOrNull()
-        if (!discoRooms.isNullOrEmpty()) {
-            return discoRooms.map { it.toPublicDirectoryRoom() }
-        }
-        return engine.queryPublicDirectory()
+        return discoRooms?.map { it.toPublicDirectoryRoom() } ?: emptyList()
     }
 
     suspend fun discoverRooms(query: String = "", serviceJid: String? = null): List<DiscoveredRoom> {
@@ -3225,8 +3182,7 @@ class XmppRepository(
         return smackRosterManager.addContact(
             jidString = jid,
             name = name,
-            groupName = group,
-            isDemoMode = currentAccount.value.isDemoMode
+            groupName = group
         )
     }
 
@@ -3630,8 +3586,6 @@ class XmppRepository(
         _userPresence.value = presence
         _userStatusMessage.value = statusMessage
 
-        val myNick = currentAccount.value.nickname
-
         // 1. Update Smack TCP Connection presence (broadcasts to all roster contacts via XMPP server)
         try {
             smackConnectionManager.updatePresence(presence, statusMessage)
@@ -3645,17 +3599,10 @@ class XmppRepository(
         } catch (e: Exception) {
             // Handled safely
         }
-
-        // 3. Update protocol engine (multi-room occupant simulation and raw stanzas)
-        try {
-            engine.updateUserPresence(presence, statusMessage, myNick)
-        } catch (e: Exception) {
-            // Handled safely
-        }
     }
 
     fun sendRawStanza(xml: String) {
-        engine.sendRawStanza(xml)
+        smackConnectionManager.sendRawStanza(xml)
     }
 
     suspend fun grantNone(roomJid: String, jid: String) = smackMucManager.grantNone(roomJid, jid)
@@ -3701,7 +3648,6 @@ private fun AccountEntity.toModel(): XmppAccount = XmppAccount(
     host = host,
     port = port,
     useTls = useTls,
-    isDemoMode = isDemoMode,
     statusMessage = statusMessage
 )
 
@@ -3713,7 +3659,6 @@ private fun XmppAccount.toEntity(password: String = ""): AccountEntity = Account
     host = host,
     port = port,
     useTls = useTls,
-    isDemoMode = isDemoMode,
     statusMessage = statusMessage,
     password = password,
     isActive = true
